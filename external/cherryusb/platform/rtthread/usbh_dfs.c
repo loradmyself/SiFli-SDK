@@ -128,6 +128,11 @@ const static struct rt_device_ops udisk_device_ops = {
 };
 #endif
 
+__WEAK void mount_udisk_hook(struct usbh_msc *msc_class, const char *dev_name, const char *mount_point)
+{
+    /* user can implement this hook to do something when udisk is mounted */
+}
+
 static void usbh_msc_thread(CONFIG_USB_OSAL_THREAD_SET_ARGV)
 {
     struct usbh_msc *msc_class = (struct usbh_msc *)CONFIG_USB_OSAL_THREAD_GET_ARGV;
@@ -141,6 +146,7 @@ static void usbh_msc_thread(CONFIG_USB_OSAL_THREAD_SET_ARGV)
     ret = dfs_mount(name, mount_point, "elm", 0, 0);
     if (ret == 0) {
         rt_kprintf("udisk: %s mount successfully\n", name);
+        mount_udisk_hook(msc_class, name, mount_point);
     } else {
         rt_kprintf("udisk: %s mount failed, ret = %d\n", name, ret);
     }
