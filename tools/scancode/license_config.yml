@@ -59,6 +59,9 @@ extensions:
     license:
       - RCSL-1.2
       - RPSL-1.0
+  - path:
+      "tools/mkfatimg/mkfatimg"
+    ignore_license: true
 
 
     
