@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2019-2022 SiFli Technologies(Nanjing) Co., Ltd
+ * SPDX-FileCopyrightText: 2019-2026 SiFli Technologies(Nanjing) Co., Ltd
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -65,6 +65,7 @@ struct bf0_i2s_audio
     uint8_t *rx_buf;
     uint8_t *tx_buf;
     uint8_t *tx_pos;
+    uint16_t tx_buf_size;         /*!< I2S TX buffer size */
 };
 
 
@@ -783,6 +784,12 @@ static rt_err_t bf0_audio_control(struct rt_audio_device *audio, int cmd, void *
             }
         }
         //LOG_I("i2s RT_DEVICE_CTRL_RESUME\n");
+        break;
+    }
+    case AUDIO_CTL_SET_TX_DMA_SIZE:
+    {
+        uint32_t dma_size = (uint32_t)args;
+        aud->tx_buf_size = dma_size * 2;
         break;
     }
     default:
@@ -1654,4 +1661,3 @@ FINSH_FUNCTION_EXPORT_ALIAS(cmd_audio, __cmd_audio, Test audio driver);
 /// @} bsp_sample
 
 #endif  /* BSP_USING_I2S */
-
