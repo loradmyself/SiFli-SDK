@@ -32,6 +32,7 @@ import string
 import subprocess
 import sys
 import logging
+import atexit
 
 import utils
 from mkdist import do_copy_file
@@ -47,6 +48,9 @@ EnvList = []
 ParentProjStack = [{'name': 'main'}]
 CustomImgList = []
 BOARD_SEARCH_PATH = os.path.abspath(os.environ.get('SIFLI_SDK_BOARD_SEARCH_PATH', '')) if 'SIFLI_SDK_BOARD_SEARCH_PATH' in os.environ else None
+_sdk_size_registered = False
+_main_build_dir = None
+_build_success = False
 
 def is_verbose():
     if (logging.root.level<=logging.DEBUG):
@@ -2243,6 +2247,42 @@ def EndBuilding(target, program = None):
             AlwaysBuild(lds_file)
             if "ROM_SYM" in Env and Env['ROM_SYM']:
                 Depends(program, Env['ROM_SYM'])
+            
+            # Register sdk_size.py to run once at program exit after all builds complete
+            # Only register for main project (not child projects) to get consolidated report
+            if not IsChildProjEnv():
+                global _sdk_size_registered, _main_build_dir
+                if not _sdk_size_registered:
+                    _main_build_dir = Env['build_dir']
+                    _sdk_size_registered = True
+                    
+                    def run_sdk_size_analysis_at_exit():
+                        # Only run if build was successful
+                        if not _build_success:
+                            return
+                        SIFLI_SDK = os.getenv('SIFLI_SDK')
+                        sdk_size_script = os.path.join(SIFLI_SDK, 'tools', 'sdk_size', 'sdk_size.py')
+                        if os.path.exists(sdk_size_script) and _main_build_dir:
+                            print("\n" + "="*80)
+                            print("Memory Usage Analysis")
+                            print("="*80)
+                            try:
+                                cmd = [sys.executable, sdk_size_script, _main_build_dir]
+                                result = subprocess.run(cmd)
+                                print("="*80 + "\n")
+                                if result.returncode != 0:
+                                    logging.warning("sdk_size.py returned non-zero exit code: " + str(result.returncode))
+                            except Exception as e:
+                                logging.warning(f"Failed to run sdk_size.py: {e}")
+                    
+                    atexit.register(run_sdk_size_analysis_at_exit)
+                
+                # Mark build as successful after program generation
+                def mark_build_success(target, source, env):
+                    global _build_success
+                    _build_success = True
+                
+                Env.AddPostAction(program, mark_build_success)
 
 def SrcRemove(src, remove):
     if not src:
