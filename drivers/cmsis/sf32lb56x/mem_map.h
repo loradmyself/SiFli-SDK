@@ -57,7 +57,14 @@
     #define LPSYS_ROM_SIZE      (384*1024)
     #define LPSYS_ITCM_SIZE     (16*1024)
     #define LPSYS_DTCM_SIZE     (16*1024)
+    #define LPSYS_SRAM0_SIZE    (64*1024)
+    #define LPSYS_SRAM1_SIZE    (32*1024)
+    #define LPSYS_SRAM2_SIZE    (32*1024)
+    /** LPSYS SRAM size in total (SRAM0+SRAM1+SRAM2) */
+    #define LPSYS_SRAM_TOTAL_SIZE (LPSYS_SRAM0_SIZE+LPSYS_SRAM1_SIZE+LPSYS_SRAM2_SIZE)
+    /** available LCPU RAM size from SW perspective */
     #define LPSYS_RAM_SIZE      (96*1024)
+    /** LPSYS EM size, space in SRAM2 excluding space used by software */
     #define LPSYS_EM_SIZE       (32*1024)
     #define LCPU_PATCH_RAM_SIZE              (1 * 1024)
     #define LCPU_HCPU_AUDIO_MEM_SIZE         (1 * 1024)

@@ -71,16 +71,27 @@
 #define LPSYS_ROM_SIZE      (384*1024)
 #define LPSYS_ITCM_SIZE     (16*1024)
 #define LPSYS_DTCM_SIZE     (16*1024)
+/** available LCPU RAM size from SW perspective */
 #define LPSYS_RAM_SIZE_A3      (197*1024)
+/** available LCPU RAM size from SW perspective */
 #define LPSYS_RAM_SIZE_A2      (160*1024)
 
+/** available LCPU RAM size from SW perspective */
 #if LB55X_CHIP_ID < 3
     #define LPSYS_RAM_SIZE      LPSYS_RAM_SIZE_A2
 #else
     #define LPSYS_RAM_SIZE      LPSYS_RAM_SIZE_A3
 #endif
-#define LPSYS_EM_SIZE       (16*1024)
 
+#define LPSYS_SRAM0_SIZE     (16*1024)
+#define LPSYS_SRAM1_SIZE     (16*1024)
+#define LPSYS_SRAM2_SIZE     (32*1024)
+#define LPSYS_SRAM3_SIZE     (64*1024)
+#define LPSYS_SRAM4_SIZE     (64*1024)
+#define LPSYS_SRAM5_SIZE     (32*1024)
+#define LPSYS_SRAM_TOTAL_SIZE (LPSYS_SRAM0_SIZE+LPSYS_SRAM1_SIZE+LPSYS_SRAM2_SIZE+LPSYS_SRAM3_SIZE+LPSYS_SRAM4_SIZE+LPSYS_SRAM5_SIZE)
+/** LPSYS EM size, space in SRAM5 excluding space used by software */
+#define LPSYS_EM_SIZE       (16*1024)
 
 // Address
 #define LPSYS_ROM_BASE      (0x00000000)

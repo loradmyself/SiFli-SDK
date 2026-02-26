@@ -50,8 +50,13 @@
 //================== LPSYS ==================
 // Size
 #define LPSYS_ROM_SIZE      (384*1024)
-#define LPSYS_RAM0_SIZE     (32*1024)
-#define LPSYS_EM_SIZE       (24*1024)   // RAM 1
+#define LPSYS_SRAM0_SIZE     (32*1024)
+#define LPSYS_SRAM1_SIZE     (32*1024)
+/** LPSYS SRAM size in total (SRAM0+SRAM1) */
+#define LPSYS_SRAM_TOTAL_SIZE (LPSYS_SRAM0_SIZE+LPSYS_SRAM1_SIZE)
+/** LPSYS EM size, space in SRAM1 excluding space used by software */
+#define LPSYS_EM_SIZE       (24*1024)
+/** available LCPU RAM size from SW perspective */
 #define LPSYS_RAM_SIZE      (24*1024)
 // For REV B
 #define LPSYS_RAM_SIZE_REV_B      (11*1024)
