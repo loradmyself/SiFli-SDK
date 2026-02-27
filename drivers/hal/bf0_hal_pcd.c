@@ -1570,6 +1570,11 @@ static HAL_StatusTypeDef PCD_EP_ISR_Handler(PCD_HandleTypeDef *hpcd)
                             (ep->num << USB_DMACTRL_ENDPOINT_SHIFT) |
                             (1 << USB_DMACTRL_IRQENABLE_SHIFT);
             }
+            else
+            {
+                ep->xfer_count = epn->rxcount;
+                HAL_PCD_DataOutStageCallback(hpcd, ep_num);
+            }
 #else
             ep->xfer_count = epn->rxcount;
             HAL_PCD_DataOutStageCallback(hpcd, ep_num);
