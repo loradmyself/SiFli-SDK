@@ -503,6 +503,7 @@ FT_CONST FLASH_RDID_TYPE_T flash_cmd_id_pool_typ0[] =
     {0x68, 0x40, 0x18, 0, 0x1000000},   //BY25Q128ES_RDID
     {0x0B, 0x40, 0X18, 0, 0x1000000},   //XT25F128F_RDID
     {0xb3, 0x40, 0x18, 1, 0x1000000},   //UC25LQ128A
+    {0xef, 0x40, 0x18, 0, 0x1000000},   //W25Q128JV_RDID  //The 31h command is compatible with the old version 01h
     {FLASH_INVALID_ID, 0, 0, 0, 0},      //last one
 };
 
@@ -517,7 +518,6 @@ FT_CONST FLASH_RDID_TYPE_T flash_cmd_id_pool_typ1[] =
     {0x85, 0x20, 0x18, 1, 0x1000000},   //PY25Q128HA
     {0x25, 0x70, 0x16, 0, 0x400000},    //SK25LE032_RDID
     {0xef, 0x60, 0x18, 0, 0x1000000},   //W25Q128JW_RDID
-    {0xef, 0x40, 0x18, 0, 0x1000000},   //W25Q128JV_RDID
     {0x0B, 0x60, 0X18, 0, 0x1000000},   //XT25Q128DW_RDID
     {0x5e, 0x50, 0x18, 0, 0x1000000},   //ZB25LQ128BW_RDID
     {0xa1, 0x28, 0x18, 0, 0x1000000},   //FM25W128_RDID
