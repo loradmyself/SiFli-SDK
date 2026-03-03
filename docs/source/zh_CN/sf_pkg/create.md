@@ -14,7 +14,7 @@
 ![获取令牌](./assert/get_token.png)
 
 ```{note}
-每台电脑只需登录一次，登录信息会保存在本地。
+每个用户在每台电脑只需登录一次，登录信息会加密保存在本地，可同时保存多个用户。
 ```
 
 ## 登录 SiFli 组件注册表
@@ -29,12 +29,44 @@ sdk.py sf-pkg-login -u <namespace> -t 获取的 token
 -u 参数可以在个人资料的命名空间处找到。
 ```
 
+## 多用户管理与用户选择
+
+查看本地已登录用户：
+
+```bash
+sdk.py sf-pkg-users
+```
+
+切换当前活跃用户：
+
+```bash
+sdk.py sf-pkg-use --name <namespace>
+```
+
+查看当前活跃用户：
+
+```bash
+sdk.py sf-pkg-current-user
+```
+
+如果只想对某一次命令临时指定用户，可使用全局参数 `--user`：
+
+```bash
+sdk.py --user <namespace> sf-pkg-upload --name 包名/版本号@命名空间
+```
+
 ## 创建包配置（sf-pkg-new）
 
 准备驱动文件夹后，在终端进入该目录并执行：
 
 ```bash
 sdk.py sf-pkg-new --name <package_name>
+```
+
+默认使用当前活跃用户；如需临时指定用户，可使用：
+
+```bash
+sdk.py --user <namespace> sf-pkg-new --name <package_name>
 ```
 
 可选参数：
@@ -132,6 +164,12 @@ sdk.py sf-pkg-build --version 版本号
 sdk.py sf-pkg-upload --name 包名/版本号@命名空间
 ```
 
+默认使用当前活跃用户；如需临时指定用户，可使用：
+
+```bash
+sdk.py --user <namespace> sf-pkg-upload --name 包名/版本号@命名空间
+```
+
 ![上传包](./assert/sf-pkg-upload.png)
 
 命令格式说明：
@@ -183,7 +221,7 @@ sdk.py sf-pkg-upload --name 包名/版本号@命名空间
 ![获取token](./assert/get_org_token.png)
 
 ```{note}
-组织token和个人token互斥，登陆组织token后本地保存的个人token将被登出清理。
+组织 token 和个人 token 可以同时保存在本地，可通过 `sf-pkg-use` 或全局 `--user` 在不同命名空间间切换。
 ```
 
 ### 有关命名空间的说明

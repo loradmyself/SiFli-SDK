@@ -11,10 +11,14 @@ Similar to [RT-PKG](../app_note/rt-pkg.md), SiFli Package Registry is also a pac
 
 | Command                                                   | Description                |
 | --------------------------------------------------------- | -------------------------- |
-| `sdk.py sf-pkg-login -u <username> -t <token>`            | Log in to the sf-pkg system |
+| `sdk.py sf-pkg-login -u <username> -t <token>`            | Log in and store local credentials |
+| `sdk.py sf-pkg-users`                                     | List locally logged-in users |
+| `sdk.py sf-pkg-use --name <username>`                     | Switch active user |
+| `sdk.py sf-pkg-current-user`                              | Show active user |
 | `sdk.py sf-pkg-new --name <package_name>`                 | Create a new package configuration |
 | `sdk.py sf-pkg-build --version <version>`                 | Build a package            |
 | `sdk.py sf-pkg-upload --name <package_name>/<version>@<username>` | Upload a package to the server |
+| `sdk.py --user <username> sf-pkg-upload --name ...`       | Temporarily override user for this command |
 | `sdk.py sf-pkg-remove --name <package_name>`              | Clear local cache          |
 | `sdk.py sf-pkg-init`                                      | Initialize dependency configuration |
 | `sdk.py sf-pkg-install`                                   | Install dependency packages |

@@ -14,7 +14,7 @@ This section describes how to log in, create, build, and upload your own SiFli P
 ![Obtain Token](./assert/get_token.png)
 
 ```{note}
-You only need to log in once per computer. Login information will be saved locally.
+Each user only needs to log in once per computer. Credentials are encrypted locally, and multiple users can be stored on the same machine.
 ```
 
 ## Log in to SiFli Package Registry
@@ -29,12 +29,44 @@ sdk.py sf-pkg-login -u <lowercase_GitHub_username> -t <obtained_token>
 The -u parameter must be your lowercase GitHub username! Otherwise, the upload will fail.
 ```
 
+## Multi-user Management and User Selection
+
+List locally stored users:
+
+```bash
+sdk.py sf-pkg-users
+```
+
+Switch active user:
+
+```bash
+sdk.py sf-pkg-use --name <namespace>
+```
+
+Show current active user:
+
+```bash
+sdk.py sf-pkg-current-user
+```
+
+To override user for a single command, use the global `--user` option:
+
+```bash
+sdk.py --user <namespace> sf-pkg-upload --name <package_name>/<version>@<namespace>
+```
+
 ## Create Package Configuration (sf-pkg-new)
 
 After preparing the driver folder, navigate to that directory in the terminal and execute:
 
 ```bash
 sdk.py sf-pkg-new --name <package_name>
+```
+
+By default, this uses the active user. To temporarily select another user:
+
+```bash
+sdk.py --user <namespace> sf-pkg-new --name <package_name>
 ```
 
 Optional parameters:
@@ -132,6 +164,12 @@ sdk.py sf-pkg-build --version <version_number>
 
 ```bash
 sdk.py sf-pkg-upload --name <package_name>/<version>@<username>
+```
+
+By default, this uses the active user. To temporarily select another user:
+
+```bash
+sdk.py --user <namespace> sf-pkg-upload --name <package_name>/<version>@<namespace>
 ```
 
 ![Upload Package](./assert/sf-pkg-upload.png)
