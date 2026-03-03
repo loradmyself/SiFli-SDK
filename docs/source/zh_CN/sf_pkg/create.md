@@ -49,6 +49,13 @@ sdk.py sf-pkg-use --name <namespace>
 sdk.py sf-pkg-current-user
 ```
 
+说明：
+
+- 当前用户会映射到同名 Conan 远端，后续远端操作会使用 `-r=<namespace>`。
+- 未选择用户时，远端命令会提示先 `sf-pkg-login` 或 `sf-pkg-use`。
+- 如果检测到用户同名远端缺失、地址不匹配或认证用户不一致，会自动清理该用户本地凭据并提示重新登录。
+- 执行 `sf-pkg-logout --name <namespace>` 时，会同时清理该用户同名 Conan 远端配置。
+
 如果只想对某一次命令临时指定用户，可使用全局参数 `--user`：
 
 ```bash
@@ -188,7 +195,7 @@ sdk.py --user <namespace> sf-pkg-upload --name 包名/版本号@命名空间
    ```bash
    sdk.py sf-pkg-remove --name 包名/版本号@命名空间 --remote
    ```
-   说明：`--remote` 会删除远端 `artifactory` 中的包，执行前请先登录。
+   说明：`--remote` 会删除当前用户同名远端（`-r=<namespace>`）中的包，执行前请先登录并确保用户状态有效。
 3. 重新构建：
    ```bash
    sdk.py sf-pkg-build --version 版本号

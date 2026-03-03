@@ -4,6 +4,11 @@
 
 from __future__ import annotations
 
+import json
+import re
+from typing import Any
+from typing import Dict
+from typing import List
 from typing import Optional
 from typing import Tuple
 
@@ -27,6 +32,8 @@ EXTENSION_ID = "sf-pkg"
 EXTENSION_VERSION = "2.0.0"
 EXTENSION_API_VERSION = 2
 MIN_SDK_VERSION = None
+SF_PKG_REMOTE_URL = "https://jfrog.sifli.com/artifactory/api/conan/conan-local"
+_REMOTE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 
 
 def _extract_namespace(package_ref: str) -> Optional[str]:
@@ -77,11 +84,139 @@ def _resolve_login_user(sdk_ctx: SdkContext, action_user: Optional[str]) -> str:
     return normalize_user(selected_user)
 
 
-def _login_remote(sdk_ctx: SdkContext, user: str, token: str) -> None:
+def _remote_name_for_user(user: str) -> str:
+    remote_name = normalize_user(user)
+    if not _REMOTE_NAME_RE.fullmatch(remote_name):
+        raise UsageError(
+            f'User "{user}" cannot be mapped to a Conan remote name. '
+            "Use lowercase letters/digits and separators ._- only."
+        )
+    return remote_name
+
+
+def _normalize_remote_url(url: str) -> str:
+    return url.strip().rstrip("/")
+
+
+def _load_remote_list(sdk_ctx: SdkContext) -> List[Dict[str, Any]]:
     try:
-        sdk_ctx.runner.run(["conan", "remote", "login", "-p", token, "artifactory", user], cwd=sdk_ctx.project_dir)
+        result = sdk_ctx.runner.run(
+            ["conan", "remote", "list", "-f", "json"],
+            cwd=sdk_ctx.project_dir,
+            capture_output=True,
+        )
     except CommandExecutionError as exc:
-        raise AuthError(f"Failed to login artifactory as {user}") from exc
+        raise AuthError("Failed to inspect Conan remotes. Please login again.") from exc
+    output = result.stdout or "[]"
+    try:
+        data = json.loads(output)
+    except json.JSONDecodeError as exc:
+        raise AuthError(f"Failed to parse conan remote list output: {exc}") from exc
+
+    if not isinstance(data, list):
+        raise AuthError("Unexpected conan remote list payload")
+
+    return [item for item in data if isinstance(item, dict)]
+
+
+def _load_remote_users(sdk_ctx: SdkContext) -> List[Dict[str, Any]]:
+    try:
+        result = sdk_ctx.runner.run(
+            ["conan", "remote", "list-users", "-f", "json"],
+            cwd=sdk_ctx.project_dir,
+            capture_output=True,
+        )
+    except CommandExecutionError as exc:
+        raise AuthError("Failed to inspect Conan remote authentication status. Please login again.") from exc
+    output = result.stdout or "[]"
+    try:
+        data = json.loads(output)
+    except json.JSONDecodeError as exc:
+        raise AuthError(f"Failed to parse conan remote list-users output: {exc}") from exc
+
+    if not isinstance(data, list):
+        raise AuthError("Unexpected conan remote list-users payload")
+
+    return [item for item in data if isinstance(item, dict)]
+
+
+def _clear_stale_user_and_raise(user: str, reason: str) -> None:
+    try:
+        delete_user(user)
+    except SfPkgAuthError:
+        pass
+
+    raise AuthError(
+        f"{reason} Local credentials for user '{user}' were removed. "
+        'Please login again using "sdk.py sf-pkg login".'
+    )
+
+
+def _ensure_remote_matches_user(sdk_ctx: SdkContext, user: str) -> str:
+    remote_name = _remote_name_for_user(user)
+    expected_url = _normalize_remote_url(SF_PKG_REMOTE_URL)
+
+    remotes = _load_remote_list(sdk_ctx)
+    remote_info = next((item for item in remotes if item.get("name") == remote_name), None)
+    if remote_info is None:
+        _clear_stale_user_and_raise(
+            user,
+            f'Conan remote "{remote_name}" is missing for user "{user}".',
+        )
+
+    remote_url = str(remote_info.get("url") or "")
+    if _normalize_remote_url(remote_url) != expected_url:
+        _clear_stale_user_and_raise(
+            user,
+            f'Conan remote "{remote_name}" URL does not match SiFli package registry.',
+        )
+
+    remote_users = _load_remote_users(sdk_ctx)
+    remote_user_info = next((item for item in remote_users if item.get("name") == remote_name), None)
+    if remote_user_info is None:
+        _clear_stale_user_and_raise(
+            user,
+            f'Conan remote "{remote_name}" has no authentication record.',
+        )
+
+    authenticated = bool(remote_user_info.get("authenticated"))
+    username = normalize_user(str(remote_user_info.get("user_name") or ""))
+    if not authenticated or username != user:
+        _clear_stale_user_and_raise(
+            user,
+            f'Conan remote "{remote_name}" is not authenticated as user "{user}".',
+        )
+
+    return remote_name
+
+
+def _configure_and_login_remote(sdk_ctx: SdkContext, user: str, token: str) -> str:
+    remote_name = _remote_name_for_user(user)
+
+    try:
+        sdk_ctx.runner.run(
+            ["conan", "remote", "add", remote_name, SF_PKG_REMOTE_URL, "--force"],
+            cwd=sdk_ctx.project_dir,
+        )
+        sdk_ctx.runner.run(
+            ["conan", "remote", "login", "-p", token, remote_name, user],
+            cwd=sdk_ctx.project_dir,
+        )
+    except CommandExecutionError as exc:
+        raise AuthError(f"Failed to login remote '{remote_name}' as {user}") from exc
+
+    return remote_name
+
+
+def _cleanup_user_remote(sdk_ctx: SdkContext, user: str) -> None:
+    try:
+        remote_name = _remote_name_for_user(user)
+    except UsageError as exc:
+        print_warning(f"WARNING: skip remote cleanup for user '{user}': {exc}")
+        return
+
+    sdk_ctx.runner.run(["conan", "remote", "logout", remote_name], cwd=sdk_ctx.project_dir, check=False)
+    sdk_ctx.runner.run(["conan", "remote", "remove", remote_name], cwd=sdk_ctx.project_dir, check=False)
 
 
 def _resolve_auth_credentials(sdk_ctx: SdkContext, required: bool) -> Optional[Tuple[str, str]]:
@@ -91,14 +226,14 @@ def _resolve_auth_credentials(sdk_ctx: SdkContext, required: bool) -> Optional[T
         raise _to_auth_error(exc) from exc
 
 
-def _ensure_remote_login(sdk_ctx: SdkContext, required: bool) -> Optional[Tuple[str, str]]:
+def _ensure_remote_access(sdk_ctx: SdkContext, required: bool) -> Optional[Tuple[str, str, str]]:
     credentials = _resolve_auth_credentials(sdk_ctx, required=required)
     if credentials is None:
         return None
 
     user, token = credentials
-    _login_remote(sdk_ctx, user, token)
-    return user, token
+    remote_name = _ensure_remote_matches_user(sdk_ctx, user)
+    return user, token, remote_name
 
 
 def init_callback(sdk_ctx: SdkContext) -> None:
@@ -109,7 +244,11 @@ def init_callback(sdk_ctx: SdkContext) -> None:
 
 
 def install_callback(sdk_ctx: SdkContext) -> None:
-    _ensure_remote_login(sdk_ctx, required=False)
+    credentials = _ensure_remote_access(sdk_ctx, required=True)
+    if not credentials:
+        raise AuthError("No available user credentials. Please login first.")
+
+    _user, _token, remote_name = credentials
     sdk_ctx.runner.run(
         [
             "conan",
@@ -118,7 +257,7 @@ def install_callback(sdk_ctx: SdkContext) -> None:
             "--output-folder=sf-pkgs",
             "--deployer=full_deploy",
             "--envs-generation=false",
-            "-r=artifactory",
+            f"-r={remote_name}",
         ],
         cwd=sdk_ctx.project_dir,
     )
@@ -133,7 +272,7 @@ def new_callback(
     author: Optional[str] = None,
     support_sdk_version: Optional[str] = None,
 ) -> None:
-    credentials = _ensure_remote_login(sdk_ctx, required=True)
+    credentials = _resolve_auth_credentials(sdk_ctx, required=True)
     if not credentials:
         raise AuthError("No available user credentials. Please login first.")
 
@@ -162,24 +301,32 @@ def new_callback(
 
 
 def build_callback(sdk_ctx: SdkContext, version: str) -> None:
-    _ensure_remote_login(sdk_ctx, required=False)
-    sdk_ctx.runner.run(["conan", "create", "--version", version, "."], cwd=sdk_ctx.project_dir)
+    credentials = _ensure_remote_access(sdk_ctx, required=True)
+    if not credentials:
+        raise AuthError("No available user credentials. Please login first.")
+
+    _user, _token, remote_name = credentials
+    sdk_ctx.runner.run(["conan", "create", "--version", version, ".", "-r", remote_name], cwd=sdk_ctx.project_dir)
     print(f"Package built successfully with version: {version}")
 
 
 def search_callback(sdk_ctx: SdkContext, name: str) -> None:
-    _ensure_remote_login(sdk_ctx, required=False)
+    credentials = _ensure_remote_access(sdk_ctx, required=True)
+    if not credentials:
+        raise AuthError("No available user credentials. Please login first.")
+
+    _user, _token, remote_name = credentials
     search_pattern = name if "*" in name else f"{name}/*"
-    sdk_ctx.runner.run(["conan", "search", search_pattern, "-r=artifactory"], cwd=sdk_ctx.project_dir)
+    sdk_ctx.runner.run(["conan", "search", search_pattern, f"-r={remote_name}"], cwd=sdk_ctx.project_dir)
     print(f"Search completed for: {search_pattern}")
 
 
 def upload_callback(sdk_ctx: SdkContext, name: str, keep: bool = False) -> None:
-    credentials = _resolve_auth_credentials(sdk_ctx, required=True)
+    credentials = _ensure_remote_access(sdk_ctx, required=True)
     if not credentials:
         raise AuthError("No available user credentials. Please login first.")
 
-    user, token = credentials
+    user, token, remote_name = credentials
     package_user = _extract_namespace(name)
     if package_user and package_user != user:
         raise UsageError(
@@ -187,8 +334,7 @@ def upload_callback(sdk_ctx: SdkContext, name: str, keep: bool = False) -> None:
             "Use matching --user or update --name."
         )
 
-    _login_remote(sdk_ctx, user, token)
-    sdk_ctx.runner.run(["conan", "upload", name, "-r=artifactory"], cwd=sdk_ctx.project_dir)
+    sdk_ctx.runner.run(["conan", "upload", name, f"-r={remote_name}"], cwd=sdk_ctx.project_dir)
     print(f"Package {name} uploaded successfully")
 
     if not keep:
@@ -221,9 +367,13 @@ def upload_callback(sdk_ctx: SdkContext, name: str, keep: bool = False) -> None:
 
 def remove_callback(sdk_ctx: SdkContext, name: str, remote: bool = False) -> None:
     if remote:
-        _ensure_remote_login(sdk_ctx, required=True)
-        sdk_ctx.runner.run(["conan", "remove", name, "-r=artifactory", "-c"], cwd=sdk_ctx.project_dir)
-        print(f"Package {name} removed from remote repository: artifactory")
+        credentials = _ensure_remote_access(sdk_ctx, required=True)
+        if not credentials:
+            raise AuthError("No available user credentials. Please login first.")
+
+        _user, _token, remote_name = credentials
+        sdk_ctx.runner.run(["conan", "remove", name, f"-r={remote_name}", "-c"], cwd=sdk_ctx.project_dir)
+        print(f"Package {name} removed from remote repository: {remote_name}")
         return
 
     sdk_ctx.runner.run(["conan", "remove", name, "-c"], cwd=sdk_ctx.project_dir)
@@ -232,7 +382,7 @@ def remove_callback(sdk_ctx: SdkContext, name: str, remote: bool = False) -> Non
 
 def login_callback(sdk_ctx: SdkContext, token: str, user: Optional[str] = None) -> None:
     selected_user = _resolve_login_user(sdk_ctx, user)
-    _login_remote(sdk_ctx, selected_user, token)
+    remote_name = _configure_and_login_remote(sdk_ctx, selected_user, token)
 
     try:
         stored_user = upsert_user(selected_user, token)
@@ -242,6 +392,7 @@ def login_callback(sdk_ctx: SdkContext, token: str, user: Optional[str] = None) 
     print("Logged in to SiFli package registry")
     print(f"Credentials stored for user: {stored_user}")
     print(f"Active user set to: {stored_user}")
+    print(f"Conan remote ready: {remote_name}")
 
 
 def logout_callback(sdk_ctx: SdkContext, name: Optional[str] = None) -> None:
@@ -255,7 +406,7 @@ def logout_callback(sdk_ctx: SdkContext, name: Optional[str] = None) -> None:
             raise _to_auth_error(exc) from exc
 
         if removed:
-            sdk_ctx.runner.run(["conan", "remote", "logout", "artifactory"], cwd=sdk_ctx.project_dir, check=False)
+            _cleanup_user_remote(sdk_ctx, selected_user)
             print(f"Logged out user: {selected_user}")
             current = get_active_user()
             if current:
@@ -265,7 +416,9 @@ def logout_callback(sdk_ctx: SdkContext, name: Optional[str] = None) -> None:
         print(f"User {selected_user} not found in stored credentials")
         return
 
-    sdk_ctx.runner.run(["conan", "remote", "logout", "artifactory"], cwd=sdk_ctx.project_dir, check=False)
+    users = list_users()
+    for selected_user in users:
+        _cleanup_user_remote(sdk_ctx, selected_user)
     clear_users()
     print("Logged out all users and cleared credentials")
 
@@ -423,7 +576,7 @@ def register(registry: CommandRegistry) -> None:
     registry.command(
         path="sf-pkg/remove",
         callback=remove_callback,
-        help="Remove package from local cache or from remote artifactory.",
+        help="Remove package from local cache or from the selected user remote.",
         options=[
             {
                 "names": ["--name"],
@@ -432,7 +585,7 @@ def register(registry: CommandRegistry) -> None:
             },
             {
                 "names": ["--remote"],
-                "help": "Remove package from remote artifactory instead of local cache.",
+                "help": "Remove package from selected user remote instead of local cache.",
                 "is_flag": True,
                 "default": False,
             },

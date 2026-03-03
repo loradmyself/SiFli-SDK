@@ -49,6 +49,13 @@ Show current active user:
 sdk.py sf-pkg-current-user
 ```
 
+Notes:
+
+- The selected user is mapped to a Conan remote with the same name, and remote operations use `-r=<namespace>`.
+- If no user is selected, remote commands will ask you to login or switch user first.
+- If the same-name remote is missing, has a mismatched URL, or is authenticated as another user, local credentials for that user are cleared and you will be asked to login again.
+- `sf-pkg-logout --name <namespace>` also clears the same-name Conan remote for that user.
+
 To override user for a single command, use the global `--user` option:
 
 ```bash
@@ -190,7 +197,7 @@ Command format explanation:
    ```bash
    sdk.py sf-pkg-remove --name <package_name>/<version>@<username> --remote
    ```
-   Note: `--remote` removes the package from remote `artifactory`. Please login first.
+   Note: `--remote` removes the package from the selected user's same-name remote (`-r=<namespace>`). Please login first and ensure user state is valid.
 3. Rebuild:
    ```bash
    sdk.py sf-pkg-build --version <version_number>
