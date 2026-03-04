@@ -6,13 +6,14 @@
 
 #include "bap_broadcast_sink_api.h"
 #include <audio_server.h>
+#include <liblc3/common.h>
 #include "log.h"
 #include <zephyr/logging/log.h>
 
 BUILD_ASSERT(IS_ENABLED(CONFIG_SCAN_SELF) || IS_ENABLED(CONFIG_SCAN_OFFLOAD),
              "Either SCAN_SELF or SCAN_OFFLOAD must be enabled");
 
-#define SEM_TIMEOUT                 K_SECONDS(60)
+#define SEM_TIMEOUT                 K_SECONDS(10)
 #define BROADCAST_ASSISTANT_TIMEOUT K_SECONDS(120) /* 2 minutes */
 
 #define LOG_INTERVAL 1000U
@@ -23,7 +24,7 @@ BUILD_ASSERT(IS_ENABLED(CONFIG_SCAN_SELF) || IS_ENABLED(CONFIG_SCAN_OFFLOAD),
     #define ADV_TIMEOUT K_FOREVER
 #endif /* CONFIG_SCAN_SELF */
 
-#define PA_SYNC_INTERVAL_TO_TIMEOUT_RATIO 50 /* Set the timeout relative to interval */
+#define PA_SYNC_INTERVAL_TO_TIMEOUT_RATIO 5 /* Set the timeout relative to interval */
 #define PA_SYNC_SKIP                5
 #define NAME_LEN                    sizeof(CONFIG_TARGET_BROADCAST_NAME) + 1
 #define BROADCAST_DATA_ELEMENT_SIZE sizeof(int16_t)
@@ -482,7 +483,7 @@ static void stream_recv_cb(struct bt_bap_stream *stream, const struct bt_iso_rec
 
         sink_stream->in_buf = net_buf_ref(buf);
         k_mutex_unlock(&sink_stream->lc3_decoder_mutex);
-        LOG_INF("---recv a frame=%d\n", rt_tick_get());
+        //printk("---recv a frame=%d\n", rt_tick_get());
         k_sem_give(&lc3_decoder_sem);
 #endif /* defined(CONFIG_LIBLC3) */
     }
@@ -1437,6 +1438,11 @@ static void sink_thread_entry(void *p)
     {
         uint32_t sync_bitfield;
 
+        if (g_exit)
+        {
+            goto wait_event;
+        }
+
         err = reset();
         if (err != 0)
         {
@@ -1651,6 +1657,8 @@ wait_for_pa_sync:
 
         printk("Waiting for PA disconnected\n");
         rt_uint32_t evt = 0;
+
+wait_event:
         rt_event_recv(g_run_event, RUN_EVT_PA_SYNC_LOST | RUN_EVT_EXIT, RT_EVENT_FLAG_OR | RT_EVENT_FLAG_CLEAR, RT_WAITING_FOREVER, &evt);
         if (evt & RUN_EVT_PA_SYNC_LOST)
         {
@@ -1662,6 +1670,7 @@ wait_for_pa_sync:
                 continue;
             }
         }
+
         if (evt & RUN_EVT_EXIT)
         {
             err = bt_bap_broadcast_sink_stop(broadcast_sink);
@@ -1741,6 +1750,17 @@ int bap_broadcast_sink_stop(void)
         return -1;
     }
     g_exit = 1;
+
+    k_sem_give(&sem_broadcaster_found);
+    k_sem_give(&sem_pa_synced);
+    k_sem_give(&sem_base_received);
+    k_sem_give(&sem_syncable);
+    k_sem_give(&sem_broadcast_code_received);
+    k_sem_give(&sem_bis_sync_requested);
+    k_sem_give(&sem_stream_connected);
+    k_sem_give(&sem_stream_started);
+    k_sem_give(&sem_broadcast_sink_stopped);
+
     rt_event_send(g_run_event, RUN_EVT_EXIT);
     rt_event_recv(g_run_event, RUN_EVT_EXIT_DONE, RT_EVENT_FLAG_OR | RT_EVENT_FLAG_CLEAR, RT_WAITING_FOREVER, NULL);
     rt_event_delete(g_run_event);
@@ -1757,6 +1777,10 @@ int bap_broadcast_sink_stop(void)
     return 0;
 }
 
+uint8_t bap_broadcast_sink_is_busy(void)
+{
+    return (g_run_event != NULL);
+}
 /*
   decode a frame and write to audio device
 */

@@ -342,7 +342,12 @@ static void init_lc3_thread(void *arg1)
 
         if (readed == 0)
         {
-            rt_kprintf("--no audio, send zero pcm\r\n");
+            static uint8_t debug_ble = 0;
+            if (debug_ble == 0)
+            {
+                printk("--no audio, send zero pcm\r\n");
+            }
+            debug_ble++;
         }
         else
         {
@@ -691,6 +696,7 @@ BLE_AUDIO_API void bap_broadcast_src_stop()
     k_sem_reset(&lc3_encoder_sem);
     k_sem_reset(&sem_started);
     k_sem_reset(&lc3_encoder_sem);
+    rt_event_control(g_run_event, RT_IPC_CMD_RESET, NULL);
     busy = 0;
 }
 
@@ -706,6 +712,11 @@ BLE_AUDIO_API void ble_src_send(uint8_t *data, uint32_t len)
         printk("ble src cache full space=%d\n", space);
     }
     rt_ringbuffer_put(&rb_cache, data, len);
+}
+
+BLE_AUDIO_API uint8_t bap_broadcast_src_is_busy(void)
+{
+    return busy;
 }
 
 static int bap_broadcast_src_init(void)

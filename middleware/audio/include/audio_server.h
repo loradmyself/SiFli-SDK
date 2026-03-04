@@ -7,6 +7,7 @@
 #ifndef AUDIO_SERVER_H
 #define AUDIO_SERVER_H  1
 #include <rtthread.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {

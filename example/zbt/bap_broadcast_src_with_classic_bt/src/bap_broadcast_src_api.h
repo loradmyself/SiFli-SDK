@@ -37,6 +37,7 @@ extern "C" {
 
 int bap_broadcast_src_start();
 void bap_broadcast_src_stop();
+uint8_t bap_broadcast_src_is_busy(void);
 
 #ifdef __cplusplus
 }

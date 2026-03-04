@@ -12,7 +12,8 @@
 #define BEL_SRC_THREAD_NAME     "BleSrcPcm"
 
 #define BAP_SRC_USING_10MS_TIMER        0
-#define BAP_SRC_AUDIO_CACHE_SIZE        (960 * 2) //2 mono frame
+#define BAP_SRC_AUDIO_CACHE_SIZE        (SPEAKER_10MS_DMA_SIZE * 4)
+//#define BAP_SRC_AUDIO_CACHE_SIZE        (32000)
 #define LC3_ENCODER_STACK_SIZE          (4 * 4096)
 #define LC3_ENCODER_PRIORITY            10
 static rt_timer_t  g_timer;
@@ -341,7 +342,12 @@ static void init_lc3_thread(void *arg1)
 
         if (readed == 0)
         {
-            rt_kprintf("--no audio, send zero pcm\r\n");
+            static uint8_t debug_ble = 0;
+            if (debug_ble == 0)
+            {
+                printk("--no audio, send zero pcm\r\n");
+            }
+            debug_ble++;
         }
         else
         {
@@ -690,11 +696,15 @@ BLE_AUDIO_API void bap_broadcast_src_stop()
     k_sem_reset(&lc3_encoder_sem);
     k_sem_reset(&sem_started);
     k_sem_reset(&lc3_encoder_sem);
+    rt_event_control(g_run_event, RT_IPC_CMD_RESET, NULL);
     busy = 0;
 }
 
 BLE_AUDIO_API void ble_src_send(uint8_t *data, uint32_t len)
 {
+    if (!busy)
+        return;
+
     RT_ASSERT(SPEAKER_10MS_DMA_SIZE == len);
     uint32_t space = rt_ringbuffer_space_len(&rb_cache);
     if (rt_ringbuffer_space_len(&rb_cache) < len)
@@ -702,6 +712,11 @@ BLE_AUDIO_API void ble_src_send(uint8_t *data, uint32_t len)
         printk("ble src cache full space=%d\n", space);
     }
     rt_ringbuffer_put(&rb_cache, data, len);
+}
+
+BLE_AUDIO_API uint8_t bap_broadcast_src_is_busy(void)
+{
+    return busy;
 }
 
 static int bap_broadcast_src_init(void)

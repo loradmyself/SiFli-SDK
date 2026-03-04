@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2022 SiFli Technologies(Nanjing) Co., Ltd
+ * SPDX-FileCopyrightText: 2022-2026 SiFli Technologies(Nanjing) Co., Ltd
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -40,6 +40,13 @@
 
 #ifdef PKG_USING_SOUNDPLUS
     #include "Soundplus_adapter.h"
+#endif
+
+#if BT_BAP_BROADCAST_SOURCE
+    #include "bap_broadcast_src_api.h"
+#endif
+#if BT_BAP_BROADCAST_SINK
+    #include "bap_broadcast_sink_api.h"
 #endif
 
 #define DBG_TAG         "audio"
@@ -162,12 +169,12 @@ enum
 #if defined(SOFTWARE_TX_MIX_ENABLE) || defined(AUDIO_RX_USING_I2S) || defined(AUDIO_TX_USING_I2S)
     #define TX_DMA_SIZE         (CODEC_DATA_UNIT_LEN)
 #else
-    #if defined(BT_BAP_BROADCAST_SINK)
-        #define TX_DMA_SIZE         (CODEC_DATA_UNIT_LEN)     //48k mono 10ms/3
-    #elif defined(BT_BAP_BROADCAST_SOURCE)
-        #define TX_DMA_SIZE         (CODEC_DATA_UNIT_LEN * 3) //48k mono 10ms
-    #else
-        #define TX_DMA_SIZE         (CODEC_DATA_UNIT_LEN * 5)
+    #define TX_DMA_SIZE         (CODEC_DATA_UNIT_LEN * 3)
+#endif
+
+#if defined(BT_BAP_BROADCAST_SOURCE)
+    #if defined(SOFTWARE_TX_MIX_ENABLE)
+        #error "not support SOFTWARE_TX_MIX_ENABLE with BT_BAP_BROADCAST_SOURCE for diffrent TX_DMA_SIZE"
     #endif
 #endif
 
@@ -1536,6 +1543,18 @@ static int audio_device_speaker_open(void *user_data, audio_device_input_callbac
     if (need_tx_init)
     {
         my->tx_dma_size = TX_DMA_SIZE;
+#ifdef BT_BAP_BROADCAST_SOURCE
+        if (bap_broadcast_src_is_busy())
+        {
+            my->tx_dma_size = CODEC_DATA_UNIT_LEN * 3; //48k mono 10ms
+        }
+#endif
+#ifdef BT_BAP_BROADCAST_SINK
+        if (bap_broadcast_sink_is_busy())
+        {
+            my->tx_dma_size = CODEC_DATA_UNIT_LEN; //48k mono 10ms/3
+        }
+#endif
         my->tx_channels    = client->parameter.write_channnel_num;
         my->tx_samplerate  = client->parameter.write_samplerate;
         my->tx_empty_occur = 1;
@@ -2617,7 +2636,7 @@ static void audio_device_change(audio_server_t *server)
     audio_device_e type_new;
     audio_client_t running;
     rt_list_t  *pos, *n;
-    LOG_I("%s in", __FUNCTION__);
+    LOG_I("%s in new dev=%d", __FUNCTION__, server->public_device);
     for (int i = 0; i < AUDIO_DEVICE_NUMBER; i++)
     {
         device = &server->devices_ctrl[i];
@@ -3857,7 +3876,10 @@ put_raw:
     handle->debug_full = 0;
 
 #if BT_BAP_BROADCAST_SINK
-    ble_sink_adjust_pll(&handle->ring_buf);
+    if (bap_broadcast_sink_is_busy())
+    {
+        ble_sink_adjust_pll(&handle->ring_buf);
+    }
 #endif
 
     if (handle->device_using == AUDIO_DEVICE_A2DP_SINK && g_tws_volume_relative)
@@ -3929,7 +3951,7 @@ AUDIO_API int audio_ioctl(audio_client_t handle, int cmd, void *parameter)
     {
         ret = -1;
         if (handle->fade_out_state != FADE_START
-                || rt_tick_get_millisecond() - handle->fade_out_start_tick > 5000)
+                || rt_tick_get_millisecond() - handle->fade_out_start_tick > 1000)
         {
             LOG_I("audio fade out check done");
             ret = 0;

@@ -48,6 +48,7 @@ extern "C" {
 int bap_broadcast_sink_init();
 int bap_broadcast_sink_start(int stream_idx);
 int bap_broadcast_sink_stop(void);
+uint8_t bap_broadcast_sink_is_busy(void);
 
 #ifdef __cplusplus
 }

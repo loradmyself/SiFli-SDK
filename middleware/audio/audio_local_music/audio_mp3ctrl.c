@@ -663,6 +663,7 @@ static int write_data(uint8_t is_new_data, mp3ctrl_handle ctrl, int16_t *outBuf,
             sifli_resample_close(ctrl->resample);
             ctrl->resample = sifli_resample_open(1, mp3FrameInfo->samprate, 48000);
             RT_ASSERT(ctrl->resample);
+            ctrl->resample_samplerate = mp3FrameInfo->samprate;
             ctrl->resample_used = 0;
             is_new_data = 1;
         }
@@ -961,6 +962,7 @@ static void mp3ctrl_thread_entry_file(void *parameter)
             ctrl->last_display_seconds = -1;
             mp3_slist_lock(ctrl);
             replace(ctrl);
+            cache_full_occured = 0; /* avoid MP3GetLastFrameInfo() without MP3Decode() */
             MP3FreeDecoder(hMP3Decoder);
             hMP3Decoder = MP3InitDecoder();
             RT_ASSERT(hMP3Decoder);
@@ -1978,6 +1980,9 @@ PUBLIC_API int mp3ctrl_ioctl(mp3ctrl_handle handle, int cmd, uint32_t param)
     }
     if (cmd == MP3CTRL_IOCTRL_CHANGE_FILE)
     {
+#if BT_BAP_BROADCAST_SOURCE
+        return -1;
+#endif
         mp3_ioctl_cmd_param_t *p = (mp3_ioctl_cmd_param_t *)param;
         if (!p)
             return -1;
@@ -2509,7 +2514,7 @@ static void id3(uint8_t argc, char **argv)
 MSH_CMD_EXPORT(id3, id3 commnad);
 #endif
 
-#endif //SOLUTION_WATCH
+#endif //SOLUTION
 
 #endif //RT_USING_FINSH
 
