@@ -1010,7 +1010,7 @@ static void mp3ctrl_thread_entry_file(void *parameter)
             rt_thread_mdelay(cache_time_ms + 20);
             if (ctrl->fade_out_state == FADE_START)
             {
-                ctrl->fade_out_state == FADE_END;
+                ctrl->fade_out_state = FADE_END;
             }
             if (ctrl->loop_times > 0)
             {
@@ -1451,7 +1451,7 @@ check_write_result:
             ctrl->is_file_end = 1;
             if (ctrl->fade_out_state == FADE_START)
             {
-                ctrl->fade_out_state == FADE_END;
+                ctrl->fade_out_state = FADE_END;
             }
             if (ctrl->loop_times > 0)
             {
