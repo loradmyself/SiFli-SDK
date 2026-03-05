@@ -55,6 +55,14 @@ extensions:
     ignore_license: true
     ignore_copyright: true
   - path:
+      "external/lvgl_v8"
+    ignore_license: true
+    ignore_copyright: true
+  - path:
+      "external/lvgl_v9"
+    ignore_license: true
+    ignore_copyright: true
+  - path:
       "external/libhelix-mp3"
     license:
       - RCSL-1.2
