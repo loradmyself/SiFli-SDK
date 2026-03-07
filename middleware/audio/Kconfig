@@ -65,6 +65,11 @@ choice
         bool "I2S"
 endchoice
 
+config PKG_USING_I2S_MODEM
+    bool "support i2s modem"
+        depends on (AUDIO_USING_AUDPROC && AUDIO)
+    default n
+
 config MICBIAS_USING_AS_PDM_POWER
     bool "hardware: MICBIAS pin using as pdm power"
         depends on (AUDIO_RX_USING_PDM && AUDIO)

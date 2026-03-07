@@ -1114,11 +1114,16 @@ static void config_tx(audio_device_speaker_t *my, audio_client_t client)
 {
 #if defined(AUDIO_TX_USING_I2S)
     i2s_config(my, 1);
-    rt_device_set_tx_complete(my->i2s, speaker_tx_done);
+    if (client->audio_type != AUDIO_TYPE_MODEM_VOICE)
+    {
+        rt_device_set_tx_complete(my->i2s, speaker_tx_done);
+    }
 #else
     LOG_I("config tx--set callback");
-    rt_device_set_tx_complete(my->audprc_dev, speaker_tx_done);
-
+    if (client->audio_type != AUDIO_TYPE_MODEM_VOICE)
+    {
+        rt_device_set_tx_complete(my->audprc_dev, speaker_tx_done);
+    }
     rt_device_control(my->audprc_dev, AUDIO_CTL_SET_TX_DMA_SIZE, (void *)my->tx_dma_size);
 
 #define     mixer_sel  0x5050
@@ -1209,7 +1214,7 @@ static void config_tx(audio_device_speaker_t *my, audio_client_t client)
 #endif
 }
 
-static void config_rx(audio_device_speaker_t *my)
+static void config_rx(audio_device_speaker_t *my, audio_client_t client)
 {
 #if defined(AUDIO_RX_USING_PDM)
     //config PDM
@@ -1248,12 +1253,17 @@ static void config_rx(audio_device_speaker_t *my)
     }
 #elif defined(AUDIO_RX_USING_I2S)
     i2s_config(my, 0);
-    rt_device_set_rx_indicate(my->i2s, mic_rx_ind);
+    if (client->audio_type != AUDIO_TYPE_MODEM_VOICE)
+    {
+        rt_device_set_rx_indicate(my->i2s, mic_rx_ind);
+    }
     my->need_i2s_rx = 1;
 #else
     LOG_I("config rx--set callback");
-    rt_device_set_rx_indicate(my->audprc_dev, mic_rx_ind);
-
+    if (client->audio_type != AUDIO_TYPE_MODEM_VOICE)
+    {
+        rt_device_set_rx_indicate(my->audprc_dev, mic_rx_ind);
+    }
     //config ADC
     struct rt_audio_caps caps;
     int stream;
@@ -1488,7 +1498,12 @@ AUDIO_API void micbias_power_off()
 #endif
 }
 
-
+AUDIO_API rt_device_t audio_get_audprc_dev(void)
+{
+    audio_server_t *server = get_server();
+    audio_device_speaker_t *my  = &server->device_speaker_private;
+    return my->audprc_dev;
+}
 
 static int audio_device_speaker_open(void *user_data, audio_device_input_callback callback)
 {
@@ -1657,7 +1672,7 @@ static int audio_device_speaker_open(void *user_data, audio_device_input_callbac
     //5. config RX, will reset audcodec PLL_CFG2, TX can't start before config RX
     if (need_rx_init)
     {
-        config_rx(my);
+        config_rx(my, client);
     }
 
     if (need_tx_init && !need_rx_init) // tx only

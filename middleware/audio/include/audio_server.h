@@ -345,7 +345,7 @@ void audio_set_tws_volume_type(uint8_t is_relative);
 void audio_register_10ms_tx_dma_callback(void (*callback)(void *), void *p);
 void audio_unregister_10ms_tx_dma_callback(void (*callback)(void *));
 bool audio_server_is_ble_src_enable(void);
-
+rt_device_t audio_get_audprc_dev(void);
 #ifdef __cplusplus
 }
 #endif
