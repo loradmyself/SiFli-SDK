@@ -549,12 +549,6 @@ __ROM_USED void rt_hw_hard_fault_exception(struct exception_info *exception_info
     coredump();
 #endif /* USING_COREDUMP */
 
-#if defined(SOC_BF0_HCPU) && defined(SAVE_ASSERT_CONTEXT_IN_FLASH)
-    extern void HAL_LCPU_ASSERT_INFO_clear(void);
-    extern rt_err_t save_assert_context_in_flash();
-    save_assert_context_in_flash();
-    HAL_LCPU_ASSERT_INFO_clear();
-#endif
 
     while (1);
 }
@@ -575,12 +569,6 @@ __ROM_USED void rt_hw_mem_manage_exception(struct exception_info *exception_info
     coredump();
 #endif /* USING_COREDUMP */
 
-#if defined(SOC_BF0_HCPU) && defined(SAVE_ASSERT_CONTEXT_IN_FLASH)
-    extern void HAL_LCPU_ASSERT_INFO_clear(void);
-    extern rt_err_t save_assert_context_in_flash();
-    save_assert_context_in_flash();
-    HAL_LCPU_ASSERT_INFO_clear();
-#endif
 
     while (1);
 }
@@ -646,13 +634,6 @@ __ROM_USED void rt_hw_do_fatal_error(struct stack_frame *stack_frame)
 #if defined(USING_COREDUMP)
     coredump();
 #endif /* USING_COREDUMP */
-
-#if defined(SOC_BF0_HCPU) && defined(SAVE_ASSERT_CONTEXT_IN_FLASH)
-    extern void HAL_LCPU_ASSERT_INFO_clear(void);
-    extern rt_err_t save_assert_context_in_flash();
-    save_assert_context_in_flash();
-    HAL_LCPU_ASSERT_INFO_clear();
-#endif
 
 
     return;
