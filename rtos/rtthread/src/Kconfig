@@ -191,6 +191,9 @@ config RT_DEBUG_MODULE
     int
     default 1 if RT_DEBUG_MODULE_CONFIG
 
+config RT_SCHEDULER_LOCK_DEBUG
+    bool "Enable Debugging of Schedule lock"
+    default n
 endif
 
 menu "Inter-Thread communication"

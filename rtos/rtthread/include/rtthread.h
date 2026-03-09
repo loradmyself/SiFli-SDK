@@ -213,8 +213,15 @@ void rt_schedule(void);
 void rt_schedule_insert_thread(struct rt_thread *thread);
 void rt_schedule_remove_thread(struct rt_thread *thread);
 
+#ifndef RT_SCHEDULER_LOCK_DEBUG
 void rt_enter_critical(void);
 void rt_exit_critical(void);
+#else
+void rt_enter_critical_debug(const char *file, uint32_t line);
+void rt_exit_critical_debug(const char *file, uint32_t line);
+#define rt_enter_critical() rt_enter_critical_debug(__FILE__, __LINE__)
+#define rt_exit_critical() rt_exit_critical_debug(__FILE__, __LINE__)
+#endif /* RT_SCHEDULER_LOCK_DEBUG */
 rt_uint16_t rt_critical_level(void);
 
 #ifdef RT_USING_HOOK
