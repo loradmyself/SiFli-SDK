@@ -42,13 +42,13 @@
      + Nand 使用`FILE MODE`(`FDB Mode` 配置为`Use File POSIX Mode`), 通过文件系统存储。
      + Nor 使用`FAL MODE`(`FDB Mode` 配置为`Use FAL Mode`), 直接操作Flash。
      ```
-2. 配置`FAT`文件系统（当`FDB Mode`配置为`Use FAL Mode`时需要）   
+2. 配置`FAT`文件系统（当`FDB Mode`配置为`Use File LIBC Mode`或`Use File POSIX Mode`时需要）   
 ![RT_USING_DFS_ELMFAT](./assets/mc_fat.png)
 
      ```{tip}
      `mnt_init` 中mount 文件系统分区，FDB初始化时需指定存储路径（在文件系统中的目录）。
      ```
-3. FAL 分区配置（当`FDB Mode`配置为`Use File LIBC Mode`或`Use File POSIX Mode`时需要）   
+3. FAL 分区配置（当`FDB Mode`配置为`Use FAL Mode`时需要）   
 + `project/nor/ptab.json`:
      ```c
             {
