@@ -23,6 +23,8 @@
 #include "sifli_resample.h"
 #include <gui_app_pm.h>
 #include "bf0_pm.h"
+#include "drv_i2s_audio.h"
+
 #if RT_USING_DFS
     #include "dfs_file.h"
     #include "dfs_posix.h"
@@ -588,6 +590,7 @@ static void inline speaker_update_volume(audio_device_speaker_t *my, int16_t spf
         memset(spframe, 0, len * 2);
     }
 #endif
+#if !AUDIO_TX_USING_I2S
     if (eq_is_working())
     {
         volx2 = eq_get_default_volumex2();
@@ -705,6 +708,8 @@ static void inline speaker_update_volume(audio_device_speaker_t *my, int16_t spf
             spframe[n] = (int16_t)(((((int32_t)spframe[n]) << 16) - d0) >> 16);
         }
     }
+#endif
+
 }
 
 static inline void process_speaker_tx(audio_server_t *server, audio_device_speaker_t *my)
@@ -1061,7 +1066,7 @@ void speaker_ring_put(uint8_t *fifo, uint16_t fifo_size)
 
 static void i2s_config(audio_device_speaker_t *my, bool is_tx)
 {
-    RT_ASSERT(TX_DMA_SIZE == AUDIO_DATA_SIZE / 2)
+    RT_ASSERT(my->tx_dma_size <= AUDIO_DATA_SIZE / 2);
     my->i2s = rt_device_find("i2s2");
     if (!my->i2s)
     {
@@ -1072,6 +1077,8 @@ static void i2s_config(audio_device_speaker_t *my, bool is_tx)
     {
         RT_ASSERT(0);
     }
+
+    rt_device_control(my->i2s, AUDIO_CTL_SET_TX_DMA_SIZE, (void *)my->tx_dma_size);
 
     struct rt_audio_caps caps =
     {
@@ -1119,7 +1126,7 @@ static void config_tx(audio_device_speaker_t *my, audio_client_t client)
         rt_device_set_tx_complete(my->i2s, speaker_tx_done);
     }
 #else
-    LOG_I("config tx--set callback");
+    LOG_I("config tx--set callback dma size=%d", my->tx_dma_size);
     if (client->audio_type != AUDIO_TYPE_MODEM_VOICE)
     {
         rt_device_set_tx_complete(my->audprc_dev, speaker_tx_done);
@@ -1255,6 +1262,7 @@ static void config_rx(audio_device_speaker_t *my, audio_client_t client)
     i2s_config(my, 0);
     if (client->audio_type != AUDIO_TYPE_MODEM_VOICE)
     {
+        rt_device_set_i2s_dma_rx_callback(NULL);
         rt_device_set_rx_indicate(my->i2s, mic_rx_ind);
     }
     my->need_i2s_rx = 1;
@@ -1262,6 +1270,7 @@ static void config_rx(audio_device_speaker_t *my, audio_client_t client)
     LOG_I("config rx--set callback");
     if (client->audio_type != AUDIO_TYPE_MODEM_VOICE)
     {
+        rt_device_set_audprc_dma_rx_callback(NULL);
         rt_device_set_rx_indicate(my->audprc_dev, mic_rx_ind);
     }
     //config ADC
@@ -1375,6 +1384,7 @@ static void micbias_power_on_internal()
         RT_ASSERT(RT_EOK == err);
     }
     {
+        rt_device_set_audprc_dma_rx_callback(NULL);
         rt_device_set_rx_indicate(my->audprc_dev, micbias_rx_ind);
         //config ADC
         struct rt_audio_caps caps;
@@ -1558,6 +1568,10 @@ static int audio_device_speaker_open(void *user_data, audio_device_input_callbac
     if (need_tx_init)
     {
         my->tx_dma_size = TX_DMA_SIZE;
+#if AUDIO_TX_USING_I2S
+        my->tx_dma_size = AUDIO_DATA_SIZE / 2;
+#endif
+
 #ifdef BT_BAP_BROADCAST_SOURCE
         if (bap_broadcast_src_is_busy())
         {
@@ -1628,7 +1642,7 @@ static int audio_device_speaker_open(void *user_data, audio_device_input_callbac
           my->tx_samplerate,
           my->rx_samplerate);
 
-    //3. open hardware
+    // 3. open hardware
 #if ((!defined(AUDIO_RX_USING_I2S) && !defined(AUDIO_RX_USING_PDM)) || !defined(AUDIO_TX_USING_I2S))
     if (!my->audprc_dev)
     {
@@ -1663,13 +1677,13 @@ static int audio_device_speaker_open(void *user_data, audio_device_input_callbac
         audcodec_clock_set(0);
     }
 
-    //4. config TX
+    // 4. config TX
     if (need_tx_init)
     {
         config_tx(my, client);
     }
 
-    //5. config RX, will reset audcodec PLL_CFG2, TX can't start before config RX
+    // 5. config RX, will reset audcodec PLL_CFG2, TX can't start before config RX
     if (need_rx_init)
     {
         config_rx(my, client);
@@ -1684,7 +1698,7 @@ static int audio_device_speaker_open(void *user_data, audio_device_input_callbac
         }
         //6. DAC mute
         rt_device_control(my->audcodec_dev, AUDIO_CTL_MUTE, (void *)1);
-        //7 DAC start
+        //7. DAC start
         stream = AUDIO_STREAM_REPLAY | ((1 << HAL_AUDPRC_TX_CH0) << 8);
         LOG_I("speaker START stream=0x%x", stream);
         rt_device_control(my->audprc_dev, AUDIO_CTL_START, (void *)&stream);
@@ -1701,14 +1715,13 @@ static int audio_device_speaker_open(void *user_data, audio_device_input_callbac
     }
     else if (!need_tx_init && need_rx_init) // rx only
     {
-        //6 ADC start
         start_rx(my);
     }
     else if (need_tx_init && need_rx_init)
     {
         start_txrx(my);
     }
-    //7. open PA, DAC unmute
+    // 7. open PA, DAC unmute
     if (need_tx_init)
     {
         LOG_I("open PA, unmute DAC");
@@ -1772,8 +1785,9 @@ static int audio_device_speaker_close(void *user_data)
     }
     LOG_I("%s ref(t=%d r=%d) deinit(t=%d r=%d)", __FUNCTION__, my->tx_ref, my->rx_ref, need_tx_deinit, need_rx_deinit);
 
-    //1. not allow process data
-    //2. close PA
+    /** 1. not allow process data
+        2. close PA
+     */
     int stream_audprc, stream_audcodec;
     if (need_tx_deinit && need_rx_deinit)
     {
@@ -1792,8 +1806,10 @@ static int audio_device_speaker_close(void *user_data)
     {
         LOG_I("close tx & pa");
         audio_hardware_pa_stop();
-        //3. DAC/ADC
+#if !defined(AUDIO_TX_USING_I2S)
+        /* 3. DAC/ADC */
         rt_device_control(my->audcodec_dev, AUDIO_CTL_MUTE, (void *)1);
+#endif
         stream_audcodec = AUDIO_STREAM_REPLAY | ((1 << HAL_AUDCODEC_DAC_CH0) << 8);
         stream_audprc = AUDIO_STREAM_REPLAY | ((1 << HAL_AUDPRC_TX_CH0) << 8);
         rt_base_t tx = rt_hw_interrupt_disable();
@@ -1824,6 +1840,7 @@ static int audio_device_speaker_close(void *user_data)
             rt_device_control(my->i2s, AUDIO_CTL_STOP, &stream);
             stream = AUDIO_STREAM_RECORD;
             rt_device_control(my->i2s, AUDIO_CTL_STOP, &stream);
+            rt_device_control(my->i2s, AUDIO_CTL_SET_TX_DMA_SIZE, (void *)(AUDIO_DATA_SIZE / 2)); /* restore to original size */
             rt_device_close(my->i2s);
             my->i2s = NULL;
         }
@@ -1872,7 +1889,7 @@ static int audio_device_speaker_close(void *user_data)
 #endif
 
     }
-    //4. free memory
+    /* 4. free memory */
     if (my->rx_data_tmp && !my->rx_ref)
     {
         RT_ASSERT((my->opened_map_flag  & OPEN_MAP_RX) == 0);

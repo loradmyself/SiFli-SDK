@@ -14,6 +14,19 @@
 #include "string.h"
 #include "drv_i2s_audio.h"
 
+#if defined (SYS_HEAP_IN_PSRAM)
+    #undef calloc
+    #undef free
+    #undef malloc
+    extern void *app_sram_alloc(rt_size_t size);
+    extern void *app_sram_calloc(rt_size_t count, rt_size_t size);
+    extern void *app_sram_free(void *ptr);
+    #define  malloc(s)      app_sram_alloc(s)
+    #define  calloc(c, s)   app_sram_calloc(c, s)
+    #define  free(p)        app_sram_free(p)
+#endif
+
+
 #ifdef FPGA
 static int bf0_enable_pll(uint32_t freq, uint8_t type)
 {
@@ -68,11 +81,8 @@ struct bf0_i2s_audio
     uint16_t tx_buf_size;         /*!< I2S TX buffer size */
 };
 
+static i2s_rx_callback_t rx_callback;
 
-static i2x_rx_callback_t i2x_rx_callback = NULL;
-
-ALIGN(4) static uint8_t audio_data[AUDIO_DATA_SIZE];
-ALIGN(4) static uint8_t audio_tx_data[AUDIO_DATA_SIZE];
 #ifdef ASIC
 #ifdef SF32LB55X //xtal
 static CLK_DIV_T  txrx_clk_div[9]  = {{48000, 125, 125,  5}, {44100, 136, 136,  4}, {32000, 185, 190,  5}, {24000, 250, 250, 10}, {22050, 272, 272,  8},
@@ -82,9 +92,16 @@ static CLK_DIV_T  txrx_clk_div[9]  = {{48000, 125, 125,  5}, {44100, 136, 136,  
 //PLL 16k 49.152M  44.1k  45.1584M
 //lrclk_duty_high:PLL/spclk_div/samplerate/2: 64=49.152M/48k/8/2
 //bclk:lrclk_duty_high/32
+#define I2S_USE_DOUBLE_MCLK 0
+#if I2S_USE_DOUBLE_MCLK
+static CLK_DIV_T  txrx_clk_div[9]  = {{48000, 128, 128,  4}, {44100, 128, 128,  4}, {32000, 192, 192,  6}, {24000, 256, 256, 8}, {22050, 256, 256,  8},
+    {16000, 384, 384, 12}, {12000, 512, 512, 16}, {11025, 512, 512, 16}, { 8000, 768, 768, 24}
+};
+#else
 static CLK_DIV_T  txrx_clk_div[9]  = {{48000, 64, 64,  2}, {44100, 64, 64,  2}, {32000, 96, 96,  3}, {24000, 128, 128, 4}, {22050, 128, 128,  4},
     {16000, 192, 192, 6}, {12000, 256, 256, 8}, {11025, 256, 256, 8}, { 8000, 384, 384, 12}
 };
+#endif /* I2S_USE_DOUBLE_MCLK */
 #endif
 #else
 //clk:3.072M  spclk:1  only 16k 8k used
@@ -460,6 +477,9 @@ static rt_err_t bf0_audio_configure(struct rt_audio_device *audio, struct rt_aud
   */
 static rt_err_t bf0_audio_init(struct rt_audio_device *audio)
 {
+    struct bf0_i2s_audio *aud = (struct bf0_i2s_audio *) audio->parent.user_data;
+    aud->tx_buf_size = AUDIO_DATA_SIZE;
+    rx_callback = NULL;
     return RT_EOK;
 }
 
@@ -470,7 +490,9 @@ static rt_err_t bf0_audio_init(struct rt_audio_device *audio)
   */
 static rt_err_t bf0_audio_shutdown(struct rt_audio_device *audio)
 {
-    i2x_rx_callback = NULL;
+    struct bf0_i2s_audio *aud = (struct bf0_i2s_audio *) audio->parent.user_data;
+    rx_callback = NULL;
+    aud->tx_buf_size = AUDIO_DATA_SIZE;
     return RT_EOK;
 }
 
@@ -537,7 +559,12 @@ static rt_err_t bf0_audio_i2s_start(struct bf0_i2s_audio *aud, int stream)
     //hi2s->Init.src_clk_freq = 12000000;
     // if use pll, set divider and freq as pll setting.
     __HAL_I2S_CLK_PLL(hi2s); //PLL
+#if I2S_USE_DOUBLE_MCLK
+    __HAL_I2S_SET_SPCLK_DIV(hi2s, 4);   // set to 12.288M to i2s (49.152M/4=12.288M)  PLL
+#else
     __HAL_I2S_SET_SPCLK_DIV(hi2s, 8);   // set to 6.144M to i2s   PLL
+#endif
+
 #else
     HAL_RCC_SetModuleFreq(RCC_MOD_I2S_ALL, 12000000);
 #endif
@@ -554,7 +581,10 @@ static rt_err_t bf0_audio_start(struct rt_audio_device *audio, int stream)
     struct bf0_i2s_audio *aud = (struct bf0_i2s_audio *) audio->parent.user_data;
     HAL_StatusTypeDef res = HAL_OK;
 
-    RT_ASSERT((uint32_t)&audio_data[0] >= 0x20000000); //must in sram
+    LOG_I("i2s buf size=%d", aud->tx_buf_size);
+    RT_ASSERT((uint32_t)aud->tx_buf >= 0x20000000 && (uint32_t)aud->tx_buf < 0x60000000); //must in sram
+    memset(aud->tx_buf, 0, AUDIO_DATA_SIZE);
+    memset(aud->rx_buf, 0, AUDIO_DATA_SIZE);
 
     if ((aud->hi2s.State == HAL_I2S_STATE_RESET) || (aud->hi2s.State == HAL_I2S_STATE_READY))
     {
@@ -575,7 +605,7 @@ static rt_err_t bf0_audio_start(struct rt_audio_device *audio, int stream)
         {
             __HAL_I2S_TX_INTF_DISABLE(&(aud->hi2s));
 
-            res = HAL_I2S_Transmit_DMA(&(aud->hi2s), aud->tx_buf, AUDIO_DATA_SIZE);
+            res = HAL_I2S_Transmit_DMA(&(aud->hi2s), aud->tx_buf, aud->tx_buf_size);
             if (res != HAL_OK)
             {
                 LOG_E("HAL_I2S_Transmit_DMA fail %d\n", res);
@@ -614,7 +644,7 @@ static rt_err_t bf0_audio_start(struct rt_audio_device *audio, int stream)
         {
             __HAL_I2S_RX_INTF_DISABLE(&(aud->hi2s));
             //rt_thread_delay(600); // wait clock stable to meet outside pll
-            res = HAL_I2S_Receive_DMA(&(aud->hi2s), aud->rx_buf, AUDIO_DATA_SIZE);
+            res = HAL_I2S_Receive_DMA(&(aud->hi2s), aud->rx_buf, aud->tx_buf_size);
             if (res != HAL_OK)
                 return RT_ERROR;
 
@@ -792,6 +822,7 @@ static rt_err_t bf0_audio_control(struct rt_audio_device *audio, int cmd, void *
     {
         uint32_t dma_size = (uint32_t)args;
         aud->tx_buf_size = dma_size * 2;
+        RT_ASSERT(dma_size  <= AUDIO_DATA_SIZE / 2);
         break;
     }
     default:
@@ -815,7 +846,7 @@ static rt_size_t bf0_audio_trans(struct rt_audio_device *audio, const void *writ
     struct bf0_i2s_audio *aud = (struct bf0_i2s_audio *) audio->parent.user_data;
     HAL_StatusTypeDef res = HAL_OK;
     //LOG_I("bf0_audio_trans");
-    RT_ASSERT(size <= AUDIO_DATA_SIZE / 2);
+    RT_ASSERT(size <= aud->tx_buf_size / 2);
 
     if (writeBuf != NULL)
     {
@@ -868,9 +899,9 @@ int rt_bf0_i2s_audio_init(void)
     for (i = 0; i < sizeof(bf0_i2s_audio_obj) / sizeof(bf0_i2s_audio_obj[0]); i++)
     {
         h_i2s_audio[i].audio_device.ops = (struct rt_audio_ops *)&_g_audio_ops;
-        h_i2s_audio[i].rx_buf = audio_data; // &(audio_data[0]);
-        h_i2s_audio[i].tx_buf = audio_tx_data; //&(audio_data[AUDIO_DATA_SIZE / 2]);
-        h_i2s_audio[i].tx_pos = audio_tx_data; //NULL;
+        h_i2s_audio[i].rx_buf = malloc(AUDIO_DATA_SIZE);
+        h_i2s_audio[i].tx_buf = malloc(AUDIO_DATA_SIZE);
+        h_i2s_audio[i].tx_pos = h_i2s_audio[i].tx_buf;
 
         if (bf0_i2s_audio_obj[i].i2s_handle != NULL)
         {
@@ -1057,9 +1088,9 @@ void I2S3_RX_DMA_IRQHandler(void)
 #endif /* !DMA_SUPPORT_DYN_CHANNEL_ALLOC */
 
 #ifndef BSP_ENABLE_I2S_MIC
-void rt_device_set_i2s_dma_rx_callback(i2x_rx_callback_t callback)
+void rt_device_set_i2s_dma_rx_callback(i2s_rx_callback_t callback)
 {
-    i2x_rx_callback = callback;
+    rx_callback = callback;
 }
 
 
@@ -1075,13 +1106,13 @@ void HAL_I2S_RxHalfCpltCallback(I2S_HandleTypeDef *hi2s)
     struct rt_audio_device *audio = &(haudio->audio_device);
     if (audio != NULL)
     {
-        if (i2x_rx_callback)
+        if (rx_callback)
         {
-            i2x_rx_callback(audio->parent.parent.name, &audio_data[0], AUDIO_DATA_SIZE / 2);
+            rx_callback(audio->parent.parent.name, haudio->rx_buf, haudio->tx_buf_size / 2);
         }
         else
         {
-            rt_audio_rx_done(audio, &(audio_data[0]), AUDIO_DATA_SIZE / 2);
+            rt_audio_rx_done(audio, haudio->rx_buf, haudio->tx_buf_size / 2);
         }
     }
 }
@@ -1099,13 +1130,13 @@ void HAL_I2S_RxCpltCallback(I2S_HandleTypeDef *hi2s)
 
     if (audio != NULL)
     {
-        if (i2x_rx_callback)
+        if (rx_callback)
         {
-            i2x_rx_callback(audio->parent.parent.name, &audio_data[AUDIO_DATA_SIZE / 2], AUDIO_DATA_SIZE / 2);
+            rx_callback(audio->parent.parent.name, haudio->rx_buf + haudio->tx_buf_size / 2, haudio->tx_buf_size / 2);
         }
         else
         {
-            rt_audio_rx_done(audio, &(audio_data[AUDIO_DATA_SIZE / 2]), AUDIO_DATA_SIZE / 2);
+            rt_audio_rx_done(audio, haudio->rx_buf + haudio->tx_buf_size / 2, haudio->tx_buf_size / 2);
         }
     }
 }
@@ -1122,8 +1153,8 @@ void HAL_I2S_TxHalfCpltCallback(I2S_HandleTypeDef *hi2s)
     /* Prevent unused argument(s) compilation warning */
     //LOG_I("HAL_I2S_TxHalfCpltCallback\n");
     //LOG_I("HALF: %d\n", haudio->hi2s.hdmatx->Instance->CNDTR);
-    haudio->tx_pos = audio_tx_data;
-    rt_audio_tx_complete(&(haudio->audio_device), audio_tx_data);
+    haudio->tx_pos = haudio->tx_buf;
+    rt_audio_tx_complete(&(haudio->audio_device), haudio->tx_buf);
 }
 
 /**
@@ -1138,10 +1169,8 @@ void HAL_I2S_TxCpltCallback(I2S_HandleTypeDef *hi2s)
     /* Prevent unused argument(s) compilation warning */
     //LOG_I("HAL_I2S_TxCpltCallback\n");
     //LOG_I("CMPL: %d\n", haudio->hi2s.hdmatx->Instance->CNDTR);
-    haudio->tx_pos = &(audio_tx_data[AUDIO_DATA_SIZE / 2]);
-    rt_audio_tx_complete(&(haudio->audio_device), &(audio_tx_data[AUDIO_DATA_SIZE / 2]));
-    //rt_audio_tx_complete(&(haudio->audio_device), audio_tx_data);
-    //bf0_audio_stop(&(haudio->audio_device), 0);
+    haudio->tx_pos = haudio->tx_buf + haudio->tx_buf_size / 2;
+    rt_audio_tx_complete(&(haudio->audio_device), haudio->tx_buf + haudio->tx_buf_size / 2);
 }
 
 #ifndef BSP_ENABLE_I2S_MIC

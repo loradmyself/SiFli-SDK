@@ -198,6 +198,7 @@ int i2s_modem_close(void)
 
     i2s_close(thiz);
     audio_close(thiz->client);
+    rt_device_set_audprc_dma_rx_callback(NULL);
     thiz->client = NULL;
 
 #if MODEM_I2S_DEBUG

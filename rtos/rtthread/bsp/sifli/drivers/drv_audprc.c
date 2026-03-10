@@ -1114,6 +1114,8 @@ static rt_err_t bf0_audio_init(struct rt_audio_device *audio)
     struct bf0_audio_prc *audprc = (struct bf0_audio_prc *) audio;
     AUDPRC_HandleTypeDef *haudprc = (AUDPRC_HandleTypeDef *) & (audprc->audprc);
 
+    rx_callback = NULL;
+
     HAL_RCC_EnableModule(RCC_MOD_AUDPRC);
 
     // init dma handle and request, other parameters configure in HAL driver
