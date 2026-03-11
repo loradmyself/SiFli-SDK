@@ -329,10 +329,17 @@ static coredump_err_code_t coredump_backend_partition_start(void)
 static void coredump_backend_partition_end(void)
 {
     coredump_backend_partition_ctx_t *ctx = partition_backend_ctx;
+    size_t written;
 
     if (ctx->cache_buf && (ctx->cache_data_size > 0))
     {
-        ctx->write(ctx->cache_buf, ctx->cache_buf_size);
+        if (ctx->wr_pos >= ctx->cache_data_size)
+        {
+            /* jump back to the actual write position */
+            ctx->wr_pos -= ctx->cache_data_size;
+            written = ctx->write(ctx->cache_buf, ctx->cache_buf_size);
+            ctx->wr_pos += written;
+        }
         ctx->cache_data_size = 0;
     }
     ctx->state = COREDUMP_BACKEND_STATE_IDLE;
@@ -380,12 +387,15 @@ static size_t coredump_backend_partition_write(uint8_t *buf, size_t len)
             /* Flush cache if full */
             if (ctx->cache_data_size >= ctx->cache_buf_size)
             {
+                /* jump back to the actual position for write */
+                ctx->wr_pos -= ctx->cache_buf_size;
                 written = ctx->write(ctx->cache_buf, ctx->cache_buf_size);
+                ctx->wr_pos += written;
+                ctx->cache_data_size = 0;
                 if (written != ctx->cache_buf_size)
                 {
                     return total_written - ctx->cache_buf_size + written;
                 }
-                ctx->cache_data_size = 0;
             }
         }
 
