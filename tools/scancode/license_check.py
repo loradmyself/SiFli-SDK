@@ -111,10 +111,13 @@ def analyze_file(config_file, scancode_file, scanned_files_dir):
                     if not licenses and report_missing_license:
                         report += ("* {} missing license.\n".format(orig_path))
                     else:
+                        base_licenses = more_lic if isinstance(more_lic, list) else [more_lic]
                         if matched_license:
-                            allowed_licenses = matched_license if isinstance(matched_license, list) else [matched_license]
+                            matched_licenses = matched_license if isinstance(matched_license, list) else [matched_license]
+                            # Path-specific rules extend allowed licenses instead of replacing global defaults.
+                            allowed_licenses = list(dict.fromkeys(base_licenses + matched_licenses))
                         else:
-                            allowed_licenses = more_lic if isinstance(more_lic, list) else [more_lic]
+                            allowed_licenses = base_licenses
                         if not any(allowed and allowed in detected_expr for allowed in allowed_licenses) and report_invalid_license:
                             report += ("* {} has invalid license: {}\n".format(orig_path, detected_expr))
                         # for lic in licenses:
