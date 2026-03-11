@@ -1221,8 +1221,11 @@ size_t coredump_read_minidump(uint32_t offset, uint8_t *buf, size_t len)
 
     rd_size = backend->read(offset, buf, len);
 
-    err = backend->set_mode(COREDUMP_TYPE_FULL);
-    RT_ASSERT(COREDUMP_ERR_NO == err);
+    if (backend == coredump_ctx.fulldump_backend)
+    {
+        err = backend->set_mode(COREDUMP_TYPE_FULL);
+        RT_ASSERT(COREDUMP_ERR_NO == err);
+    }
 
     return rd_size;
 
