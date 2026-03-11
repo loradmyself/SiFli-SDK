@@ -1,28 +1,6 @@
-#
-# File      : building.py
-# This file is part of RT-Thread RTOS
-# COPYRIGHT (C) 2006 - 2015, RT-Thread Development Team
-#
-#  This program is free software; you can redistribute it and/or modify
-#  it under the terms of the GNU General Public License as published by
-#  the Free Software Foundation; either version 2 of the License, or
-#  (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License along
-#  with this program; if not, write to the Free Software Foundation, Inc.,
-#  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-#
-# Change Logs:
-# Date           Author       Notes
-# 2015-01-20     Bernard      Add copyright information
-# 2015-07-25     Bernard      Add LOCAL_CCFLAGS/LOCAL_CPPPATH/LOCAL_CPPDEFINES for
-#                             group definition.
-#
+# SPDX-FileCopyrightText: 2006-2015 RT-Thread Development Team
+# SPDX-FileCopyrightText: 2019-2026 SiFli Technologies(Nanjing) Co., Ltd
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 import importlib
 import os
@@ -51,6 +29,7 @@ BOARD_SEARCH_PATH = os.path.abspath(os.environ.get('SIFLI_SDK_BOARD_SEARCH_PATH'
 _sdk_size_registered = False
 _main_build_dir = None
 _build_success = False
+_json_export_registered = False
 
 def is_verbose():
     if (logging.root.level<=logging.DEBUG):
@@ -1092,7 +1071,7 @@ def PrepareBuilding(env, has_libcpu=False, remove_components=[], buildlib=None):
         AddOption('--target',
                           dest = 'target',
                           type = 'string',
-                          help = 'set target project: mdk/mdk4/mdk5/iar/vs/vsc/ua/cdk/ses/makefile/eclipse/si')
+                          help = 'set target project: mdk/mdk4/mdk5/iar/vs/vsc/ua/cdk/ses/makefile/eclipse/si/json')
         AddOption('--genconfig',
                     dest = 'genconfig',
                     action = 'store_true',
@@ -2167,6 +2146,18 @@ def GenTargetProject(program = None):
     if GetOption('target') == 'si':
         from sourceinsight import TargetSI
         TargetSI(Env)
+
+    if GetOption('target') == 'json':
+        global _json_export_registered
+        if not _json_export_registered:
+            main_env = Env
+
+            def export_project_json_at_exit():
+                from json_export import TargetJSON
+                TargetJSON(main_env, EnvList)
+
+            atexit.register(export_project_json_at_exit)
+            _json_export_registered = True
 
 def GenCppdefineFiles():
     build_dir = Env['build_dir']    

@@ -21,7 +21,7 @@ from sdk_py_actions.cli.registry import CommandRegistry
 from sdk_py_actions.errors import UsageError
 
 EXTENSION_ID = "core"
-EXTENSION_VERSION = "2.0.0"
+EXTENSION_VERSION = "2.1.0"
 EXTENSION_API_VERSION = 2
 MIN_SDK_VERSION = None
 
@@ -186,6 +186,29 @@ def build_target_callback(
     sdk_ctx.runner.run(_build_command(board, board_search_path, jobs, target=target), cwd=sdk_ctx.project_dir)
 
 
+def export_codebase_callback(
+    sdk_ctx: SdkContext,
+    board: Optional[str] = None,
+    board_search_path: Optional[str] = None,
+) -> None:
+    board, board_search_path = _resolve_board_options(
+        sdk_ctx.project_dir,
+        board=board,
+        board_search_path=board_search_path,
+        require_board=True,
+    )
+
+    if not board:
+        raise UsageError('Board name is required. Use "--board" or run "sdk.py set-target <board>".')
+
+    cmd = ["scons", f"--board={board}"]
+    if board_search_path:
+        cmd.append(f"--board_search_path={board_search_path}")
+    cmd.extend(["--target=json", "-s"])
+
+    sdk_ctx.runner.run(cmd, cwd=sdk_ctx.project_dir)
+
+
 def fullclean_callback(sdk_ctx: SdkContext) -> None:
     config = _read_project_config(sdk_ctx.project_dir)
     board = config.get("board")
@@ -275,6 +298,13 @@ def register(registry: CommandRegistry) -> None:
         help="Build a specific scons target.",
         arguments=[{"names": ["target"], "required": True}],
         options=board_options + [jobs_option],
+    )
+
+    registry.command(
+        path="export-codebase",
+        callback=export_codebase_callback,
+        help="Export the source and header file index for the configured board.",
+        options=board_options,
     )
 
     registry.command(
