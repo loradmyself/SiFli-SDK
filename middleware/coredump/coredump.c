@@ -1192,6 +1192,21 @@ coredump_err_code_t coredump_get_data(coredump_data_t *data)
     return COREDUMP_ERR_NO;
 }
 
+size_t coredump_read_dump(uint32_t offset, uint8_t *buf, size_t len)
+{
+    const coredump_backend_t *backend = coredump_ctx.curr_backend;
+
+    RT_ASSERT(backend);
+
+    if (!backend->read)
+    {
+        return 0;
+    }
+
+    return backend->read(offset, buf, len);
+}
+
+
 size_t coredump_read_minidump(uint32_t offset, uint8_t *buf, size_t len)
 {
 #ifdef COREDUMP_MINIDUMP_ENABLED

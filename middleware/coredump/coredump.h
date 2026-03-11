@@ -276,6 +276,18 @@ void coredump_ext(void);
 void coredump_minimum(void);
 
 /**
+ * @brief Read dump data from backend
+ *
+ * Reads dump data from the backend at the specified offset into the provided buffer.
+ *
+ * @param[in] offset Offset from the start of dump data to begin reading
+ * @param[out] buf Pointer to the buffer to store read data
+ * @param[in] len Number of bytes to read
+ * @return size_t Number of bytes actually read
+ */
+size_t coredump_read_dump(uint32_t offset, uint8_t *buf, size_t len);
+
+/**
  * @brief Read minidump data from backend
  *
  * Reads minidump data from the backend at the specified offset into the provided buffer.
