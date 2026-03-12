@@ -107,7 +107,22 @@ menu "LVGL V9 configuration"
 			hex "Address for the memory pool instead of allocating it as a normal array"
 			default 0x0
 			depends on LV_USE_BUILTIN_MALLOC
+		
+		config LV_RTTHREAD_USE_PSRAM_PRIVATE_HEAP
+			bool "Enable LVGL dedicated heap in PSRAM"
+			default n
+			depends on LV_USE_RTTHREAD_MALLOC
+			help
+				Use an LVGL-private memheap allocated from PSRAM.
+				This switch is independent from EPIC task priority.
 
+		config LV_RTTHREAD_PSRAM_HEAP_SIZE_KILOBYTES
+			int "Dedicated LVGL heap size in PSRAM (kB)"
+			default 2048
+			depends on LV_USE_RTTHREAD_MALLOC && LV_RTTHREAD_USE_PSRAM_PRIVATE_HEAP
+			help
+				Size of LVGL-private memheap in PSRAM.
+				Set this together with LV_RTTHREAD_USE_PSRAM_PRIVATE_HEAP.
 	endmenu
 
 	menu "HAL Settings"

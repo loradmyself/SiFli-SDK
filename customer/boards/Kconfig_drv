@@ -1466,6 +1466,23 @@ menu "On-chip Peripheral RTOS Drivers"
                 1. Can not works on SFLB55X serials
                 2. Asynchronized rendering, must keep the buffers used by the render-list available until rendering is complete.
 
+            config DRV_EPIC_TASK_PRIORITY_CUSTOM
+            bool "Custom EPIC render task priority"
+            depends on DRV_EPIC_NEW_API
+            default n
+            help
+                Enable to override epic_task thread priority by Kconfig.
+                If disabled, epic_task uses RT_THREAD_PRIORITY_HIGH + RT_THREAD_PRIORITY_LOWWER.
+
+            if DRV_EPIC_TASK_PRIORITY_CUSTOM
+                config DRV_EPIC_TASK_PRIORITY
+                int "EPIC render task priority"
+                default 24
+                help
+                    RT-Thread priority value used by epic_task.
+                    Smaller value means higher priority.
+            endif
+
         endif
         config EZIP_PAL_SUPPORT
             bool
