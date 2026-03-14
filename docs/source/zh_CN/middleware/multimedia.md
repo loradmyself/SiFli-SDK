@@ -703,7 +703,7 @@ RT_WEAK uint8_t get_eq_config(audio_type_t type);
 
 EQ工具参考[Sifli_EQ](https://wiki.sifli.com/tools/index.html)
 
-EQ的参数在drv_audprc.c， 因该用工具生成，有时会方便直接修改代码调试。
+EQ的参数在drv_audprc.c， 应该用工具生成，有时为了方便直接修改代码调试。
 
 下面命令可以调试mic增益，调好后要修改编译时初始值，可以看看代码的实现
 mic_gain
@@ -711,6 +711,7 @@ pdm_gain (如果配置了PDM)
 
 有时也手动修改音量， 音量测试要满足硬件要求，最大音量不能超过喇叭功率把喇叭烧了， 最大音量需要经过硬件测试，满足功率要求。
 
+```c
 int8_t g_adc_volume = 0; //mic增益
 
 /*
@@ -730,6 +731,4 @@ int8_t g_tel_vol_level[16] = {-36, -34, -32, -30, -28, -26, -24, -22, -20, -17, 
 int8_t g_music_max_vol = 0;
 int8_t g_music_vol_level[16] = {-55, -34, -32, -30, -28, -26, -24, -22, -20, -17, -14, -11, -10, -8, -6, -4};
 
-## dump audio数据
-    
-
+```

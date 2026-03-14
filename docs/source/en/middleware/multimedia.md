@@ -701,7 +701,7 @@ The EQ parameters are in drv_audprc.c. They should ideally be generated using th
 mic_gain
 pdm_gain (if PDM is configured)
 Sometimes, volume is manually adjusted. Volume testing must meet hardware requirements; the maximum volume should not exceed the speaker's power to avoid damaging it. The maximum volume should be determined through hardware testing to meet power requirements.
-
+```c
 int8_t g_adc_volume = 0; // mic gain
 /*Maximum volume protection for phone calls, unit: 0.5db.
 If the values in g_tel_vol_level[] multiplied by 2 exceed this value, this value will be used as the speaker gain.
@@ -713,6 +713,4 @@ If the values in g_music_vol_level[] multiplied by 2 exceed this value, this val
 */
 int8_t g_music_max_vol = 0;
 int8_t g_music_vol_level[16] = {-55, -34, -32, -30, -28, -26, -24, -22, -20, -17, -14, -11, -10, -8, -6, -4};
-
-## how to dump audio data
-   ......
+```

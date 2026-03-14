@@ -457,7 +457,7 @@ void audio_3a_uplink(uint8_t *fifo, uint16_t fifo_size, uint8_t is_mute, uint8_t
 
     T_AUDIO_FILTER_TS ts_result;
     ret = _SD_Echo_GetResult(thiz->p_near, result, sizeof(result), &ts_result, 1);
-
+    audio_dump_data(ADUMP_RAMP_OUT_OUT, result, ANYKA_FRAME_SIZE);
     //LOG_I("fill adc=%d", ret);
 
 skip_3a_up:
