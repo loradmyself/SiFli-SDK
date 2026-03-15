@@ -2,11 +2,15 @@
 
 本节介绍如何登录、创建、构建并上传 SiFli 组件包。
 
+```{note}
+当前页面中的部分截图仍来自旧版命令界面；若截图中的命令格式与正文不同，请以当前 `sdk.py sf-pkg ...` 命令为准。
+```
+
 ## 获取个人访问令牌
 
 1. 打开 <https://packages.sifli.com/zh>，使用 GitHub 账号登录，用户名即为 GitHub 用户名（全小写）。
 2. 登录后进入 **Profile**。
-3. 在个人中心申请访问令牌（Token），并妥善保存，后续用于 `sdk.py sf-pkg-login` 命令。
+3. 在个人中心申请访问令牌（Token），并妥善保存，后续用于 `sdk.py sf-pkg login` 命令。
 
 ![登录网站](./assert/log_in_to_the_website.png)
 ![进入个人中心](./assert/enter_profile.png)
@@ -20,7 +24,7 @@
 ## 登录 SiFli 组件注册表
 
 ```bash
-sdk.py sf-pkg-login -u <namespace> -t 获取的 token
+sdk.py sf-pkg login -u <namespace> -t 获取的 token
 ```
 
 ![登录成功](./assert/sdk-pkg-login.png)
@@ -34,46 +38,46 @@ sdk.py sf-pkg-login -u <namespace> -t 获取的 token
 查看本地已登录用户：
 
 ```bash
-sdk.py sf-pkg-users
+sdk.py sf-pkg users
 ```
 
 切换当前活跃用户：
 
 ```bash
-sdk.py sf-pkg-use --name <namespace>
+sdk.py sf-pkg use --name <namespace>
 ```
 
 查看当前活跃用户：
 
 ```bash
-sdk.py sf-pkg-current-user
+sdk.py sf-pkg current-user
 ```
 
 说明：
 
 - 当前用户会映射到同名 Conan 远端，后续远端操作会使用 `-r=<namespace>`。
-- 未选择用户时，远端命令会提示先 `sf-pkg-login` 或 `sf-pkg-use`。
+- 未选择用户时，远端命令会提示先执行 `sf-pkg login` 或 `sf-pkg use`。
 - 如果检测到用户同名远端缺失、地址不匹配或认证用户不一致，会自动清理该用户本地凭据并提示重新登录。
-- 执行 `sf-pkg-logout --name <namespace>` 时，会同时清理该用户同名 Conan 远端配置。
+- 执行 `sf-pkg logout --name <namespace>` 时，会同时清理该用户同名 Conan 远端配置。
 
-如果只想对某一次命令临时指定用户，可使用全局参数 `--user`：
+如果只想对某一次命令临时指定用户，可使用 `sf-pkg` 组参数 `--user`：
 
 ```bash
-sdk.py --user <namespace> sf-pkg-upload --name 包名/版本号@命名空间
+sdk.py sf-pkg --user <namespace> upload --name 包名/版本号@命名空间
 ```
 
-## 创建包配置（sf-pkg-new）
+## 创建包配置（sf-pkg new）
 
 准备驱动文件夹后，在终端进入该目录并执行：
 
 ```bash
-sdk.py sf-pkg-new --name <package_name>
+sdk.py sf-pkg new --name <package_name>
 ```
 
 默认使用当前活跃用户；如需临时指定用户，可使用：
 
 ```bash
-sdk.py --user <namespace> sf-pkg-new --name <package_name>
+sdk.py sf-pkg --user <namespace> new --name <package_name>
 ```
 
 可选参数：
@@ -86,7 +90,7 @@ sdk.py --user <namespace> sf-pkg-new --name <package_name>
 示例（携带版本和作者信息）：
 
 ```bash
-sdk.py sf-pkg-new --name <package_name> --version 1.0.0 --author yourname
+sdk.py sf-pkg new --name <package_name> --version 1.0.0 --author yourname
 ```
 
 命令成功后会生成一个 `conanfile.py` 文件，具体的描述可以参考 [Conan 官方文档](https://docs.conan.io/en/latest/reference/conanfile.html)。
@@ -153,28 +157,28 @@ def requirements(self):
 
 `self.requires` 用于指定依赖包，其中的格式为 `包名/版本号@用户名`。
 
-## 构建包（sf-pkg-build）
+## 构建包（sf-pkg build）
 
 在驱动文件夹下执行：
 
 ```bash
-sdk.py sf-pkg-build --version 版本号
+sdk.py sf-pkg build --version 版本号
 ```
 
 ![构建包](./assert/sf-pkg-build.png)
 
 > 版本号建议使用语义化版本号，如 `0.0.1`、`1.0.0` 等。
 
-## 上传包（sf-pkg-upload）
+## 上传包（sf-pkg upload）
 
 ```bash
-sdk.py sf-pkg-upload --name 包名/版本号@命名空间
+sdk.py sf-pkg upload --name 包名/版本号@命名空间
 ```
 
 默认使用当前活跃用户；如需临时指定用户，可使用：
 
 ```bash
-sdk.py --user <namespace> sf-pkg-upload --name 包名/版本号@命名空间
+sdk.py sf-pkg --user <namespace> upload --name 包名/版本号@命名空间
 ```
 
 ![上传包](./assert/sf-pkg-upload.png)
@@ -189,20 +193,20 @@ sdk.py --user <namespace> sf-pkg-upload --name 包名/版本号@命名空间
 
 1. 清除本地缓存：
    ```bash
-   sdk.py sf-pkg-remove --name 包名
+   sdk.py sf-pkg remove --name 包名
    ```
 2. （可选）清除远端仓库中的包：
    ```bash
-   sdk.py sf-pkg-remove --name 包名/版本号@命名空间 --remote
+   sdk.py sf-pkg remove --name 包名/版本号@命名空间 --remote
    ```
    说明：`--remote` 会删除当前用户同名远端（`-r=<namespace>`）中的包，执行前请先登录并确保用户状态有效。
 3. 重新构建：
    ```bash
-   sdk.py sf-pkg-build --version 版本号
+   sdk.py sf-pkg build --version 版本号
    ```
 4. 再次上传：
    ```bash
-   sdk.py sf-pkg-upload --name 包名/版本号@命名空间
+   sdk.py sf-pkg upload --name 包名/版本号@命名空间
    ```
 
 ### 验证上传结果
@@ -225,7 +229,7 @@ sdk.py --user <namespace> sf-pkg-upload --name 包名/版本号@命名空间
 1. 打开<https://packages.sifli.com/zh>，使用 GitHub 账号登录。
 2. 登陆后进入组织管理。
 3. 找到想要管理的组织，点击管理
-4. 在组织管理申请访问令牌（Token），并妥善保存，后续用于 `sdk.py sf-pkg-login` 命令。
+4. 在组织管理申请访问令牌（Token），并妥善保存，后续用于 `sdk.py sf-pkg login` 命令。
 
 ![进入组织管理](./assert/enter_org.png)
 ![管理组织](./assert/check_org.png)
@@ -233,7 +237,7 @@ sdk.py --user <namespace> sf-pkg-upload --name 包名/版本号@命名空间
 ![获取token](./assert/get_org_token.png)
 
 ```{note}
-组织 token 和个人 token 可以同时保存在本地，可通过 `sf-pkg-use` 或全局 `--user` 在不同命名空间间切换。
+组织 token 和个人 token 可以同时保存在本地，可通过 `sf-pkg use` 或 `sf-pkg --user` 在不同命名空间间切换。
 ```
 
 ### 有关命名空间的说明
@@ -241,7 +245,7 @@ sdk.py --user <namespace> sf-pkg-upload --name 包名/版本号@命名空间
 1. 当作为组织登陆时，命名空间实际上为组织名，所以在终端中登录时，命令为
 
     ```bash
-    sdk.py sf-pkg-login -u <org_name> -t 获取的 token
+    sdk.py sf-pkg login -u <org_name> -t 获取的 token
     ```
 
     org_name为组织名
