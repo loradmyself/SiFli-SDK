@@ -240,7 +240,7 @@ def init_callback(sdk_ctx: SdkContext) -> None:
     result = sdk_ctx.runner.run(["conan", "new", "sf-pkg-project"], cwd=sdk_ctx.project_dir, check=False)
     if result.returncode != 0:
         raise CommandExecutionError("Failed to create dependency file")
-    print("You can now add dependent packages in conanfile.txt")
+    print("You can now add dependent packages in conanfile.py")
 
 
 def install_callback(sdk_ctx: SdkContext) -> None:
