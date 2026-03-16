@@ -3,7 +3,8 @@
 
 ## 1. 概述
 
-SiFli_Trace 是思澈公司自研工具，主要功能是抓取目标板LOG信息，该工具存放在 **固件包\solution\tools\SiFli_Trace** 路径下。
+SiFli_Trace 是思澈公司自研工具，主要功能是抓取目标板LOG信息。\
+工具路径：`tools/SiFli_Trace`
 
 ## 2. 环境配置
 

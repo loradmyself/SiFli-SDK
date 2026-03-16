@@ -3,7 +3,8 @@
 
 ## 1. 概述
 
-BurnDriverEx（也称UartBurnEx） 是思澈公司自研工具，主要功能是修改烧录驱动，用来控制PIN脚输出电平、添加新FLASH等，该工具同烧录驱动一起发布，如 **固件包\solution\tools\sifli_develop\Butterfli\file\UartBurnEx**  路径下，以及 **固件包\solution\tools\sifli_download\file\UartBurnEx** 路径下。
+BurnDriverEx（也称UartBurnEx） 是思澈公司自研工具，主要功能是修改烧录驱动，用来控制PIN脚输出电平、添加新FLASH等。\
+工具路径：`tools/UartBurnEx`
 
 ## 2. 环境配置
 

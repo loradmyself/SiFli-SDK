@@ -3,7 +3,8 @@
 
 ## 1 概述
 
-Impeller 思澈公司自研工具，主要功用于产线生产，支持UART和JLink SWD两种接口方式，功能上支持固件烧录、FLASH擦除、48M晶体和电池测量校准、PCBA测试，最大支持16个同型号设备并行处理。该工具存放在 **固件包\solution\tools\sifli_download** 路径下。
+Impeller 思澈公司自研工具，主要功用于产线生产，支持UART和JLink SWD两种接口方式，功能上支持固件烧录、FLASH擦除、48M晶体和电池测量校准、PCBA测试，最大支持16个同型号设备并行处理。\
+工具路径：`tools/Impeller`
 
 ## 2 环境配置
 

@@ -3,7 +3,8 @@
 
 ## 1. 概述
 
-AssertDump 是思澈公司自研工具，主要功能是保存目标板死机时的内存数据，再借助TRACE32软件恢复固件现场做进一步分析，该工具存放在 **固件包\solution\tools\AssertDump** 路径下。
+AssertDump 是思澈公司自研工具，主要功能是保存目标板死机时的内存数据，再借助TRACE32软件恢复固件现场做进一步分析。\
+工具路径：`tools/AssertDump`
 
 ## 2. 环境配置
 

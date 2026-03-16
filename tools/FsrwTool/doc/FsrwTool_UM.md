@@ -3,7 +3,8 @@
 
 ## 1. 概述
 
-FsrwTool 是思澈公司自研工具， 主要功能是将PC文件传送到目标板或者将目标板中文件传送到PC，该工具存放在 **固件包\solution\tools\FsrwTool** 路径下。
+FsrwTool 是思澈公司自研工具， 主要功能是将PC文件传送到目标板或者将目标板中文件传送到PC。\
+工具路径：`tools/FsrwTool`
 
 ## 2. 环境配置
 

@@ -3,7 +3,8 @@
 
 ## 1. 概述
 
-SiFli_EQ 是思澈公司自研工具，主要功能是配置目标板的音量等级、VBE、DRC、EQ等参数，用于音频EQ调试，该工具存放在 **固件包\solution\tools\SiFli_EQ** 路径下。
+SiFli_EQ 是思澈公司自研工具，主要功能是配置目标板的音量等级、VBE、DRC、EQ等参数，用于音频EQ调试。\
+工具路径：`tools/SiFli_EQ`
 
 ## 2. 环境配置
 
