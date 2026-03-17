@@ -226,9 +226,14 @@ config RT_USING_LONG_LIFETIME_MEMHEAP
     select RT_USING_MEMHEAP
     
     if RT_USING_LONG_LIFETIME_MEMHEAP
-        config LLT_MEMHEAP_SIZE
-            int "Long Lifetime Memheap Size"
-            default 2048
+        config LLT_MEMHEAP_CUSTOM
+            bool "The API is implemented by user"
+            default n
+        if !LLT_MEMHEAP_CUSTOM
+            config LLT_MEMHEAP_SIZE
+                int "Long Lifetime Memheap Size"
+                default 2048
+        endif     
     endif
 
 endmenu
