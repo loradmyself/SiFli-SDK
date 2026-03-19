@@ -3,9 +3,11 @@
 ## 1 用串口dump
 ### 1.1 串口配置
 用串口dump需要用dma的方式，把对应串口的tx dma配置打开，比如用的串口1，则打开BSP_UART1_TX_USING_DMA
+
 <img src="png/tx_dma_config.png" /> 
 
 同时计算下要同时dump几路数据，是否需要提高串口的波特率RT_SERIAL_DEFAULT_BAUDRATE
+
 <img src="png/tx_baudrate.png" /> 
 
 比如同时dump三路16k采样率的通话数据， 16k * 3 * 2 = 80k以上，则默认的1M波特率不太富裕，最好改为1500000波特率。
@@ -25,11 +27,15 @@
 串口dump数据需要用串口输入`udio_data`命令， 对应audio_server.c里audio_data_cmd()这个命令函数，串口输入help，应该能看到audio_data这个命令。
 ### 1.3 工具使用
 下载安装新的SifliTrace工具(https://wiki.sifli.com/tools/index.html)
-打开工具后，选择大核打log的串口，选择音频后再点击连接，应能看到大核log，然后就可以输入audio_data命令dump数据(系统不能睡眠，不然无法输入命令)
+打开工具后，选择大核打log的串口，选择音频后再点击连接，应能看到大核log，然后就可以输入audio_data命令dump数据(系统不能睡眠，不然无法输入命令)  
+
 <img src="png/audio_dump.png" /> 
-audio_data命令后面的参数表示可以dump哪几路数据（串口波特率不高的话，不能带太多）
+
+audio_data命令后面的参数表示可以dump哪几路数据（串口波特率不高的话，不能带太多）  
+
 <img src="png/parameter.png" /> 
-不同算法参数的含义不同，具体要看下手里的代码，默认webrtc参数含义如下(不同版本可能有差异，具体要看下手里的代码)
+
+不同算法参数的含义不同，具体要看下手里的代码，默认webrtc参数含义如下(不同版本可能有差异，具体要看下手里的代码)  
 ```
 -audprc 原始mic的采集数据
 -downlink 原始的蓝牙电话下行数据

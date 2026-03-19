@@ -3,9 +3,11 @@
 ## 1 Dump via serial port
 ### 1.1 Serial port configuration
 To use serial port dump, DMA should be used to enable the tx DMA configuration for the corresponding serial port. For example, if serial port 1 is used, BSP_UART1-TX-USING-DMA should be enabled
+
 <img src="png/tx_dma_config.png" /> 
 
 Calculate how many data streams need to be dumped at the same time, and whether it is necessary to increase the baud rate of the serial port RT_SRIAL_DFAUULTRATE
+
 <img src="png/tx_baudrate.png" /> 
 
 For example, if three 16k sampling rates of call data are dumped simultaneously, and 16k * 3 * 2=80k or more, the default 1M baud rate is not very rich, and it is best to change it to 1500000 baud rate.
@@ -25,11 +27,15 @@ The higher the baud rate, the better. Some USB serial port adapters may not meet
 To dump data through serial port, you need to input the command 'audio_data' through the serial port, which corresponds to the command function 'audio_data_cmd()' in audio_Server. c. Enter 'help' through the serial port, and you should be able to see the command 'audio_data'.
 ### 1.3 dump Tool
 Download and install the new SifliTrace tool(https://wiki.sifli.com/tools/index.html)
-After opening the tool, select the serial port for logging the large core, select the audio, and then click connect. You should be able to see the large core log, and then you can enter the audio_data command to dump data (the system cannot sleep, otherwise the command cannot be entered)
+After opening the tool, select the serial port for logging the large core, select the audio, and then click connect. You should be able to see the large core log, and then you can enter the audio_data command to dump data (the system cannot sleep, otherwise the command cannot be entered)  
+
 <img src="png/audio_dump.png" /> 
-The parameters after the audio_data command indicate which data channels can be dumped (if the serial port baudrate is not high, it cannot carry too much)
+
+The parameters after the audio_data command indicate which data channels can be dumped (if the serial port baudrate is not high, it cannot carry too much)  
+
 <img src="png/parameter.png" /> 
-The meaning of different algorithm parameters varies, depending on the code in the manual. The default webRTC parameter meanings are as follows (different versions may have differences, depending on the code in the manual)
+
+The meaning of different algorithm parameters varies, depending on the code in the manual. The default webRTC parameter meanings are as follows (different versions may have differences, depending on the code in the manual)  
 ```
 -audprc         data from mic
 -downlink       BT downlink data
@@ -38,6 +44,7 @@ The meaning of different algorithm parameters varies, depending on the code in t
 -ramp_out_out   Data sending to BT
 ```
 The system log cannot be seen during the dump data process. Entering audio_data - stop after the dump stops the dump data and restores the system log printing. Some versions will crash during this process. It may be that LOG_HEX was called during the middle note, but LOG_HEX is still using the serial port. The newer version has solved the problem. After dumping the data, click "Save" on the tool. The dump result will be found in the xxx_audio directory of the tool's log directory, and the latest date will be the current dump date
+
 <img src="png/pcm.png" /> 
 
 The correspondence between types and parameters in commands can be found in the audio_data_cmd() function in audio_derver. c
