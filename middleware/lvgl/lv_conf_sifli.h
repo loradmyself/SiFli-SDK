@@ -205,6 +205,11 @@
     #undef LV_USE_STDLIB_STRING
     #define LV_USE_STDLIB_STRING    LV_STDLIB_CLIB
 
+    #if defined(__CC_ARM) || defined(__ARMCC_VERSION)
+        #undef LV_USE_STDLIB_STRING
+        #define LV_USE_STDLIB_STRING    LV_STDLIB_RTTHREAD
+    #endif
+
     #undef LV_USE_STDLIB_SPRINTF
     #define LV_USE_STDLIB_SPRINTF   LV_STDLIB_CLIB
 
