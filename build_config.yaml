@@ -310,7 +310,10 @@ common_projects:
   - path: example/hal/rtc/project
     boards: *devkit_lcd_boards
 
-  - path: example/hal/spi/project
+  - path: example/hal/spi/dma/project
+    boards: *devkit_lcd_boards
+
+  - path: example/hal/spi/polling/project
     boards: *devkit_lcd_boards
 
   - path: example/hal/tsen/project
