@@ -77,6 +77,17 @@ typedef enum
     NAND_CMD_TABLE_CNT
 } NAND_CMD_TABLE_ID_T;
 
+typedef enum
+{
+    NOR_TYPE0 = 0,  // normal type 0, DTR, NO CMD_WRSR2, Max 128Mb, as default command table
+    NOR_TYPE1,      // type 1, WRSR2 to write status register 2(QE), Max 128Mb
+    NOR_TYPE2,      // type 2, 256Mb, DTR, 4 bytes address command diff with 3 bytes, OTP support 4-B mode
+    NOR_TYPE3,      // type 3, 256Mb , NO DTR , 4 bytes command same to 3 bytes, only timing changed, OTP 3-B only
+    NOR_TYPE4,      // type 4, 256Mb, NO DTR, 4B ADDR command diff with 3B addr , OTP support 4-B mode
+    NOR_TYPE5,      // type 5, 256Mb, NO DTR, MXIC flash have too many diff with others
+    NOR_CMD_TABLE_CNT
+} FLASH_CMD_TABLE_ID_T;
+
 const SPI_FLASH_FACT_CFG_T *spi_flash_get_cmd_by_id(uint8_t fid, uint8_t did, uint8_t type);
 int spi_flash_get_size_by_id(uint8_t fid, uint8_t did, uint8_t type);
 int spi_flash_is_support_dtr(uint8_t fid, uint8_t did, uint8_t type);
@@ -120,6 +131,35 @@ const nand_ext_cfg_t *spi_nand_get_ext_cfg_by_id(uint8_t fid, uint8_t did, uint8
  */
 const FLASH_RDID_TYPE_T *spi_nand_get_user_flash_cfg(uint8_t fid, uint8_t did, uint8_t mtype, NAND_CMD_TABLE_ID_T *cmd_tbl_type);
 
+/**
+ * @brief Get NOR extended configuration by flash chipid
+ *
+ * It's a weak function that can be overridden by user.
+ * Default implementation returns NULL, which means no extended configuration for NOR.
+ *
+ * @param[in] fid    manufacture id
+ * @param[in] did    low 8bit of device id, density id for NOR,
+ * @param[in] mtype   high 8bit of device id, memory type of NOR
+ *
+ * @return pointer to nor_ext_cfg_t structure
+ *
+ */
+const nor_ext_cfg_t *spi_nor_get_ext_cfg_by_id(uint8_t fid, uint8_t did, uint8_t mtype);
+
+/**
+ * @brief Get flash type and config according to flash chipid
+ *
+ * It's a weak function that can be overridden by user to add user-defined flash
+ *
+ * @param[in] fid    manufacture id
+ * @param[in] did    low 8bit of device id, density id for NOR,
+ * @param[in] mtype   high 8bit of device id, memory type of NOR
+ * @param[out] cmd_tbl_type  nor cmd table type
+ *
+ * @return pointer to FLASH_RDID_TYPE_T structure
+ *
+ */
+const FLASH_RDID_TYPE_T *spi_nor_get_user_flash_cfg(uint8_t fid, uint8_t did, uint8_t mtype, FLASH_CMD_TABLE_ID_T *cmd_tbl_type);
 
 extern FT_CONST FLASH_RDID_TYPE_T *FT_CONST flash_cmd_id_pool[];
 extern FT_CONST SPI_FLASH_FACT_CFG_T flash_cmd_table_list[];

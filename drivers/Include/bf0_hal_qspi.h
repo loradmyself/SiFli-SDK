@@ -160,6 +160,12 @@ typedef struct nand_ext_cfg_tag
     uint32_t ecc_err_mask;
 } nand_ext_cfg_t;
 
+typedef struct nor_ext_cfg_tag
+{
+    /** OTP base address */
+    uint32_t otp_base;
+} nor_ext_cfg_t;
+
 /**
   * @brief  SPI_FLASH manufactory id
   */
@@ -257,6 +263,10 @@ typedef struct __FLASH_HandleTypeDef
     uint32_t                        reserv1;         /*!< reverved for later use and for alinged  */
     void                           *cs_ctrl;         /*!< cs control function pointer  */
     void                           *lock;
+    const void                      *ext_cfg;        /*!< pointer to NAND or NOR extended configuration
+                                                      *  NAND: nand_ext_cfg_t
+                                                      *  NOR: nor_ext_cfg_t
+                                                      */
 } FLASH_HandleTypeDef;
 /**
   * @}

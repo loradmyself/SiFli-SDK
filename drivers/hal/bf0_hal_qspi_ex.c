@@ -278,7 +278,10 @@ __HAL_ROM_USED HAL_StatusTypeDef HAL_FLASH_Init(QSPI_FLASH_CTX_T *ctx, qspi_conf
     if (hflash->isNand)
         size = spi_nand_get_size_by_id(fid, did, mtype);
     else
+    {
         size = spi_flash_get_size_by_id(fid, did, mtype);
+        hflash->ext_cfg = spi_nor_get_ext_cfg_by_id(fid, did, mtype);
+    }
 
     if (size != 0)  // use size from table to replace configure size
     {

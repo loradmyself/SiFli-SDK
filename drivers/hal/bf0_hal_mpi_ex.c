@@ -235,7 +235,10 @@ __HAL_ROM_USED HAL_StatusTypeDef HAL_FLASH_Init(QSPI_FLASH_CTX_T *ctx, qspi_conf
     }
     else
 #endif
+    {
         size = spi_flash_get_size_by_id(fid, did, mtype);
+        hflash->ext_cfg = spi_nor_get_ext_cfg_by_id(fid, did, mtype);
+    }
 
     if (size != 0)  // use size from table to replace configure size
     {
@@ -766,7 +769,7 @@ __HAL_ROM_USED int HAL_NAND_GET_ECC_RESULT(FLASH_HandleTypeDef *handle)
         /* ecc status is saved starting from bit4 */
         sta >>= 4;
         HAL_ASSERT(sta < 32);
-        if (handle->ext_cfg->ecc_err_mask & (1UL << sta))
+        if (((nand_ext_cfg_t *)(handle->ext_cfg))->ecc_err_mask & (1UL << sta))
         {
             res = sta;
         }

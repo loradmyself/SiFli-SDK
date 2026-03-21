@@ -7,17 +7,6 @@
 #include <string.h>
 #include "flash_table.h"
 
-typedef enum
-{
-    NOR_TYPE0 = 0,  // normal type 0, DTR, NO CMD_WRSR2, Max 128Mb, as default command table
-    NOR_TYPE1,      // type 1, WRSR2 to write status register 2(QE), Max 128Mb
-    NOR_TYPE2,      // type 2, 256Mb, DTR, 4 bytes address command diff with 3 bytes, OTP support 4-B mode
-    NOR_TYPE3,      // type 3, 256Mb , NO DTR , 4 bytes command same to 3 bytes, only timing changed, OTP 3-B only
-    NOR_TYPE4,      // type 4, 256Mb, NO DTR, 4B ADDR command diff with 3B addr , OTP support 4-B mode
-    NOR_TYPE5,      // type 5, 256Mb, NO DTR, MXIC flash have too many diff with others
-    NOR_CMD_TABLE_CNT
-} FLASH_CMD_TABLE_ID_T;
-
 #define FLASH_DEFAULT_CMD_TABLE         (NOR_TYPE0)
 
 /* For bootloader, need compress to reduce code size */
@@ -636,9 +625,8 @@ FT_CONST FLASH_RDID_TYPE_T *spi_flash_get_rdid(uint8_t fid, uint8_t did, uint8_t
 #if defined(CFG_FACTORY_DEBUG)
         res = (FLASH_RDID_TYPE_T *)get_user_flash_cfg(0, fid, did, type, flash_type);
 #else
-        res = NULL;
+        res = (FLASH_RDID_TYPE_T *)spi_nor_get_user_flash_cfg(fid, did, type, flash_type);
 #endif
-        //
     }
     else if (flash_type)
     {
@@ -682,4 +670,16 @@ int spi_flash_is_support_dtr(uint8_t fid, uint8_t did, uint8_t type)
         res = (rdid->ext_flags & DTR_SUPPORT_FLAG);
 
     return res;
+}
+
+
+__WEAK const nor_ext_cfg_t *spi_nor_get_ext_cfg_by_id(uint8_t fid, uint8_t did, uint8_t mtype)
+{
+    return NULL;
+}
+
+
+__WEAK const FLASH_RDID_TYPE_T *spi_nor_get_user_flash_cfg(uint8_t fid, uint8_t did, uint8_t mtype, FLASH_CMD_TABLE_ID_T *cmd_tbl_type)
+{
+    return NULL;
 }

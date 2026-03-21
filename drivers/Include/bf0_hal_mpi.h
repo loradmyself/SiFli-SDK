@@ -181,6 +181,12 @@ typedef struct nand_ext_cfg_tag
     uint32_t ecc_err_mask;
 } nand_ext_cfg_t;
 
+typedef struct nor_ext_cfg_tag
+{
+    /** OTP base address */
+    uint32_t otp_base;
+} nor_ext_cfg_t;
+
 /**
   * @brief  SPI_FLASH manufactory id
   */
@@ -293,7 +299,11 @@ typedef struct __FLASH_HandleTypeDef
     uint8_t                         wakeup;          /*!< wake up mode for psram, plane select flag for nand */
     uint32_t                        reserv1;         /*!< used as local clock divider for dual flash  */
     flash_cs_ctrl                   cs_ctrl;         /*!< cs control function pointer  */
-    const nand_ext_cfg_t            *ext_cfg;        /*!< pointer to NAND extended configuration */
+
+    const void                      *ext_cfg;        /*!< pointer to NAND or NOR extended configuration
+                                                      *  NAND: nand_ext_cfg_t
+                                                      *  NOR: nor_ext_cfg_t
+                                                      */
 } FLASH_HandleTypeDef;
 /**
   * @}
