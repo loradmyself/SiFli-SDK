@@ -299,7 +299,9 @@ typedef struct __FLASH_HandleTypeDef
     uint32_t                          base;         /*!< base address in memory map  */
     uint32_t                          size;         /*!< flash/psram size in bytes  */
     uint32_t                        freq;             /*!< Flash/Psram running frequency  */
-    uint8_t                         *data_buf;      /*!< nand cache buffer  */
+    uint8_t                         *data_buf;       /*!< nand cache buffer for read */
+    uint8_t                         *data_buf_w;     /*!< nand cache buffer for write */
+    uint8_t                         *data_addr;      /*!< nand address of cached data in data_buf */
     HAL_FLASH_ModeDef                 Mode;         /*!< spi, dual spi or qual spi */
     HAL_LockTypeDef                   Lock;         /*!< Lock not used   */
     HAL_FLASH_StateTypeDef       State;         /*!< MPI status   */

@@ -984,7 +984,7 @@ __HAL_ROM_USED int HAL_NAND_WRITE_WITHOOB(FLASH_HandleTypeDef *handle, uint32_t 
     int row_addr = 0;
     uint32_t pagesize = 0;
 
-    if (handle == NULL || handle->ctable == NULL || handle->data_buf == NULL)
+    if (handle == NULL || handle->ctable == NULL || handle->data_buf_w == NULL)
     {
         handle->ErrorCode = 1;
         return 0;
@@ -1016,17 +1016,17 @@ __HAL_ROM_USED int HAL_NAND_WRITE_WITHOOB(FLASH_HandleTypeDef *handle, uint32_t 
     {
         // copy buffer data and oob data to internal buffer
         if (oob_buf != NULL)
-            memcpy(handle->data_buf + pagesize, oob_buf, olen);
+            memcpy(handle->data_buf_w + pagesize, oob_buf, olen);
         if (buff != NULL)
         {
-            memcpy(handle->data_buf, buff, len);
-            tbuf = (uint32_t *)handle->data_buf;
+            memcpy(handle->data_buf_w, buff, len);
+            tbuf = (uint32_t *)handle->data_buf_w;
             len = pagesize + olen;
         }
         else
         {
             row_addr = pagesize;
-            tbuf = (uint32_t *)(handle->data_buf + pagesize);
+            tbuf = (uint32_t *)(handle->data_buf_w + pagesize);
             len = olen;
         }
         // if olen > 0, data buffer should fill full page
@@ -1413,7 +1413,7 @@ __HAL_ROM_USED int HAL_NAND_MARK_BADBLK(FLASH_HandleTypeDef *handle, uint32_t bl
     int res;
     uint8_t tbuf[4];
 
-    if ((handle == NULL) || (handle->data_buf == NULL))
+    if ((handle == NULL) || (handle->data_buf_w == NULL))
         return HAL_ERROR;
 
     blksize = HAL_NAND_BLOCK_SIZE(handle);
@@ -1449,7 +1449,7 @@ __HAL_ROM_USED int HAL_NAND_GET_BADBLK(FLASH_HandleTypeDef *handle, uint32_t blk
 
     uint32_t blksize;
 
-    if ((handle == NULL) || (handle->data_buf == NULL))
+    if ((handle == NULL) || (handle->data_buf_w == NULL))
         return 0;
 
     blksize = HAL_NAND_BLOCK_SIZE(handle);

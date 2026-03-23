@@ -56,6 +56,7 @@ static struct rt_semaphore         nand_lock;
 static int nand_sys_init = 0;
 static uint32_t nand_pagesize = 2048;
 static uint32_t nand_blksize = 0x20000;
+static struct rt_mutex  nand_mutex;
 
 #if ((NAND_BUF_CPY_MODE == 1) && defined(BSP_USING_EXT_DMA))
 extern rt_sem_t ExtDma_sema;
@@ -136,15 +137,25 @@ int rt_nand_read(uint32_t addr, uint8_t *buf, int size)
     remain = size;
     if (taddr & (nand_pagesize - 1)) // not page aligned
     {
+        rt_mutex_take(&nand_mutex, RT_WAITING_FOREVER);
         uint8_t *cach_buf = hflash->data_buf;
         offset = taddr & (nand_pagesize - 1); //
         fill = nand_pagesize - offset;
         fill = fill < remain ? fill : remain;
         taddr &= ~(nand_pagesize - 1);
-        res = rt_nand_read_page(taddr, cach_buf, nand_pagesize, NULL, 0);
-        if (res != nand_pagesize)
-            return 0;
+        if (taddr != (uint32_t) hflash->data_addr)
+        {
+            res = rt_nand_read_page(taddr, cach_buf, nand_pagesize, NULL, 0);
+            if (res != nand_pagesize)
+            {
+                hflash->data_addr = NULL;
+                rt_mutex_release(&nand_mutex);
+                return 0;
+            }
+            hflash->data_addr = (uint8_t *) taddr;
+        }
         memcpy(tbuf, cach_buf + offset, fill);
+        rt_mutex_release(&nand_mutex);
         remain -= fill;
         taddr += nand_pagesize;
         tbuf += fill;
@@ -450,7 +461,7 @@ int rt_nand_write_page(uint32_t addr, const uint8_t *buf, int size, const uint8_
 #endif
 #ifdef BSP_NAND_CHECK_BEFORE_WRITE
     SCB_InvalidateDCache_by_Addr((void *)hflash->base, nand_pagesize + SPI_NAND_MAXOOB_SIZE);
-    SCB_InvalidateDCache_by_Addr((void *)hflash->data_buf, nand_pagesize + SPI_NAND_MAXOOB_SIZE);
+    SCB_InvalidateDCache_by_Addr((void *)hflash->data_buf_w, nand_pagesize + SPI_NAND_MAXOOB_SIZE);
 
     rt_nand_lock();
 
@@ -459,9 +470,9 @@ int rt_nand_write_page(uint32_t addr, const uint8_t *buf, int size, const uint8_
     blk2 = addr / nand_blksize;
     page2 = (addr / nand_pagesize) & (nand_blksize / nand_pagesize - 1);
 
-    res = bbm_read_page(blk2, page2, 0, hflash->data_buf, nand_pagesize, NULL, 0);
+    res = bbm_read_page(blk2, page2, 0, hflash->data_buf_w, nand_pagesize, NULL, 0);
 #else
-    res = HAL_NAND_READ_WITHOOB(hflash, addr, hflash->data_buf, nand_pagesize, NULL, 0);
+    res = HAL_NAND_READ_WITHOOB(hflash, addr, hflash->data_buf_w, nand_pagesize, NULL, 0);
 #endif  //BSP_USING_BBM
 
     if (res != nand_pagesize)
@@ -473,7 +484,7 @@ int rt_nand_write_page(uint32_t addr, const uint8_t *buf, int size, const uint8_
     else
     {
         int i = 0;
-        uint32_t *chk = (uint32_t *)hflash->data_buf;
+        uint32_t *chk = (uint32_t *)hflash->data_buf_w;
         for (i = 0; i < nand_pagesize / 4; i++)
         {
             if (chk[i] != 0xffffffff)
@@ -651,11 +662,13 @@ int rt_nand_read_id(uint32_t addr)
 }
 
 #ifdef CFG_BOOTLOADER
-    static uint32_t gnand_cache_buf[(4096 + 128) / 4];
     static uint32_t gbbm_cache_buf[(4096 + 128) / 4];
+    static uint32_t gnand_cache_buf[(4096 + 128) / 4];
+    static uint32_t gnand_cache_buf_w[(4096 + 128) / 4];
 #else
     static uint8_t *gbbm_cache_buf = NULL;
     static uint8_t *gnand_cache_buf = NULL;
+    static uint8_t *gnand_cache_buf_w = NULL;
 #endif  //CFG_BOOTLOADER
 extern uint32_t flash_get_freq(int clk_module, uint16_t clk_div, uint8_t hcpu);
 int rt_nand_init()
@@ -668,6 +681,9 @@ int rt_nand_init()
     memset(&spi_nand_handle, 0, sizeof(QSPI_FLASH_CTX_T));
     nand_index = -1;
     nand_sys_init = 0;
+
+    if (0 == nand_mutex.parent.parent.name[0])
+        rt_mutex_init(&nand_mutex, "nand_mutex", RT_IPC_FLAG_FIFO);
 
 #if defined(BSP_ENABLE_QSPI3) && (BSP_QSPI3_MODE == SPI_MODE_NAND)
     qspi_configure_t flash_cfg3 = FLASH3_CONFIG;
@@ -730,12 +746,14 @@ int rt_nand_init()
         if (gnand_cache_buf == NULL)
             gnand_cache_buf = (uint8_t *)rt_malloc(nand_pagesize + SPI_NAND_MAXOOB_SIZE);
         if (gnand_cache_buf == NULL)
-        {
-            rt_kprintf("Malloc nand cache buffer fail\n");
-            return 0;
-        }
+            goto abnormal;
+        if (gnand_cache_buf_w == NULL)
+            gnand_cache_buf_w = (uint8_t *)rt_malloc(nand_pagesize + SPI_NAND_MAXOOB_SIZE);
+        if (gnand_cache_buf_w == NULL)
+            goto abnormal;
 #endif
         spi_nand_handle.handle.data_buf = (uint8_t *)gnand_cache_buf;
+        spi_nand_handle.handle.data_buf_w = (uint8_t *)gnand_cache_buf_w;
 
         spi_nand_handle.handle.buf_mode = 1;    // default set to buffer mode for nand
         HAL_NAND_CONF_ECC(&spi_nand_handle.handle, 1); // default enable ECC if support !
@@ -745,15 +763,7 @@ int rt_nand_init()
         if (gbbm_cache_buf == NULL)
             gbbm_cache_buf = (uint8_t *)rt_malloc(nand_pagesize + SPI_NAND_MAXOOB_SIZE);
         if (gbbm_cache_buf == NULL)
-        {
-            rt_kprintf("Malloc bbm cache buffer fail\n");
-            if (gnand_cache_buf)
-            {
-                free(gnand_cache_buf);
-                gnand_cache_buf = NULL;
-            }
-            return 0;
-        }
+            goto abnormal;
 #endif
         bbm_register_log((bbm_log_func)rt_kprintf);
         bbm_set_page_size(nand_pagesize);
@@ -770,6 +780,13 @@ int rt_nand_init()
 
     nand_index = -1;
     return 0;
+#ifndef CFG_BOOTLOADER
+abnormal:
+    rt_kprintf("Malloc nand cache buffer fail\n");
+    if (gnand_cache_buf) rt_free(gnand_cache_buf);
+    if (gnand_cache_buf_w) rt_free(gnand_cache_buf_w);
+    return 0;
+#endif
 }
 
 void rt_nand_update_clk(int clk_module, uint16_t clk_div)
@@ -1096,10 +1113,10 @@ void nand_clear_pattern(void)
 
 void nand_fill_page(uint32_t addr, uint8_t *data)
 {
-    if (spi_nand_handle.handle.data_buf != NULL)
+    if (spi_nand_handle.handle.data_buf_w != NULL)
     {
         nand_set_pattern(addr, NAND_FILL_DATA);
-        memcpy(spi_nand_handle.handle.data_buf, data, nand_pagesize);
+        memcpy(spi_nand_handle.handle.data_buf_w, data, nand_pagesize);
     }
 }
 
