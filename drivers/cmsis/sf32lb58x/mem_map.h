@@ -503,8 +503,6 @@
     /* lpsys_ram */
     #undef  LPSYS_RAM_START_ADDR
     #define LPSYS_RAM_START_ADDR                               (0x20400000)
-    #undef  LPSYS_RAM_SIZE
-    #define LPSYS_RAM_SIZE                                     (0x00080000)
     #undef  LPSYS_RAM_OFFSET
     #define LPSYS_RAM_OFFSET                                   (0x00000000)
 
