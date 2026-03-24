@@ -32,6 +32,7 @@
 
 static void sdhci_prepare_data(struct sdhci_host *host, struct rt_mmcsd_data *data);
 static void sdhci_finish_data(struct sdhci_host *host);
+static void sdhci_init(struct sdhci_host *host, int soft);
 
 static void sdhci_send_command(struct sdhci_host *host, struct rt_mmcsd_cmd *cmd);
 static void sdhci_finish_command(struct sdhci_host *host);
@@ -45,8 +46,8 @@ static void sdhci_set_ddr(struct sdhci_host *host, unsigned int ddr);
     static int sdmmc_pm_resume_init(uint8_t id);
     uint32_t sd_send_cmd(uint8_t cmd_idx, uint32_t cmd_arg);
     uint32_t sd_clr_status();
-    SDHCI_HandleTypeDef sdhci_handle;
 #endif
+SDHCI_HandleTypeDef sdhci_handle;
 
 int rt_hw_sdmmc_init(void);
 int rt_sdhci_init_instance(uint8_t id);
@@ -124,64 +125,33 @@ static void sdhci_pm_set_ddr(uint8_t id)
     }
 }
 
-#define _DUMP_REG_DEBUG         (0)
-#define _SDHCI_DUMP_RCNT        (23)
-static uint32_t sdhci_reg_arr[_SDHCI_DUMP_RCNT];
 static void dump_sdhci_reg(int id)
 {
-    int i;
-    uint32_t *sdhci_base_reg;
-    if (id == 0)
-    {
-        sdhci_base_reg = (uint32_t *)SDMMC1_BASE;
-    }
-    else
-    {
-        sdhci_base_reg = (uint32_t *)SDMMC2_BASE;
-    }
-    for (i = 0; i < _SDHCI_DUMP_RCNT; i++)
-    {
-        sdhci_reg_arr[i] = *sdhci_base_reg++;
-#if _DUMP_REG_DEBUG
-        rt_kprintf("%08x ", sdhci_reg_arr[i]);
-        if ((i + 1) % 8 == 0)
-        {
-            rt_kprintf("\n");
-        }
-        rt_kprintf("\n");
-#endif
-    }
+
 }
 
 static void recov_sdhci_reg(int id)
 {
-    int i;
-    uint32_t *sdhci_base_reg;
     if (id == 0)
-    {
-        sdhci_base_reg = (uint32_t *)SDMMC1_BASE;
-    }
+        sdhci_handle.Instance = (uint32_t)SDIO1;
     else
-    {
-        sdhci_base_reg = (uint32_t *)SDMMC2_BASE;
-    }
-    for (i = 0; i < _SDHCI_DUMP_RCNT; i++)
-    {
-        *sdhci_base_reg = sdhci_reg_arr[i];
-        // read only reg: 0x10, 0x14, 0x18, 0x1c for response
-        // 0x24 for sr, 0x30 for clear sr, w1c;
-        // 0x40 , 0x44, 0x48 for capbility
-        // 0x54 for adma error status
-#if _DUMP_REG_DEBUG
-        rt_kprintf("%08x ", *sdhci_base_reg);
-        if ((i + 1) % 8 == 0)
-        {
-            rt_kprintf("\n");
-        }
-        rt_kprintf("\n");
-#endif
-        sdhci_base_reg++;
-    }
+        sdhci_handle.Instance = (uint32_t)SDIO2;
+    uint8_t ctrl;
+    hal_sdhci_init(&sdhci_handle, 0);
+    hal_sdhci_enable_card_detection(&sdhci_handle);
+    hal_sdhci_set_clk(&sdhci_handle, sdhci_ctx[id].clock, sdhci_ctx[id].max_clk);
+    hal_sdhci_set_power(&sdhci_handle, sdhci_ctx[id].mmc->io_cfg.vdd);
+    if (sdhci_ctx[id].mmc->io_cfg.bus_width == MMCSD_BUS_WIDTH_4)
+        ctrl = 4;
+    else if (sdhci_ctx[id].mmc->io_cfg.bus_width == MMCSD_BUS_WIDTH_8)
+        ctrl = 8;
+    else if (sdhci_ctx[id].mmc->io_cfg.bus_width == MMCSD_DDR_BUS_WIDTH_4)
+        ctrl = 4;
+    else if (sdhci_ctx[id].mmc->io_cfg.bus_width == MMCSD_DDR_BUS_WIDTH_8)
+        ctrl = 8;
+    else
+        ctrl = 1;
+    hal_sdhci_set_bus_width(&sdhci_handle, ctrl);
     sdhci_pm_set_ddr(id);//this is bug only 56X ddr mode
 }
 #endif
