@@ -13,6 +13,14 @@
 #include "string.h"
 #include "rtthread.h"
 
+#if defined(SF32LB52X)
+    #define SPI1_RX_DMA_IRQ_HANDLER    DMAC1_CH6_IRQHandler
+    #define SPI1_TX_DMA_IRQ_HANDLER    DMAC1_CH3_IRQHandler
+#elif defined(SF32LB58X)
+    #define SPI1_RX_DMA_IRQ_HANDLER    DMAC1_CH3_IRQHandler
+    #define SPI1_TX_DMA_IRQ_HANDLER    DMAC1_CH4_IRQHandler
+#endif
+
 #define SPI_MODE                    0
 #define SPI_BAUDRATE_HZ             20000000U
 #define SPI_DMA_BUFFER_SIZE         256U
@@ -30,22 +38,46 @@ static volatile uint32_t spi_dma_full_count = 0;
 static volatile uint32_t spi_dma_err_count = 0;
 static volatile uint32_t spi_dma_last_err = HAL_SPI_ERROR_NONE;
 
-static void spi_dma_rx_half_callback(DMA_HandleTypeDef *hdma)
+void SPI1_IRQHandler(void)
 {
-    spi_dma_half_count++;
+    HAL_SPI_IRQHandler(&spi_Handle);
 }
 
-static void spi_dma_rx_full_callback(DMA_HandleTypeDef *hdma)
+#if defined(BSP_USING_NO_OS) || !defined(DMA_SUPPORT_DYN_CHANNEL_ALLOC)
+void SPI1_RX_DMA_IRQ_HANDLER(void)
 {
-    spi_dma_full_count++;
+    HAL_DMA_IRQHandler(&spi_dma_rx_handle);
 }
 
-static void spi_dma_rx_error_callback(DMA_HandleTypeDef *hdma)
+void SPI1_TX_DMA_IRQ_HANDLER(void)
 {
-    SPI_HandleTypeDef *hspi = (SPI_HandleTypeDef *)hdma->Parent;
+    HAL_DMA_IRQHandler(&spi_dma_tx_handle);
+}
+#endif
 
-    spi_dma_err_count++;
-    spi_dma_last_err = hspi ? HAL_SPI_GetError(hspi) : HAL_SPI_ERROR_DMA;
+void HAL_SPI_TxRxHalfCpltCallback(SPI_HandleTypeDef *hspi)
+{
+    if (hspi == &spi_Handle)
+    {
+        spi_dma_half_count++;
+    }
+}
+
+void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)
+{
+    if (hspi == &spi_Handle)
+    {
+        spi_dma_full_count++;
+    }
+}
+
+void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
+{
+    if (hspi == &spi_Handle)
+    {
+        spi_dma_err_count++;
+        spi_dma_last_err = HAL_SPI_GetError(hspi);
+    }
 }
 
 static uint32_t spi_get_apb_clock(SPI_HandleTypeDef *hspi)
@@ -132,7 +164,7 @@ static HAL_StatusTypeDef spi_dma_hw_init(void)
     spi_dma_rx_handle.Init.MemInc = DMA_MINC_ENABLE;
     spi_dma_rx_handle.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
     spi_dma_rx_handle.Init.MemDataAlignment = DMA_MDATAALIGN_BYTE;
-    spi_dma_rx_handle.Init.Mode = DMA_NORMAL;
+    spi_dma_rx_handle.Init.Mode = DMA_CIRCULAR;
     spi_dma_rx_handle.Init.Priority = DMA_PRIORITY_HIGH;
 #ifdef DMA_SUPPORT_DYN_CHANNEL_ALLOC
     spi_dma_rx_handle.Init.IrqPrio = SPI1_RX_DMA_IRQ_PRIO;
@@ -151,7 +183,7 @@ static HAL_StatusTypeDef spi_dma_hw_init(void)
     spi_dma_tx_handle.Init.MemInc = DMA_MINC_ENABLE;
     spi_dma_tx_handle.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
     spi_dma_tx_handle.Init.MemDataAlignment = DMA_MDATAALIGN_BYTE;
-    spi_dma_tx_handle.Init.Mode = DMA_NORMAL;
+    spi_dma_tx_handle.Init.Mode = DMA_CIRCULAR;
     spi_dma_tx_handle.Init.Priority = DMA_PRIORITY_LOW;
 #ifdef DMA_SUPPORT_DYN_CHANNEL_ALLOC
     spi_dma_tx_handle.Init.IrqPrio = SPI1_TX_DMA_IRQ_PRIO;
@@ -178,6 +210,8 @@ static HAL_StatusTypeDef spi_dma_start_circular(void)
         spi_dma_tx_buf[i] = (uint8_t)i;
     }
     memset(spi_dma_rx_buf, 0, sizeof(spi_dma_rx_buf));
+    mpu_dcache_clean(spi_dma_tx_buf, sizeof(spi_dma_tx_buf));
+    mpu_dcache_invalidate(spi_dma_rx_buf, sizeof(spi_dma_rx_buf));
 
     spi_dma_half_count = 0;
     spi_dma_full_count = 0;
@@ -187,13 +221,10 @@ static HAL_StatusTypeDef spi_dma_start_circular(void)
     HAL_NVIC_DisableIRQ(SPI1_RX_DMA_IRQ);
     HAL_NVIC_DisableIRQ(SPI1_TX_DMA_IRQ);
 
-    if (HAL_SPI_TransmitReceive_DMA_CircularEx(&spi_Handle,
+    if (HAL_SPI_TransmitReceive_DMA(&spi_Handle,
             spi_dma_tx_buf,
             spi_dma_rx_buf,
-            SPI_DMA_BUFFER_SIZE,
-            spi_dma_rx_half_callback,
-            spi_dma_rx_full_callback,
-            spi_dma_rx_error_callback) != HAL_OK)
+            SPI_DMA_BUFFER_SIZE) != HAL_OK)
     {
         return HAL_ERROR;
     }
