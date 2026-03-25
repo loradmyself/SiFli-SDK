@@ -62,6 +62,10 @@ struct rt_sdhci_configuration
     uint8_t card_mode;
 };
 
+SDHCI_HandleTypeDef sdhci_handle;
+/* irq state, 0: enabled, 1: disabled */
+static rt_uint32_t sdio_irq_state = 0;
+
 static struct rt_sdhci_configuration rt_sdhci_cfg_def[SDHCI_HOST_NUM] =
 {
 #ifdef BSP_USING_SDHCI1
@@ -782,6 +786,15 @@ static void sdhci_set_ddr(struct sdhci_host *host, unsigned int ddr)
     hal_sdhci_set_ddr(&host->handle, ddr);
 }
 
+void sdhci_set_irq_enable_status(struct rt_mmcsd_host *host, rt_uint32_t res)
+{
+    sdio_irq_state = res;
+}
+
+rt_uint32_t sdhci_get_irq_enable_status(struct rt_mmcsd_host *host)
+{
+    return sdio_irq_state;
+}
 /*****************************************************************************\
  *                                                                           *
  * MMC callbacks                                                             *
@@ -954,6 +967,8 @@ static const struct rt_mmcsd_host_ops sdhci_host_ops =
     .set_iocfg  = sdhci_set_ios,
     .get_card_status    = sdhci_get_ro,
     .enable_sdio_irq = sdhci_enable_sdio_irq,
+    .get_irq_enable_status = sdhci_get_irq_enable_status,
+    .set_irq_enable_status = sdhci_set_irq_enable_status,
 };
 
 /**
@@ -1282,6 +1297,7 @@ static int sdhci_irq(void *dev)
     {
         if ((host->irq_flag & SDHCI_INT_DATA_MASK) != 0)
         {
+            if (sdhci_get_irq_enable_status(RT_NULL)) return 1;
             rt_event_send(&host->event, host->irq_flag);
         }
         else
@@ -1290,7 +1306,10 @@ static int sdhci_irq(void *dev)
         }
     }
     else
+    {
+        if (sdhci_get_irq_enable_status(RT_NULL)) return 1;
         rt_event_send(&host->event, host->irq_flag);
+    }
 
     //rt_event_send(&host->event, flag);
 
@@ -1304,14 +1323,35 @@ static int sdhci_wait_completed(struct sdhci_host *sdio, int flag)
     struct rt_mmcsd_cmd *cmd = sdio->cmd;
     //struct rt_mmcsd_data *data = cmd->data;
     //SDMMC_TypeDef *hw_sdio = (SDMMC_TypeDef *)sdio->ioaddr;
-
-    if (rt_event_recv(&sdio->event, 0xffffffff, RT_EVENT_FLAG_OR | RT_EVENT_FLAG_CLEAR,
-                      rt_tick_from_millisecond(5000), &status) != RT_EOK)
+    if (sdhci_get_irq_enable_status(RT_NULL))
     {
-        LOG_E("wait %d completed timeout 0x%08x,arg 0x%08x\n", cmd->cmd_code, hal_sdhci_get_int_value(&sdio->handle), cmd->arg);
-        //LOG_D("Int EN 0x%08x, Mask 0x%08x\n", sdhci_readl(sdio, SDHCI_INT_ENABLE), sdhci_readl(sdio, SDHCI_SIGNAL_ENABLE));
-        cmd->err = -RT_ETIMEOUT;
-        return -1;
+        while (1)
+        {
+            static struct sdhci_host *assert_host = RT_NULL;
+#ifdef BSP_USING_SDHCI1
+            assert_host = &sdhci_ctx[0];
+#elif BSP_USING_SDHCI2
+            assert_host = &sdhci_ctx[1];
+#endif
+            if (sdhci_irq(assert_host))
+            {
+                status = assert_host->irq_flag;
+                break;
+            }
+            for (int i = 0; i < 10000; i
+                    ++) {;}
+        }
+    }
+    else
+    {
+        if (rt_event_recv(&sdio->event, 0xffffffff, RT_EVENT_FLAG_OR | RT_EVENT_FLAG_CLEAR,
+                          rt_tick_from_millisecond(5000), &status) != RT_EOK)
+        {
+            LOG_E("wait %d completed timeout 0x%08x,arg 0x%08x\n", cmd->cmd_code, hal_sdhci_get_int_value(&sdio->handle), cmd->arg);
+            //LOG_D("Int EN 0x%08x, Mask 0x%08x\n", sdhci_readl(sdio, SDHCI_INT_ENABLE), sdhci_readl(sdio, SDHCI_SIGNAL_ENABLE));
+            cmd->err = -RT_ETIMEOUT;
+            return -1;
+        }
     }
     LOG_D("sdhci_wait_completed cmd %d:  0x%x, flag 0x%x\n", cmd->cmd_code, status, flag);
 
