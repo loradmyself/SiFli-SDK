@@ -46,6 +46,9 @@ static void sdhci_data_irq(struct sdhci_host *host, uint32_t intmask);
 static void sdhci_set_ios(struct rt_mmcsd_host *mmc, struct rt_mmcsd_io_cfg *ios);
 static void sdhci_set_ddr(struct sdhci_host *host, unsigned int ddr);
 
+void mmcsd_set_stat(uint8_t stat);
+uint8_t mmcsd_get_stat(void);
+
 #ifdef SDIO_PM_MODE
     static int sdmmc_pm_resume_init(uint8_t id);
     uint32_t sd_send_cmd(uint8_t cmd_idx, uint32_t cmd_arg);
@@ -2009,11 +2012,14 @@ int rt_hw_sdmmc_init(void)
 #ifdef BSP_USING_SDHCI1
     ret = rt_hw_sdmmc_num_init(0);
 #endif
-
+    mmcsd_set_stat(0);
 #ifdef BSP_USING_SDHCI2
     ret = rt_hw_sdmmc_num_init(1);
 #endif
-
+    /*resume MMSCD THREA priority to normal*/
+    rt_uint8_t priority = RT_MMCSD_THREAD_PREORITY;
+    if (mmcsd_get_thread())
+        rt_thread_control(mmcsd_get_thread(), RT_THREAD_CTRL_CHANGE_PRIORITY, &priority);
     return ret;
 }
 
