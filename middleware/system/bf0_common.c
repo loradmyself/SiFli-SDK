@@ -311,7 +311,11 @@ rt_err_t exception_handler(void *context)
 void DBG_Trigger_IRQHandler(void)
 {
     rt_interrupt_enter();
-    LOG_E("Crash triggered");
+#ifdef SOC_BF0_HCPU
+    LOG_E("LCPU Crash triggered, please check LCPU log for details.");
+#else
+    LOG_E("HCPU Crash triggered, please check HCPU log for details.");
+#endif
     RT_ASSERT(0);
     rt_interrupt_leave();
 }
