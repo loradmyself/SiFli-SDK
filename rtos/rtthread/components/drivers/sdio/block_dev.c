@@ -46,7 +46,8 @@ ALIGN(32) static rt_uint8_t  sdio_cache_buf[cache_blk_size];
 static struct rt_mutex  sdio_mutex;
 
 #define BLK_MIN(a, b) ((a) < (b) ? (a) : (b))
-#define BLK_REQ_ADDR_UNALIGNED(X)    ((rt_uint32_t)(X) & (sizeof(rt_uint32_t) - 1))
+#define BLK_REQ_ADDR_UNALIGNED(X) \
+    ( (((rt_uint32_t)(X)) & (sizeof(rt_uint32_t) - 1)) || HPSYS_RAM_IN_ITCM((rt_ubase_t)(X)) )
 #define BLK_BUF_ACCROSS_512K_BOUNDARY(addr,size) ((addr&0xFFF80000)!=((addr+size)&0xFFF80000))
 
 struct mmcsd_blk_device
