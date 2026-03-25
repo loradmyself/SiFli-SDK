@@ -17,7 +17,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
+#define FLSEEK_SZ_TBL  1024
 struct rt_pollreq;
 
 struct dfs_file_ops
@@ -32,6 +32,7 @@ struct dfs_file_ops
     int (*getdents)(struct dfs_fd *fd, struct dirent *dirp, uint32_t count);
 
     int (*poll)(struct dfs_fd *fd, struct rt_pollreq *req);
+    int (*enable_fast_lseek)(struct dfs_fd *fd, uint8_t enable);
 };
 
 /* file descriptor */
@@ -65,6 +66,7 @@ int dfs_file_unlink(const char *path);
 int dfs_file_write(struct dfs_fd *fd, const void *buf, size_t len);
 int dfs_file_flush(struct dfs_fd *fd);
 int dfs_file_lseek(struct dfs_fd *fd, off_t offset);
+int dfs_file_enable_fast_seek(struct dfs_fd *fd, uint8_t enable);
 const char *dfs_file_getext(const char *fn);
 
 int dfs_file_stat(const char *path, struct stat *buf);

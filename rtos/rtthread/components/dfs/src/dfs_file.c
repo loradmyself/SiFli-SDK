@@ -346,6 +346,32 @@ int dfs_file_lseek(struct dfs_fd *fd, off_t offset)
 
     return result;
 }
+/**
+ * this function will fast seek the offset for specified file descriptor.
+ *
+ * @param fd the file descriptor.
+ * @param enabled function fast seek.
+ *
+ * @return the current position after seek.
+ */
+int dfs_file_enable_fast_seek(struct dfs_fd *fd, uint8_t enable)
+{
+    int result;
+
+    if (fd == NULL)
+        return -EINVAL;
+
+    if (fd->fops->enable_fast_lseek == NULL)
+        return -ENOSYS;
+
+    result = fd->fops->enable_fast_lseek(fd, enable);
+
+    /* update current position */
+    if (result >= 0)
+        fd->pos = result;
+
+    return result;
+}
 
 /**
  * this function will get file information.
