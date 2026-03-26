@@ -9,6 +9,7 @@
 #include "charge.h"
 #include "board.h"
 #include "drv_gpio.h"
+#include "stdlib.h" 
 #ifdef BSP_USING_PM
     #include "bf0_pm.h"
 #endif

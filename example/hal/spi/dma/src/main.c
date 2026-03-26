@@ -114,8 +114,6 @@ static void spi_pinmux_init(void)
     HAL_PIN_Set(PAD_PA20, SPI1_DI,  PIN_PULLUP, 1);
     HAL_PIN_Set(PAD_PA28, SPI1_CLK, PIN_NOPULL, 1);
     HAL_PIN_Set(PAD_PA29, SPI1_CS,  PIN_NOPULL, 1);
-#else
-#error "Unsupported chip for spi_dma example"
 #endif
 }
 
