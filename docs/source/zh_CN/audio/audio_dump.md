@@ -24,14 +24,14 @@
 #define AUDIO_DATA_CAPTURE_FILE
 ```
 - 打开rt thread的FINSH命令，RT_USING_FINSH
-串口dump数据需要用串口输入`udio_data`命令， 对应audio_server.c里audio_data_cmd()这个命令函数，串口输入help，应该能看到audio_data这个命令。
+串口dump数据需要用串口输入`audio_data`命令， 对应audio_server.c里audio_data_cmd()这个命令函数，串口输入help，应该能看到audio_data这个命令。
 ### 1.3 工具使用
 下载安装新的SifliTrace工具(https://wiki.sifli.com/tools/index.html)
 打开工具后，选择大核打log的串口，选择音频后再点击连接，应能看到大核log，然后就可以输入audio_data命令dump数据(系统不能睡眠，不然无法输入命令)  
 
 <img src="png/audio_dump.png" /> 
 
-audio_data命令后面的参数表示可以dump哪几路数据（串口波特率不高的话，不能带太多）  
+audio_data命令后面的参数表示可以dump哪几路数据（串口波特率不高的话，不能dump太多）  
 
 <img src="png/parameter.png" /> 
 

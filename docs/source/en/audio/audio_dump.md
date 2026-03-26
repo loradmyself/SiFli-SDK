@@ -31,7 +31,7 @@ After opening the tool, select the serial port for logging the large core, selec
 
 <img src="png/audio_dump.png" /> 
 
-The parameters after the audio_data command indicate which data channels can be dumped (if the serial port baudrate is not high, it cannot carry too much)  
+The parameters after the audio_data command indicate which data channels can be dumped (if the serial port baudrate is not high, it cannot dump too more channels)  
 
 <img src="png/parameter.png" /> 
 
