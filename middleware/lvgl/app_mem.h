@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: 2026 SiFli Technologies(Nanjing) Co., Ltd
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /**
  * @file app_mem.h
  *
@@ -29,6 +35,18 @@ typedef enum
     IMAGE_CACHE_PSRAM
 } image_cache_t;
 
+#ifndef CACHE_HEAP
+#define CACHE_HEAP IMAGE_CACHE_HEAP
+#endif
+
+#ifndef CACHE_SRAM
+#define CACHE_SRAM IMAGE_CACHE_SRAM
+#endif
+
+#ifndef CACHE_PSRAM
+#define CACHE_PSRAM IMAGE_CACHE_PSRAM
+#endif
+
 
 /**
 @brief apply cache mem for solution applicaiton.
@@ -52,6 +70,39 @@ void *app_cache_realloc(void *memory, size_t new_size, image_cache_t cache_type)
 @param[in] p Pointer of free mem
 */
 void app_cache_free(void *p);
+
+static inline void *app_cache_calloc(size_t nmemb, size_t size, image_cache_t cache_type)
+{
+    size_t total = nmemb * size;
+    void *ptr = app_cache_alloc(total, cache_type);
+
+    if(ptr != RT_NULL)
+    {
+        rt_memset(ptr, 0, total);
+    }
+
+    return ptr;
+}
+
+static inline void *app_malloc(size_t size)
+{
+    return rt_malloc(size);
+}
+
+static inline void *app_calloc(size_t nmemb, size_t size)
+{
+    return rt_calloc(nmemb, size);
+}
+
+static inline void *app_realloc(void *memory, size_t new_size)
+{
+    return rt_realloc(memory, new_size);
+}
+
+static inline void app_free(void *p)
+{
+    rt_free(p);
+}
 
 
 /**
@@ -120,6 +171,19 @@ void *app_anim_mem_realloc(void *p, size_t new_size);
 */
 void app_anim_mem_free(void *p);
 
+static inline void *app_anim_calloc(size_t nmemb, size_t size)
+{
+    size_t total = nmemb * size;
+    void *ptr = app_anim_mem_alloc(total, true);
+
+    if(ptr != RT_NULL)
+    {
+        rt_memset(ptr, 0, total);
+    }
+
+    return ptr;
+}
+
 /**
 @brief get a sapshot buffer, which size equal to screen size. the buffer only valid when PSRAM exist
 @param[in] p Pointer of free mem. (if no psram, NULL will be returned)
@@ -130,6 +194,13 @@ char *app_snapshot_get_buf(void);
 @brief refre cache to psram when psram cacheable
 */
 void app_mem_flush_cache(void *data, uint32_t size);
+
+/**
+ * @brief  I-Cache Invalid by address
+ * @param  data Address
+ * @param  size Size of memory block (in number of bytes)
+*/
+void app_mem_invalid_icache(void *data, uint32_t size);
 
 /**
 @brief get a app memory type: PSRAM_HEAP , SRAM_HEAP ...
@@ -265,10 +336,15 @@ uint8_t app_get_mem_type(void *data);
 #define app_canvas_mem_free(p) lv_mem_free(p)
 #endif
 
-//#define FREETYPE_ACT_CACHE_SIZE (FT_CACHE_SIZE) // * 75 / 100)
-#define FREETYPE_ACT_CACHE_SIZE (0)
+#ifndef FT_CACHE_SIZE
+#define FT_CACHE_SIZE 0
+#endif
 
-#if defined(USING_EZIPA_DEC)
+#ifndef FREETYPE_ACT_CACHE_SIZE
+#define FREETYPE_ACT_CACHE_SIZE (FT_CACHE_SIZE) // * 75 / 100)
+#endif
+
+#if defined(USING_EZIPA_DEC) && defined(EZIPA_CUSTOM_INCLUDE_FILE)
 #if IMAGE_CACHE_IN_PSRAM_SIZE > 0
 #define EZIPA_LARGE_BUF_MALLOC(size) app_cache_alloc(size, IMAGE_CACHE_PSRAM)
 #define EZIPA_LARGE_BUF_FREE(p) app_cache_free(p)

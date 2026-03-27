@@ -148,8 +148,10 @@ MSH_CMD_EXPORT_ALIAS(app_mem_log, app_mem, app_mem: open or close app_mem log);
     L2_NON_RET_BSS_SECT_END
 #elif defined(APP_TRANS_ANIMATION_OVERWRITE) || defined(APP_TRANS_ANIMATION_NONE)
     /*No trans animtion buf need*/
-#else
+#elif defined(GUI_APP_FRAMEWORK)
     #error "Need trans animtion buf?"
+#else
+    /* Non-GUI_APP_FRAMEWORK projects don't need transition buffers. */
 #endif /* APP_TRANS_ANIMATION_SCALE_NEXT */
 
 
@@ -349,34 +351,11 @@ void app_message_free(void *p)
  * @param cf color format
  * @return size in bytes
  */
-uint32_t lv_img_buf_get_img_size(lv_coord_t w, lv_coord_t h, lv_img_cf_t cf)
+static inline uint32_t lv_img_buf_get_img_size(lv_coord_t w, lv_coord_t h, uint8_t cf)
 {
-    switch (cf)
-    {
-    case LV_IMG_CF_TRUE_COLOR:
-        return LV_IMAGE_BUF_SIZE_TRUE_COLOR(w, h);
-    case LV_IMG_CF_TRUE_COLOR_ALPHA:
-        return LV_IMAGE_BUF_SIZE_TRUE_COLOR_ALPHA(w, h);
-    case LV_COLOR_FORMAT_A1:
-        return LV_IMAGE_BUF_SIZE_ALPHA_1BIT(w, h);
-    case LV_COLOR_FORMAT_A2:
-        return LV_IMAGE_BUF_SIZE_ALPHA_2BIT(w, h);
-    case LV_COLOR_FORMAT_A4:
-        return LV_IMAGE_BUF_SIZE_ALPHA_4BIT(w, h);
-    case LV_IMG_CF_ALPHA_8BIT:
-        return LV_IMAGE_BUF_SIZE_ALPHA_8BIT(w, h);
-    case LV_COLOR_FORMAT_I1:
-        return LV_IMAGE_BUF_SIZE_INDEXED_1BIT(w, h);
-    case LV_COLOR_FORMAT_I2:
-        return LV_IMAGE_BUF_SIZE_INDEXED_2BIT(w, h);
-    case LV_COLOR_FORMAT_I4:
-        return LV_IMAGE_BUF_SIZE_INDEXED_4BIT(w, h);
-    case LV_COLOR_FORMAT_I8:
-        return LV_IMAGE_BUF_SIZE_INDEXED_8BIT(w, h);
-    default:
-        return 0;
-    }
+    return lv_draw_buf_width_to_stride(w, cf) * h;
 }
+
 #endif
 
 lv_img_dsc_t *app_cache_img_alloc(lv_coord_t w, lv_coord_t h, lv_img_cf_t cf, uint32_t data_size, image_cache_t cache_type)
@@ -652,6 +631,14 @@ void app_mem_flush_cache(void *data, uint32_t size)
 #endif
 }
 
+void app_mem_invalid_icache(void *data, uint32_t size)
+{
+#ifndef WIN32
+    if (PSRAM_HEAP == app_get_mem_type(data))
+        SCB_InvalidateICache_by_Addr(data, (size + 3) >> 2 << 2);
+#endif
+}
+
 #if (defined(BSP_USING_PSRAM) || defined(BSP_USING_PC_SIMULATOR)) && defined(SNAPSHOT_CACHE_IN_PSRAM)
 char *app_snapshot_get_buf(void)
 {
@@ -877,4 +864,3 @@ uint32_t app_mem_get_ft_cache_avail_size(void)
 /**********************
  *   STATIC FUNCTIONS
  **********************/
-
