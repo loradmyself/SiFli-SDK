@@ -711,7 +711,7 @@ rt_int32_t rt_mmcsd_blk_probe(struct rt_mmcsd_card *card)
             /* get the first partition */
 #if !defined(CFG_FACTORY_DEBUG)
             status = dfs_filesystem_get_partition(&blk_dev->part, sector, i);
-            if (status == RT_EOK)
+            if (0)
             {
                 rt_snprintf(dname, 4, "sd%d",  i);
                 rt_snprintf(sname, 8, "sem_sd%d",  i);
