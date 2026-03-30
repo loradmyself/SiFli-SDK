@@ -128,7 +128,7 @@ static void audio_3a_module_free(audio_3a_t *env)
     env->rbuf_dwlink_pool = NULL;
     rt_ringbuffer_destroy(env->rbuf_out);
     env->rbuf_out = NULL;
-    audio_mem_free(env->rbuf_dwlink_pool);
+    audio_mem_free(env->mic_far);
     env->mic_far = NULL;
 }
 
