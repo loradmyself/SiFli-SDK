@@ -630,7 +630,7 @@ struct rt_device *fal_mtd_device_create(const char *parition_name)
 }
 
 #if defined(RT_USING_SPI_MSD)
-struct rt_device *fal_mtd_msd_device_create(const struct fal_partition *fal_part)
+static struct rt_device *fal_mtd_msd_device_create(const struct fal_partition *fal_part)
 {
     rt_device_t msd = rt_device_find(fal_part->flash_name);
     if (msd == NULL)
