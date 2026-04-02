@@ -31,4 +31,3 @@ lv_res_t lv_ext_res_mng_dl_impl_destroy(lv_ext_res_mng_t res_mng);
 #endif /* LV_USING_EXT_RESOURCE_MANAGER */
 
 #endif /* LV_EXT_RESOURCE_MANAGER_DL_IMPL_H_ */
-

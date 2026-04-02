@@ -5,8 +5,9 @@
  */
 
 #include "rtconfig.h"
+#include <string.h>
+#include <rtthread.h>
 #include "lvgl.h"
-#include "lvsf.h"
 
 #ifdef LV_USING_EXT_RESOURCE_MANAGER
 
@@ -441,4 +442,3 @@ lv_res_t lv_ext_clear_lang_pack(lv_ext_res_mng_t res_mng)
 }
 
 #endif /*LV_USING_EXT_RESOURCE_MANAGER*/
-

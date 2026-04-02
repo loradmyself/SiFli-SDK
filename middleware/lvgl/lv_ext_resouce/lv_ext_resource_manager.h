@@ -7,9 +7,9 @@
 #ifndef LV_EXT_RESOURCE_MANAGER_H_
 #define LV_EXT_RESOURCE_MANAGER_H_
 
+#include <stdbool.h>
 #include "rtconfig.h"
 #include "lvgl.h"
-#include "lvsf.h"
 
 #ifdef LV_USING_EXT_RESOURCE_MANAGER
 //#include "app_mem.h"
@@ -298,4 +298,3 @@ static inline  void lv_ext_set_local_bg(lv_obj_t *obj, lv_color_t bgcolor, lv_op
 }
 
 #endif /* LV_EXT_RESOURCE_MANAGER_H_ */
-

@@ -157,4 +157,3 @@ lv_res_t lv_ext_res_mng_dl_impl_destroy(lv_ext_res_mng_t res_mng)
 #endif
 
 #endif /*LV_EXT_RESOURCE_MANAGER_DL_IMPL*/
-
