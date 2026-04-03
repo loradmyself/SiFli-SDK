@@ -10,8 +10,8 @@ path = []
 # if GetDepend('LV_USING_FREETYPE_ENGINE'):
 if GetDepend('PKG_FREETYPE'):
     path  = [cwd + '/include']
-    # if GetDepend('FREETYPE_NORMAL_FONT') and os.path.isfile(os.path.join(cwd, 'src/base/ftsystem.c')):
-    if os.path.isfile(os.path.join(cwd, 'src/base/ftsystem.c')):
+    if (not GetDepend('LV_USING_FREETYPE_ENGINE') or GetDepend('FREETYPE_NORMAL_FONT')) and \
+       os.path.isfile(os.path.join(cwd, 'src/base/ftsystem.c')):
         src += ['src/base/ftsystem.c',
                 'src/base/ftinit.c',
                 'src/base/ftdebug.c',
