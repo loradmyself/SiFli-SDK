@@ -36,7 +36,8 @@
         "regions":   [
              {
                 "offset": "0x00000000", 
-                "max_size": "0x00400000"
+                "max_size": "0x00400000",
+                "tags": []
              } 
         ]
     },
@@ -48,6 +49,7 @@
             {
                 "offset": "0x00000000", 
                 "max_size": "0x00600000", 
+                "tags": [],
                 "ftab": {
                     "name": "main", 
                     "address": [
