@@ -1281,6 +1281,28 @@ rt_err_t rt_memheap_remove_from_sys(struct rt_memheap *heap)
     return RT_EOK;
 }
 
+__ROM_USED rt_uint32_t rt_mem_available_size(void)
+{
+    return _heap.available_size;
+}
+
+__ROM_USED rt_uint32_t rt_mem_header_size(void)
+{
+    return sizeof(struct rt_memheap_item);
+}
+
+__ROM_USED rt_uint8_t rt_mem_is_sysheap(void *ptr)
+{
+    return ((void *) _heap.start_addr <= ptr && ptr < (void *) _heap.start_addr + _heap.pool_size) ? 1 : 0;
+}
+__ROM_USED rt_uint32_t rt_mem_ret_addr_offset(void)
+{
+#ifdef RT_USING_MEMTRACE
+    return sizeof(struct rt_memheap_item) - (unsigned long)(&((struct rt_memheap_item *)0)->ret_addr);
+#else
+    return 0;
+#endif
+}
 #ifdef RT_USING_FINSH
 #include <finsh.h>
 
