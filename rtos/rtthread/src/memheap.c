@@ -1206,6 +1206,15 @@ __ROM_USED void *rt_realloc(void *rmem, rt_size_t newsize)
         }
     }
 
+    if (new_ptr != RT_NULL)
+    {
+#ifdef RT_USING_MEMTRACE
+        struct rt_memheap_item *header_ptr;
+        header_ptr    = (struct rt_memheap_item *)((rt_uint8_t *)new_ptr - RT_MEMHEAP_SIZE);
+        header_ptr->ret_addr = MEMHEAP_RET_ADDR;
+#endif /* RT_USING_MEMTRACE */
+    }
+
     return new_ptr;
 }
 RTM_EXPORT(rt_realloc);
@@ -1221,6 +1230,11 @@ __ROM_USED void *rt_calloc(rt_size_t count, rt_size_t size)
     {
         /* clean memory */
         rt_memset(ptr, 0, total_size);
+#ifdef RT_USING_MEMTRACE
+        struct rt_memheap_item *header_ptr;
+        header_ptr    = (struct rt_memheap_item *)((rt_uint8_t *)ptr - RT_MEMHEAP_SIZE);
+        header_ptr->ret_addr = MEMHEAP_RET_ADDR;
+#endif /* RT_USING_MEMTRACE */
     }
 
     return ptr;
