@@ -299,6 +299,7 @@ void rt_memory_info(rt_uint32_t *total,
 rt_err_t rt_mem_backup(rt_uint8_t *buf, rt_uint32_t max_size, rt_uint32_t *used_size, rt_compressor_cb_t compressor_cb);
 rt_err_t rt_mem_restore(void *instance, rt_uint8_t *buf, rt_uint32_t size, rt_compressor_cb_t decompressor_cb);
 rt_uint32_t rt_mem_base(void);
+rt_uint8_t rt_mem_is_sysheap(void *ptr);
 
 /**
  * @brief dump memory callback type

@@ -1148,7 +1148,7 @@ __ROM_USED rt_uint32_t rt_mem_header_size(void)
     return sizeof(struct heap_mem);
 }
 
-__ROM_USED rt_uint8_t rt_mem_header(void *ptr)
+__ROM_USED rt_uint8_t rt_mem_is_sysheap(void *ptr)
 {
     return ((void *)heap_ptr <= ptr && ptr < (void *)heap_end) ? 1 : 0;
 }
