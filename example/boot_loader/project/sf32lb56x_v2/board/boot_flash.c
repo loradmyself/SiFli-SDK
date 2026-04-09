@@ -267,7 +267,11 @@ void dfu_flash_init()
     init_mpi3(BOOT_FROM_NAND());
     boot_handle = (FLASH_HandleTypeDef *)&spi_flash_handle[2].handle;
 #else
-    //    init_sdnand();
+#if defined(BOOT_DEVICE_SDMMC1)
+    init_sdnand();
+#elif defined(BOOT_DEVICE_SDMMC2)
+    init_sdemmc2();
+#endif
     boot_handle = NULL;
 #endif
 }
