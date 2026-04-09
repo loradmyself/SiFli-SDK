@@ -193,8 +193,8 @@
 
 #else
 
-#define flac_printf printf
-#define flac_fprintf fprintf
+#define flac_printf(fmt, ...) rt_printf(fmt, ##__VA_ARGS__)
+#define flac_fprintf(err, fmt, ...) rt_kprintf(fmt, ##__VA_ARGS__)
 #define flac_vfprintf vfprintf
 
 #define flac_fopen fopen

@@ -22,6 +22,10 @@ extern "C" {
 
 #include <stddef.h>
 #include <ogg/os_types.h>
+#include <rtthread.h>
+
+#undef fprintf
+#define fprintf(err, fmt, ...) rt_kprintf(fmt, ##__VAR_ARGS__)
 
 typedef struct {
   void *iov_base;

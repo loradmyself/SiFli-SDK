@@ -41,5 +41,5 @@
 
 #define FLAC_CHECK_RETURN(x) \
 			{	if ((x) < 0) \
-					fprintf (stderr, "%s : %s\n", #x, strerror (errno)) ; \
+					rt_kprintf("%s : %s\n", #x, strerror (errno)) ; \
 			}
