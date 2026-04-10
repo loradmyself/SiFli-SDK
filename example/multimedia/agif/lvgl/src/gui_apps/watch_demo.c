@@ -12,6 +12,7 @@
 #ifndef _WIN32
     #include "drv_lcd.h"
 #endif
+#include "lvsf.h"
 #include "gui_app_fwk.h"
 #include "lv_ex_data.h"
 #include "app_mem.h"
