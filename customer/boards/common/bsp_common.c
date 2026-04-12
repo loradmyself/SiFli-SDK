@@ -28,7 +28,7 @@ __weak void BSP_SD_PowerUp(void)
 
 
 
-#if defined (__GNUC__)  && defined(BSP_USING_NO_OS)
+#if !defined(__CLANG_ARM) && defined (__GNUC__) && defined(BSP_USING_NO_OS)
 
 #include <sys/stat.h>
 #include <errno.h>
@@ -90,6 +90,6 @@ __weak int _open(const char *path, int flags, int mode)
 //     return (void *)-1;
 // }
 
-#endif /* __GNUC__ && !RT_USING_LIBC */
+#endif /* !__CLANG_ARM && __GNUC__ && !RT_USING_LIBC */
 
 #endif /* BSP_USING_PC_SIMULATOR */
