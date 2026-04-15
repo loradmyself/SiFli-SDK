@@ -124,14 +124,22 @@ cd C:\OpenSiFli\SiFli-SDK
 - 在 `SIFLI_SDK_TOOLS_PATH` 下初始化 profile 级别的 Conan 环境
 
 ````{note}
-国内用户可以改用下面的命令通过国内镜像源安装工具包，避免默认源下载速度慢。注意，选择执行下述命令的时候不需要再执行上述代码块中的命令。
+国内用户可以改用下面的命令一键启用国内镜像预设，避免默认源下载速度慢。注意，选择执行下述命令的时候不需要再执行上述代码块中的命令。
 
 ```powershell
 cd C:\OpenSiFli\SiFli-SDK
-$env:SIFLI_SDK_GITHUB_ASSETS="https://downloads.sifli.com/github_assets"
-$env:SIFLI_SDK_PYPI_DEFAULT_INDEX="https://mirrors.ustc.edu.cn/pypi/simple"
+$env:SIFLI_SDK_MIRROR_CHINA="1"
 .\install.ps1
 ```
+
+该预设开启后会强制覆盖以下环境变量：
+
+- `SIFLI_SDK_GITHUB_ASSETS="https://downloads.sifli.com/github_assets"`
+- `SIFLI_SDK_PYPI_DEFAULT_INDEX="https://mirrors.ustc.edu.cn/pypi/simple"`
+- `UV_PYTHON_DOWNLOADS_JSON_URL="https://uv.agentsmirror.com/metadata/python-downloads.json"`
+- `UV_PYPY_INSTALL_MIRROR="https://uv.agentsmirror.com/pypy"`
+
+如果不想使用整组预设，也可以继续手工设置这些细粒度变量。
 
 ````
 

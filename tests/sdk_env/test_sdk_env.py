@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import shutil
 import sys
@@ -237,6 +238,52 @@ class StateAndPathTests(unittest.TestCase):
         self.assertEqual(config.cache_root, os.path.realpath("/tmp/cache-root"))
         self.assertEqual(config.staging_root, os.path.realpath("/tmp/staging-root"))
         self.assertTrue(config.offline)
+
+    def test_apply_china_mirror_preset_overrides_fine_grained_settings(self) -> None:
+        env = {
+            "SIFLI_SDK_MIRROR_CHINA": "yes",
+            "SIFLI_SDK_GITHUB_ASSETS": "https://override.example/github_assets",
+            "SIFLI_SDK_PYPI_DEFAULT_INDEX": "https://override.example/pypi/simple",
+            "UV_PYTHON_DOWNLOADS_JSON_URL": "https://override.example/python-downloads.json",
+            "UV_PYPY_INSTALL_MIRROR": "https://override.example/pypy",
+        }
+
+        self.assertTrue(sdk_env.apply_china_mirror_preset(env))
+        self.assertEqual(env["SIFLI_SDK_GITHUB_ASSETS"], "https://downloads.sifli.com/github_assets")
+        self.assertEqual(env["SIFLI_SDK_PYPI_DEFAULT_INDEX"], "https://mirrors.ustc.edu.cn/pypi/simple")
+        self.assertEqual(
+            env["UV_PYTHON_DOWNLOADS_JSON_URL"],
+            "https://uv.agentsmirror.com/metadata/python-downloads.json",
+        )
+        self.assertEqual(env["UV_PYPY_INSTALL_MIRROR"], "https://uv.agentsmirror.com/pypy")
+
+    def test_runtime_config_load_applies_china_mirror_preset(self) -> None:
+        temp_home = tempfile.mkdtemp(prefix="sdk-env-home-")
+        self.addCleanup(lambda: shutil.rmtree(temp_home, ignore_errors=True))
+        install_root = os.path.join(temp_home, ".sifli")
+        os.makedirs(install_root, exist_ok=True)
+
+        with mock.patch.dict(
+            os.environ,
+            {
+                "HOME": temp_home,
+                "SIFLI_SDK_TOOLS_PATH": install_root,
+                "SIFLI_SDK_MIRROR_CHINA": "1",
+            },
+            clear=True,
+        ):
+            config = sdk_env.RuntimeConfig.load(self.make_args())
+            self.assertEqual(
+                os.environ["UV_PYTHON_DOWNLOADS_JSON_URL"],
+                "https://uv.agentsmirror.com/metadata/python-downloads.json",
+            )
+            self.assertEqual(os.environ["UV_PYPY_INSTALL_MIRROR"], "https://uv.agentsmirror.com/pypy")
+
+        self.assertEqual(config.python_default_index, "https://mirrors.ustc.edu.cn/pypi/simple")
+        self.assertIn(
+            {"type": "github-assets", "url": "https://downloads.sifli.com/github_assets"},
+            config.sources,
+        )
 
     def test_load_state_resets_unsupported_schema(self) -> None:
         temp_dir = tempfile.mkdtemp(prefix="sdk-env-state-")
@@ -499,6 +546,71 @@ class DownloadTests(unittest.TestCase):
             "Failed to download artifact tool.tar.xz from https://mirror.example/github_assets/OpenSiFli/tooling/releases/download/v1.0/tool.tar.xz, falling back to the next source.",
             warnings,
         )
+
+    def test_ensure_python_env_passes_china_mirror_env_to_uv_commands(self) -> None:
+        temp_install_root = tempfile.mkdtemp(prefix="sdk-env-install-root-")
+        self.addCleanup(lambda: shutil.rmtree(temp_install_root, ignore_errors=True))
+        config = sdk_env.RuntimeConfig(
+            install_root=temp_install_root,
+            cache_root=os.path.join(temp_install_root, "cache"),
+            staging_root=os.path.join(temp_install_root, "staging"),
+            offline=False,
+            python_default_index="https://pypi.org/simple",
+            python_indexes=[],
+            python_index_strategy="first-index",
+            sources=[],
+        )
+        lock = sdk_env.ProfileLock(
+            path="/tmp/lock.json",
+            schema_version=1,
+            profile="default",
+            python_version="3.13.0",
+            python_project_dir="tools/locks/default",
+            python_lock_file="tools/locks/default/uv.lock",
+            default_targets=["all"],
+            tools={"sftool": "0.1.16"},
+            path_order=["sftool"],
+            conan_config_id="sdk.conan-config.v2.4",
+            conan_remote_name="artifactory",
+            conan_remote_url="https://example.com",
+            conan_home_subdir="default",
+        )
+        env_path = sdk_env.python_env_path(config, lock)
+        python_path = sdk_env.python_executable(env_path)
+        os.makedirs(os.path.dirname(python_path), exist_ok=True)
+        with open(python_path, "w", encoding="utf-8") as f:
+            f.write("")
+
+        with mock.patch.dict(os.environ, {"SIFLI_SDK_MIRROR_CHINA": "true"}, clear=True):
+            with mock.patch("sdk_env.run_command") as run_command:
+                with mock.patch(
+                    "sdk_env.temporary_uv_project",
+                    return_value=contextlib.nullcontext("/tmp/project"),
+                ):
+                    result = sdk_env.ensure_python_env(config, lock)
+
+        self.assertEqual(result, env_path)
+        self.assertEqual(run_command.call_count, 2)
+
+        python_install_call = run_command.call_args_list[0]
+        self.assertEqual(python_install_call.args[0], ["uv", "python", "install", "3.13.0"])
+        python_install_env = python_install_call.kwargs["env"]
+        self.assertEqual(
+            python_install_env["UV_PYTHON_DOWNLOADS_JSON_URL"],
+            "https://uv.agentsmirror.com/metadata/python-downloads.json",
+        )
+        self.assertEqual(python_install_env["UV_PYPY_INSTALL_MIRROR"], "https://uv.agentsmirror.com/pypy")
+        self.assertNotIn("UV_PROJECT_ENVIRONMENT", python_install_env)
+
+        sync_call = run_command.call_args_list[1]
+        self.assertEqual(sync_call.args[0][:4], ["uv", "sync", "--project", "/tmp/project"])
+        sync_env = sync_call.kwargs["env"]
+        self.assertEqual(
+            sync_env["UV_PYTHON_DOWNLOADS_JSON_URL"],
+            "https://uv.agentsmirror.com/metadata/python-downloads.json",
+        )
+        self.assertEqual(sync_env["UV_PYPY_INSTALL_MIRROR"], "https://uv.agentsmirror.com/pypy")
+        self.assertEqual(sync_env["UV_PROJECT_ENVIRONMENT"], env_path)
 
 
 class UvMirrorRewriteTests(unittest.TestCase):

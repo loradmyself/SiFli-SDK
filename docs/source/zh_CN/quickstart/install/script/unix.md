@@ -159,14 +159,22 @@ cd ~/OpenSiFli/SiFli-SDK
 - 根据 `tools/locks/default/lock.json` 安装当前 profile 绑定的工具版本
 - 在 `SIFLI_SDK_TOOLS_PATH` 下初始化 profile 级别的 Conan 环境
 
-对于国内用户，可以分别为工具归档和 Python 包配置镜像源：
+对于国内用户，可以通过 `SIFLI_SDK_MIRROR_CHINA` 一键启用国内镜像预设：
 
 ```bash
 cd ~/OpenSiFli/SiFli-SDK
-export SIFLI_SDK_GITHUB_ASSETS="https://downloads.sifli.com/github_assets"
-export SIFLI_SDK_PYPI_DEFAULT_INDEX="https://mirrors.ustc.edu.cn/pypi/simple"
+export SIFLI_SDK_MIRROR_CHINA=1
 ./install.sh
 ```
+
+该预设开启后会强制覆盖以下环境变量：
+
+- `SIFLI_SDK_GITHUB_ASSETS="https://downloads.sifli.com/github_assets"`
+- `SIFLI_SDK_PYPI_DEFAULT_INDEX="https://mirrors.ustc.edu.cn/pypi/simple"`
+- `UV_PYTHON_DOWNLOADS_JSON_URL="https://uv.agentsmirror.com/metadata/python-downloads.json"`
+- `UV_PYPY_INSTALL_MIRROR="https://uv.agentsmirror.com/pypy"`
+
+如果不想使用整组预设，也可以继续手工设置这些细粒度变量。
 
 ### 自定义工具安装路径（可选）
 

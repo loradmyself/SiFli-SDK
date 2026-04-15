@@ -167,16 +167,22 @@ cd ~/OpenSiFli/SiFli-SDK
 - install the SDK toolchain versions bound by `tools/locks/default/lock.json`
 - initialize the profile-specific Conan home under `SIFLI_SDK_TOOLS_PATH`
 
-For domestic users in China, you can separately configure the artifact mirror and the Python package index:
+For domestic users in China, you can enable the bundled China mirror preset with `SIFLI_SDK_MIRROR_CHINA`:
 
 ```bash
 cd ~/OpenSiFli/SiFli-SDK
-export SIFLI_SDK_GITHUB_ASSETS="https://downloads.sifli.com/github_assets"
-export SIFLI_SDK_PYPI_DEFAULT_INDEX="https://mirrors.ustc.edu.cn/pypi/simple"
+export SIFLI_SDK_MIRROR_CHINA=1
 ./install.sh
 ```
 
-For standard PyPI mirrors, setting `SIFLI_SDK_PYPI_DEFAULT_INDEX` is enough. The SDK will keep the committed `uv.lock` in upstream canonical form, and rewrite the canonical PyPI registry and artifact URLs to the mirror in a temporary lock copy during install/export.
+When enabled, this preset forcefully overrides the following environment variables:
+
+- `SIFLI_SDK_GITHUB_ASSETS="https://downloads.sifli.com/github_assets"`
+- `SIFLI_SDK_PYPI_DEFAULT_INDEX="https://mirrors.ustc.edu.cn/pypi/simple"`
+- `UV_PYTHON_DOWNLOADS_JSON_URL="https://uv.agentsmirror.com/metadata/python-downloads.json"`
+- `UV_PYPY_INSTALL_MIRROR="https://uv.agentsmirror.com/pypy"`
+
+If you do not want the bundled preset, you can still set the fine-grained mirror variables manually.
 
 ### Custom Tool Installation Path (Optional)
 

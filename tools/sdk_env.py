@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from typing import Any
 from typing import Dict
 from typing import List
+from typing import MutableMapping
 from typing import Optional
 from typing import Sequence
 from typing import Tuple
@@ -54,6 +55,13 @@ DEFAULT_PYPI_FILES_PREFIX = "https://files.pythonhosted.org/packages"
 DEFAULT_UPSTREAM_URL = "https://downloads.sifli.com/dl/sifli-sdk"
 CONFIG_FILE_NAME = "config.json"
 STATE_FILE_NAME = "sifli-sdk-env.json"
+CHINA_MIRROR_ENV_NAME = "SIFLI_SDK_MIRROR_CHINA"
+CHINA_MIRROR_PRESET = {
+    "SIFLI_SDK_GITHUB_ASSETS": "https://downloads.sifli.com/github_assets",
+    "SIFLI_SDK_PYPI_DEFAULT_INDEX": "https://mirrors.ustc.edu.cn/pypi/simple",
+    "UV_PYTHON_DOWNLOADS_JSON_URL": "https://uv.agentsmirror.com/metadata/python-downloads.json",
+    "UV_PYPY_INSTALL_MIRROR": "https://uv.agentsmirror.com/pypy",
+}
 
 POSIX_SHELLS = {"bash", "zsh", "sh"}
 POWERSHELL_SHELLS = {"powershell", "pwsh"}
@@ -256,6 +264,12 @@ class RuntimeConfig:
 
     @classmethod
     def load(cls, args: argparse.Namespace) -> "RuntimeConfig":
+        china_mirror_applied = apply_china_mirror_preset()
+        if china_mirror_applied:
+            log_info(f"Applied China mirror preset from {CHINA_MIRROR_ENV_NAME}.")
+            for key, value in CHINA_MIRROR_PRESET.items():
+                log_kv(key, value)
+
         install_root = os.path.realpath(
             os.path.expanduser(
                 os.environ.get("SIFLI_SDK_TOOLS_PATH")
@@ -368,6 +382,15 @@ def parse_bool(value: Optional[str], default: bool = False) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def apply_china_mirror_preset(env: Optional[MutableMapping[str, str]] = None) -> bool:
+    target_env = os.environ if env is None else env
+    if not parse_bool(target_env.get(CHINA_MIRROR_ENV_NAME), default=False):
+        return False
+    for key, value in CHINA_MIRROR_PRESET.items():
+        target_env[key] = value
+    return True
 
 
 def parse_csv_env(value: Optional[str]) -> List[str]:
@@ -1038,14 +1061,16 @@ def uv_index_args(config: RuntimeConfig) -> List[str]:
 
 def ensure_python_env(config: RuntimeConfig, lock: ProfileLock) -> str:
     env_path = python_env_path(config, lock)
-    env = os.environ.copy()
-    env["UV_PROJECT_ENVIRONMENT"] = env_path
+    uv_env = os.environ.copy()
+    apply_china_mirror_preset(uv_env)
+    sync_env = uv_env.copy()
+    sync_env["UV_PROJECT_ENVIRONMENT"] = env_path
     log_kv("env path", env_path)
 
     python_install_cmd = ["uv", "python", "install", lock.python_version]
     if config.offline:
         python_install_cmd.append("--offline")
-    run_command(python_install_cmd)
+    run_command(python_install_cmd, env=uv_env)
 
     with temporary_uv_project(lock, config) as project_dir:
         sync_cmd = [
@@ -1059,7 +1084,7 @@ def ensure_python_env(config: RuntimeConfig, lock: ProfileLock) -> str:
             "--no-install-project",
             *uv_index_args(config),
         ]
-        run_command(sync_cmd, env=env)
+        run_command(sync_cmd, env=sync_env)
     python_path = python_executable(env_path)
     if not os.path.exists(python_path):
         raise SDKEnvError(f"python environment was created but interpreter is missing: {python_path}")

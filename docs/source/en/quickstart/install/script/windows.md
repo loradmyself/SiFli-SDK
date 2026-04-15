@@ -124,16 +124,22 @@ cd C:\OpenSiFli\SiFli-SDK
 - initialize the profile-specific Conan home under `SIFLI_SDK_TOOLS_PATH`
 
 ````{note}
-Domestic users in China can use the following commands to install tool packages through domestic mirror sources to avoid slow download speeds from default sources. Note that if you choose to execute the following commands, you do not need to execute the commands in the above code block.
+Domestic users in China can use the following commands to enable the bundled China mirror preset and avoid slow downloads from default sources. Note that if you choose to execute the following commands, you do not need to execute the commands in the above code block.
 
 ```powershell
 cd C:\OpenSiFli\SiFli-SDK
-$env:SIFLI_SDK_GITHUB_ASSETS="https://downloads.sifli.com/github_assets"
-$env:SIFLI_SDK_PYPI_DEFAULT_INDEX="https://mirrors.ustc.edu.cn/pypi/simple"
+$env:SIFLI_SDK_MIRROR_CHINA="1"
 .\install.ps1
 ```
 
-For standard PyPI mirrors, setting `SIFLI_SDK_PYPI_DEFAULT_INDEX` is enough. The SDK will keep the committed `uv.lock` in upstream canonical form, and rewrite the canonical PyPI registry and artifact URLs to the mirror in a temporary lock copy during install/export.
+When enabled, this preset forcefully overrides the following environment variables:
+
+- `SIFLI_SDK_GITHUB_ASSETS="https://downloads.sifli.com/github_assets"`
+- `SIFLI_SDK_PYPI_DEFAULT_INDEX="https://mirrors.ustc.edu.cn/pypi/simple"`
+- `UV_PYTHON_DOWNLOADS_JSON_URL="https://uv.agentsmirror.com/metadata/python-downloads.json"`
+- `UV_PYPY_INSTALL_MIRROR="https://uv.agentsmirror.com/pypy"`
+
+If you do not want the bundled preset, you can still set the fine-grained mirror variables manually.
 
 ````
 
