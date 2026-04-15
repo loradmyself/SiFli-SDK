@@ -684,7 +684,6 @@ void audio_3a_data_process(audio_3a_t *p_3a_env, uint8_t *fifo, uint16_t fifo_si
     audio_dump_data(ADUMP_DC_OUT, (uint8_t *)data_out, p_3a_env->frame_len);
 #endif
 
-    if (p_3a_env->is_far_putted)
     {
         data_in = data_out;  //spframe
         data_out = outframe;
@@ -705,7 +704,7 @@ void audio_3a_data_process(audio_3a_t *p_3a_env, uint8_t *fifo, uint16_t fifo_si
 
         data_in2 = data_out; //outframe
 #ifdef WEBRTC_AECM
-        if (g_u16_test_aec)
+        if (p_3a_env->is_far_putted && g_u16_test_aec)
         {
             aec_input_para_t input_para;
             data_out = outframe2;
@@ -794,10 +793,6 @@ bypass_3a:
         audio_mem_free(outframe);
         audio_mem_free(outframe2);
 #endif
-    }
-    else
-    {
-        LOG_I("3a_w rbuf_far empty");
     }
 }
 
