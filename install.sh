@@ -21,4 +21,4 @@ if ! command -v uv >/dev/null 2>&1; then
     exit 1
 fi
 
-uv run --with rich --with tomli_w --python 3.13.0 --no-project "${SIFLI_SDK_PATH}/tools/sdk_env.py" install "$@"
+uv run --with rich --with tomli_w --python 3.13.11 --no-project "${SIFLI_SDK_PATH}/tools/sdk_env.py" install "$@"

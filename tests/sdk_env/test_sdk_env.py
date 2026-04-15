@@ -43,7 +43,7 @@ class CompatHashTests(unittest.TestCase):
             {
               "schema_version": 1,
               "profile": "default",
-              "python": {"version": "3.13.0", "project_dir": "tools/locks/default", "lock_file": "tools/locks/default/uv.lock"},
+              "python": {"version": "3.13.11", "project_dir": "tools/locks/default", "lock_file": "tools/locks/default/uv.lock"},
               "defaults": {"targets": ["all"]},
               "tools": {"sftool": "0.1.16"},
               "path_order": ["sftool"],
@@ -60,7 +60,7 @@ class CompatHashTests(unittest.TestCase):
               "path_order": ["sftool"],
               "tools": {"sftool": "0.1.16"},
               "defaults": {"targets": ["all"]},
-              "python": {"lock_file": "tools/locks/default/uv.lock", "project_dir": "tools/locks/default", "version": "3.13.0"}
+              "python": {"lock_file": "tools/locks/default/uv.lock", "project_dir": "tools/locks/default", "version": "3.13.11"}
             }
             """
         ).strip()
@@ -125,7 +125,7 @@ class CompatHashTests(unittest.TestCase):
             {
               "schema_version": 1,
               "profile": "default",
-              "python": {"version": "3.13.0", "project_dir": "tools/locks/default", "lock_file": "tools/locks/default/uv.lock"},
+              "python": {"version": "3.13.11", "project_dir": "tools/locks/default", "lock_file": "tools/locks/default/uv.lock"},
               "defaults": {"targets": ["all"]},
               "tools": {"sftool": "0.1.16"},
               "path_order": ["sftool"],
@@ -187,7 +187,7 @@ class StateAndPathTests(unittest.TestCase):
         temp_dir = tempfile.mkdtemp(prefix="sdk-env-state-")
         self.addCleanup(lambda: shutil.rmtree(temp_dir, ignore_errors=True))
         state_path = os.path.join(temp_dir, "sifli-sdk-env.json")
-        installed = {"python": {"version": "3.13.0", "env_path": "/tmp/env"}}
+        installed = {"python": {"version": "3.13.11", "env_path": "/tmp/env"}}
         sdk_env.write_profile_state(
             state_path,
             "/repo",
@@ -333,7 +333,7 @@ class StateAndPathTests(unittest.TestCase):
             path="/tmp/lock.json",
             schema_version=1,
             profile="default",
-            python_version="3.13.0",
+            python_version="3.13.11",
             python_project_dir="tools/locks/default",
             python_lock_file="tools/locks/default/uv.lock",
             default_targets=["all"],
@@ -359,7 +359,7 @@ class TargetParsingTests(unittest.TestCase):
             path="/tmp/lock.json",
             schema_version=1,
             profile="default",
-            python_version="3.13.0",
+            python_version="3.13.11",
             python_project_dir="tools/locks/default",
             python_lock_file="tools/locks/default/uv.lock",
             default_targets=["all"],
@@ -385,7 +385,7 @@ class ExportErrorMessageTests(unittest.TestCase):
             path="/tmp/lock.json",
             schema_version=1,
             profile="default",
-            python_version="3.13.0",
+            python_version="3.13.11",
             python_project_dir="tools/locks/default",
             python_lock_file="tools/locks/default/uv.lock",
             default_targets=["all"],
@@ -564,7 +564,7 @@ class DownloadTests(unittest.TestCase):
             path="/tmp/lock.json",
             schema_version=1,
             profile="default",
-            python_version="3.13.0",
+            python_version="3.13.11",
             python_project_dir="tools/locks/default",
             python_lock_file="tools/locks/default/uv.lock",
             default_targets=["all"],
@@ -593,7 +593,7 @@ class DownloadTests(unittest.TestCase):
         self.assertEqual(run_command.call_count, 2)
 
         python_install_call = run_command.call_args_list[0]
-        self.assertEqual(python_install_call.args[0], ["uv", "python", "install", "3.13.0"])
+        self.assertEqual(python_install_call.args[0], ["uv", "python", "install", "3.13.11"])
         python_install_env = python_install_call.kwargs["env"]
         self.assertEqual(
             python_install_env["UV_PYTHON_DOWNLOADS_JSON_URL"],
@@ -717,7 +717,7 @@ class UvMirrorRewriteTests(unittest.TestCase):
                     [project]
                     name = "demo"
                     version = "0.1.0"
-                    requires-python = "==3.13.*"
+                    requires-python = "==3.13.11"
                     dependencies = ["click"]
                     """
                 ).strip()
@@ -727,7 +727,7 @@ class UvMirrorRewriteTests(unittest.TestCase):
                 textwrap.dedent(
                     """
                     version = 1
-                    requires-python = "==3.13.*"
+                    requires-python = "==3.13.11"
 
                     [[package]]
                     name = "click"
@@ -753,7 +753,7 @@ class UvMirrorRewriteTests(unittest.TestCase):
             path=os.path.join(profile_dir, "lock.json"),
             schema_version=1,
             profile="default",
-            python_version="3.13.0",
+            python_version="3.13.11",
             python_project_dir="tools/locks/default",
             python_lock_file="tools/locks/default/uv.lock",
             default_targets=["all"],

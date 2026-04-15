@@ -2,7 +2,7 @@
   "schema_version": 1,
   "profile": "default",
   "python": {
-    "version": "3.13.0",
+    "version": "3.13.11",
     "project_dir": "tools/locks/default",
     "lock_file": "tools/locks/default/uv.lock"
   },
