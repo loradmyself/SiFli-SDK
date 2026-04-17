@@ -400,7 +400,6 @@ common_projects:
   - path: example/misc/generate_lib/project
     boards:
       - dummy
-      - pc
 
   - path: example/multicore/acpu_task/project/hcpu
     boards: 
