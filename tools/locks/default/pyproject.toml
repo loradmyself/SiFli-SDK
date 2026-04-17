@@ -32,6 +32,7 @@ dependencies = [
   "json5",
   "windows-curses; sys_platform == 'win32'",
   "crccheck",
+  "questionary",
 ]
 
 [build-system]
