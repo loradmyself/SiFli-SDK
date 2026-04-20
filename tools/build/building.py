@@ -11,6 +11,7 @@ import subprocess
 import sys
 import logging
 import atexit
+import threading
 
 import utils
 from mkdist import do_copy_file
@@ -918,6 +919,61 @@ def AddExternalComponents(deps_file):
             objs += SConscript(os.path.join(path, 'SConscript'), variant_dir=f"{build_vdir}/sf-pkgs/{pkg_name}", duplicate=0)
     return objs
 
+
+def EnableInlineCommandDisplay(env):
+    if GetOption('verbose'):
+        return
+    if env.get('_inline_command_display_enabled'):
+        return
+    if not getattr(sys.stdout, 'isatty', lambda: False)():
+        return
+
+    inline_prefixes = ('CC ', 'CXX ', 'AS ', 'AR ')
+    stream = sys.stdout
+    lock = threading.Lock()
+    current_line_width = 0
+    line_open = False
+
+    def finish_current_line():
+        nonlocal current_line_width, line_open
+
+        with lock:
+            if not line_open:
+                return
+
+            stream.write('\n')
+            stream.flush()
+            current_line_width = 0
+            line_open = False
+
+    def print_cmd_line(cmd, target, source, env):
+        nonlocal current_line_width, line_open
+
+        message = str(cmd)
+
+        with lock:
+            if message.startswith(inline_prefixes):
+                padding = max(0, current_line_width - len(message))
+                stream.write('\r{}{}'.format(message, ' ' * padding))
+                stream.flush()
+                current_line_width = len(message)
+                line_open = True
+                return
+
+            if line_open:
+                stream.write('\n')
+                current_line_width = 0
+                line_open = False
+
+            stream.write(message + '\n')
+            stream.flush()
+
+    env['_inline_command_display_enabled'] = True
+    env['PRINT_CMD_LINE_FUNC'] = print_cmd_line
+    atexit.register(finish_current_line)
+
+
+
 def PrepareBuilding(env, has_libcpu=False, remove_components=[], buildlib=None):
     import rtconfig
     import platform
@@ -1256,6 +1312,8 @@ def PrepareBuilding(env, has_libcpu=False, remove_components=[], buildlib=None):
         win32_spawn = Win32Spawn()
         win32_spawn.env = env
         env['SPAWN'] = win32_spawn.spawn
+
+    EnableInlineCommandDisplay(env)
 
     if os.getenv("LEGACY_ENV"):
         # make Keil toolchain is availabe by subprocess
@@ -1644,6 +1702,8 @@ def PrepareModuleBuilding(env, root_directory, bsp_directory):
         win32_spawn = Win32Spawn()
         win32_spawn.env = env
         env['SPAWN'] = win32_spawn.spawn
+
+    EnableInlineCommandDisplay(env)
 
     Env = env
     Rtt_Root = root_directory
