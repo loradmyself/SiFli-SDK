@@ -188,7 +188,7 @@ static inline void float2pcm(float *fl, uint32_t samples, int16_t *pcm)
             v = -32768;
         }
         *pcm++ = (int16_t)v;
-        *fl++;
+        fl++;
     }
 }
 
@@ -502,6 +502,7 @@ static int start_stream(mix_player_t *p, mix_cmd_t *cmd)
     }
     rt_ringbuffer_init(&s->decoded_ring, s->ring_pool, sizeof(s->ring_pool));
     rt_kprintf("start %s\n", s->filename);
+    return 0;
 }
 
 static void process_msg(mix_player_t *p, uint8_t is_exit)
