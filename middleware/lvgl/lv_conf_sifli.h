@@ -123,6 +123,8 @@
     */
     #if (16 == LV_COLOR_DEPTH)
         #define EPIC_YUV420_DITHER_LEVEL_DEFAULT  EPIC_DITHER_LEVEL_MIDDLE
+    #elif (24 == LV_COLOR_DEPTH)
+        #define EPIC_YUV420_DITHER_LEVEL_DEFAULT  EPIC_DITHER_LEVEL_DISABLE
     #endif /* LV_COLOR_DEPTH */
     /*=======================
     * FEATURE CONFIGURATION
