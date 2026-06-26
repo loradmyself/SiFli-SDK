@@ -254,7 +254,7 @@ static uint16_t wdt_get_backup_clk_freq(void)
 
 static uint32_t wdt_get_backup_status(void)
 {
-    uint32_t status;
+    uint32_t status = 0xFF;
     uint16_t len = 4;
     HAL_LCPU_CONFIG_get(HAL_LCPU_CONFIG_WDT_STATUS, (uint8_t *)&status, &len);
     return status;
@@ -493,7 +493,13 @@ __ROM_USED void rt_wdt_restore(void)
     if (0x01 == wdt_status)
     {
         HAL_WDT_Init(&hwdt);
+//TODO: 57 has not wdt reg yet
+#ifndef SOC_SF32LB57X
         __HAL_SYSCFG_Enable_WDT_REBOOT(1);              // When timeout, reboot whole system instead of subsys.
+#else
+#warning "not implement for 57"
+#endif
+
     }
 #endif  /* SOC_BF0_LCPU */
 }

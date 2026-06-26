@@ -16,13 +16,17 @@
 #include "audioproc.h"
 #include "mem_section.h"
 #include "audio_server.h"
+#include "sdfilter.h"
 
 #define DBG_TAG           "pdm_mic"
 #define DBG_LVL           LOG_LVL_INFO
 #include "log.h"
 
+#if defined (__CC_ARM) || defined (__ARMCC_VERSION)
+    #error "only support for gcc compiler"
+#endif
 
-
+#define SAVE_ANYKA_OUTPUT_BY_DUMP   1
 
 #define PDM_DELAY_SAMPLES       0
 #define PDM_STEREO_DELAY_BYTES (PDM_DELAY_SAMPLES * 2 * 2)
@@ -41,7 +45,9 @@
 #define PDM_THREAD_STACK_SIZE    (4*1024)
 #define PDM_THREAD_PRIORITY      10
 #define AUD_TEST_FLEN       (0x80000)
-#define MIC_RECORD_FILE     "/test.wav"
+
+#define MIC_RECORD_FILE     "/pdm_dump.wav"
+#define ANYKA_OUTPUT_FILE   "/anyka_output.wav"
 
 #define RX_EVT_PDM1     (1 << 0)
 #define RX_EVT_PDM2     (1 << 1)
@@ -65,11 +71,19 @@ typedef struct
     uint32_t size2;
 } AUD_WAV_HDR_T;
 
+static int pdm_status = 0;
+static char pdm_interface[10];
+static int total_channels = 0;
+static int is_raw = 0;
+
 audio_client_t client = NULL;
-static long data_wav_len = 0;
-static int fd = 0;
+static uint32_t data_raw_len = 0;
+static uint32_t anyka_out_len = 0;
+static int fd_dump = 0;
+static int fd_output = 0;
 L2_RET_BSS_SECT_BEGIN(data2)
-ALIGN(4) uint8_t data_wav[0x500000] L2_RET_BSS_SECT(data2);
+ALIGN(4) uint8_t data_raw[0x400000] L2_RET_BSS_SECT(data2);
+ALIGN(4) uint8_t anyka_output[0x100000] L2_RET_BSS_SECT(data2);
 L2_RET_BSS_SECT_END
 
 
@@ -163,15 +177,28 @@ static void wav_save_data(uint8_t *dst, uint32_t dst_size, const uint8_t *src, u
     *current_offset = offset + src_size;
 }
 
+/*
+    this is anyka lib callback for dump data debug
+*/
+void anyka_dump_data(T_ECHO_DUMP_ITEM_ID item_id, T_S32 size, T_pCVOID data, T_pCVOID meta, T_HANDLE cb_dump_param, T_U8 pathId)
+{
+    RT_ASSERT(is_raw == 0);
+    if (item_id == ECHO_ITEM_ADC_STREAM)
+    {
+        wav_save_data(data_raw, sizeof(data_raw), (uint8_t *)data, size, &data_raw_len);
+    }
+#if SAVE_ANYKA_OUTPUT_BY_DUMP
+    else if (item_id == ECHO_ITEM_NEAR_DENC)
+    {
 
-#ifdef RT_USING_FINSH
+        wav_save_data(anyka_output, sizeof(anyka_output), (uint8_t *)data, size, &anyka_out_len);
+    }
+#endif
+}
+
+
 #include <finsh.h>
 #include "audio_mp3ctrl.h"
-
-static int pdm_status = 0;
-static char pdm_interface[10];
-static int total_channels = 0;
-static int is_raw = 0;
 
 static int mp3_callback_func(audio_server_callback_cmt_t cmd, void *callback_userdata, uint32_t reserved)
 {
@@ -179,6 +206,7 @@ static int mp3_callback_func(audio_server_callback_cmt_t cmd, void *callback_use
     {
         pdm_status = 0;
     }
+    return 0;
 }
 
 void write_data_to_file(int fd, uint8_t *data, uint32_t data_len)
@@ -186,7 +214,7 @@ void write_data_to_file(int fd, uint8_t *data, uint32_t data_len)
     uint32_t offset = 0;
     while (data_len > 512)
     {
-        //rt_kprintf("write time\n");
+        rt_kprintf("write to file\n");
         write(fd, data + offset, 512);
         offset += 512;
         data_len -= 512;
@@ -208,25 +236,28 @@ static int mic_callback(audio_server_callback_cmt_t cmd, void *callback_userdata
             {
                 RT_ASSERT(p->data_len == 640);
                 //LOG_I("raw pdm %d stereo data comming len=%d", p->reserved, p->data_len);
+                wav_save_data(data_raw, sizeof(data_raw), p->data, p->data_len, &data_raw_len);
             }
             else if (total_channels == 2)
             {
                 RT_ASSERT(p->data_len == 640);
                 //LOG_I("raw pdm %d stereo data comming len=%d", p->reserved, p->data_len);
-                wav_save_data(data_wav, sizeof(data_wav), p->data, p->data_len, &data_wav_len);
+                wav_save_data(data_raw, sizeof(data_raw), p->data, p->data_len, &data_raw_len);
             }
             else
             {
                 RT_ASSERT(p->data_len == 320);
                 //LOG_I("raw pdm %d mono data comming len=%d", p->reserved, p->data_len);
-                wav_save_data(data_wav, sizeof(data_wav), p->data, p->data_len, &data_wav_len);
+                wav_save_data(data_raw, sizeof(data_raw), p->data, p->data_len, &data_raw_len);
             }
         }
         else
         {
+#if !SAVE_ANYKA_OUTPUT_BY_DUMP
             RT_ASSERT(p->data_len == 320);
             //LOG_I("anyka pdm %d data comming len=%d", p->reserved, p->data_len);
-            wav_save_data(data_wav, sizeof(data_wav), p->data, p->data_len, &data_wav_len);
+            wav_save_data(anyka_output, sizeof(anyka_output), p->data, p->data_len, &anyka_out_len);
+#endif
         }
     }
     return 0;
@@ -252,14 +283,16 @@ static void pdm(uint8_t argc, char **argv)
         if (!strcmp(argv[4], "raw"))
         {
             is_raw = 1;
-            wav_fill_header(data_wav, 0, total_channels);
+            wav_fill_header(data_raw, 0, total_channels);
         }
         else
         {
-            wav_fill_header(data_wav, 0, 1);
+            wav_fill_header(data_raw, 0, total_channels);
+            wav_fill_header(anyka_output, 0, 1);
         }
 
-        data_wav_len = sizeof(AUD_WAV_HDR_T);
+        data_raw_len = sizeof(AUD_WAV_HDR_T);
+        anyka_out_len = data_raw_len;
         rt_kprintf("PDM opened at %d Hz\r\n", samplerate);
 
         audio_parameter_t pa = {0};
@@ -304,20 +337,26 @@ static void pdm(uint8_t argc, char **argv)
 
         if (is_raw)
         {
-            wav_fill_header(data_wav, data_wav_len, total_channels);
+            wav_fill_header(data_raw, data_raw_len, total_channels);
         }
         else
         {
-            wav_fill_header(data_wav, data_wav_len, 1);
-        }
-        if (!is_raw || total_channels != 4)
-        {
-            fd = open(MIC_RECORD_FILE, O_RDWR | O_CREAT | O_TRUNC | O_BINARY);
-            RT_ASSERT(fd >= 0);
-            write_data_to_file(fd, data_wav, data_wav_len);
-            close(fd);
+            wav_fill_header(data_raw, data_raw_len, total_channels);
+            wav_fill_header(anyka_output, anyka_out_len, 1);
         }
 
+        fd_dump = open(MIC_RECORD_FILE, O_RDWR | O_CREAT | O_TRUNC | O_BINARY);
+        RT_ASSERT(fd_dump >= 0);
+        write_data_to_file(fd_dump, data_raw, data_raw_len);
+        close(fd_dump);
+
+        if (!is_raw)
+        {
+            fd_output = open(ANYKA_OUTPUT_FILE, O_RDWR | O_CREAT | O_TRUNC | O_BINARY);
+            RT_ASSERT(fd_output >= 0);
+            write_data_to_file(fd_output, anyka_output, anyka_out_len);
+            close(fd_output);
+        }
         rt_kprintf("PDM closed\r\n");
         audio_close(client);
     }
@@ -326,7 +365,7 @@ static void pdm(uint8_t argc, char **argv)
     {
         pdm_status = 2;
         audio_server_set_private_volume(AUDIO_TYPE_LOCAL_MUSIC, 15);
-        mp3ctrl_handle handle = mp3ctrl_open(AUDIO_TYPE_LOCAL_MUSIC, MIC_RECORD_FILE, mp3_callback_func, NULL);
+        mp3ctrl_handle handle = mp3ctrl_open(AUDIO_TYPE_LOCAL_MUSIC, ANYKA_OUTPUT_FILE, mp3_callback_func, NULL);
         if (handle)
         {
             mp3ctrl_play(handle);
@@ -340,13 +379,15 @@ static void pdm(uint8_t argc, char **argv)
             }
             mp3ctrl_close(handle);
         }
+        else
+        {
+            rt_kprintf("no anyka out file\n");
+        }
         pdm_status = 0;
         return;
     }
 }
 MSH_CMD_EXPORT(pdm, PDM recording control);
-
-#endif
 
 int main(void)
 {

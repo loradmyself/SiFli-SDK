@@ -145,6 +145,15 @@ typedef struct __SPI_HandleTypeDef
 
 } SPI_HandleTypeDef;
 
+/* Receive or transmit request structure */
+typedef struct
+{
+    uint8_t *pData;
+    uint16_t Size;
+    uint8_t IsRead;
+} SPI_RtxRequestTypeDef;
+
+
 /**
   * @} SPI_Exported_Types
   */
@@ -243,9 +252,11 @@ typedef struct __SPI_HandleTypeDef
   * @} SPI_SFRM_POL
   */
 
-
+#ifdef SPI_FRM_HDR_DATA_HDR_DATA
+#define SPI_BAUDRATE_PRESCALER_MAX       (SPI_TOP_CTRL_CLK_DIV_Msk >> SPI_TOP_CTRL_CLK_DIV_Pos)
+#else
 #define SPI_BAUDRATE_PRESCALER_MAX       (SPI_CLK_CTRL_CLK_DIV_Msk >> SPI_CLK_CTRL_CLK_DIV_Pos)
-
+#endif
 
 /** @defgroup SPI_Interrupt_definition SPI Interrupt Definition
   * @{
@@ -305,14 +316,11 @@ typedef struct __SPI_HandleTypeDef
 #define SPI_FRAME_FORMAT_SPI            (0x00000000U << SPI_TOP_CTRL_FRF_Pos)
 #define SPI_FRAME_FORMAT_SSP            (0x00000001U << SPI_TOP_CTRL_FRF_Pos)
 #define SPI_FRAME_FORMAT_NM             (0x00000002U << SPI_TOP_CTRL_FRF_Pos)
+#define SPI_FRAME_FORMAT_FRM            (0x00000003U << SPI_TOP_CTRL_FRF_Pos)
 
 /**
   * @} SPI_Frame_Format
   */
-
-
-
-
 
 
 /** @defgroup SPI_CRC_Calculation SPI CRC Calculation
@@ -529,7 +537,72 @@ UNUSED(tmpreg_ovr);                            \
   */
 #define __HAL_SPI_RELEASE_CS(__HANDLE__)       CLEAR_BIT((__HANDLE__)->Instance->TOP_CTRL, SPI_TOP_CTRL_HOLD_FRAME_LOW)
 
+#ifdef SPI_FRM_HDR_DATA_HDR_DATA
+/** @brief  Frame Mode(tx after header).
+  * @param  \__HANDLE__ specifies the SPI Handle.
+  *         This parameter can be SPI where x: 1, 2, or 3 to select the SPI peripheral.
+  * @retval None
+  */
+#define __HAL_SPI_FRM_MODE_TX(__HANDLE__)       SET_BIT((__HANDLE__)->Instance->TOP_CTRL2, SPI_TOP_CTRL2_FRM_MODE)
 
+/** @brief  Frame Mode(rx after header).
+  * @param  \__HANDLE__ specifies the SPI Handle.
+  *         This parameter can be SPI where x: 1, 2, or 3 to select the SPI peripheral.
+  * @retval None
+  */
+#define __HAL_SPI_FRM_MODE_RX(__HANDLE__)       CLEAR_BIT((__HANDLE__)->Instance->TOP_CTRL2, SPI_TOP_CTRL2_FRM_MODE)
+
+/*header len in bit 0-32, size low 8bit.*/
+#define __HAL_SPI_FRM_HDR_LEN(SIZE)                     ((SIZE & 0xFF) - 1)
+/*data size in byte or halfword, high 24bit.*/
+#define __HAL_SPI_FRM_DAT_SIZE(SIZE)                    (SIZE >> 8)
+
+#define __HAL_SPI_GET_DATA_SIZE(__HANDLE__)             ((READ_BIT((__HANDLE__)->Instance->TOP_CTRL, SPI_TOP_CTRL_DSS) >> SPI_TOP_CTRL_DSS_Pos) + 1)
+
+#define __HAL_SPI_FRM_DAT_SIZE_BIT(__HANDLE__, SIZE)    (__HAL_SPI_FRM_DAT_SIZE(SIZE) * __HAL_SPI_GET_DATA_SIZE(__HANDLE__))
+
+/** @brief  Frame Mode Write Header Data.
+  * @param  \__HANDLE__ specifies the SPI Handle.
+  *         This parameter can be SPI where x: 1, 2, or 3 to select the SPI peripheral.
+  * @retval None
+  */
+#define __HAL_SPI_FRM_HDR_DATA_WRITE(__HANDLE__, PDATA)     ((__HANDLE__)->Instance->FRM_HDR_DATA = *((uint32_t *)PDATA))
+
+/** @brief  Frame Mode Set Header Length.
+ * @param  \__HANDLE__ specifies the SPI Handle.
+ *         This parameter can be SPI where x: 1, 2, or 3 to select the SPI peripheral.
+ * @retval None
+ */
+#define __HAL_SPI_FRM_HDR_LEN_SET(__HANDLE__, SIZE)         MODIFY_REG((__HANDLE__)->Instance->TOP_CTRL2, SPI_TOP_CTRL2_FRM_HDR_LENGTH, (__HAL_SPI_FRM_HDR_LEN(SIZE) << SPI_TOP_CTRL2_FRM_HDR_LENGTH_Pos))
+
+/** @brief  Frame Mode Set Data Size.
+ * @param  \__HANDLE__ specifies the SPI Handle.
+ *         This parameter can be SPI where x: 1, 2, or 3 to select the SPI peripheral.
+ * @retval None
+ */
+#define __HAL_SPI_FRM_DAT_SIZE_SET(__HANDLE__, SIZE)        MODIFY_REG((__HANDLE__)->Instance->TOP_CTRL2, SPI_TOP_CTRL2_SSPRWOTCCM, ((__HAL_SPI_FRM_DAT_SIZE_BIT(__HANDLE__, SIZE)) << SPI_TOP_CTRL2_SSPRWOTCCM_Pos))
+
+/** @brief  Frame Mode Set RWOT CYCLE.
+ * @param  \__HANDLE__ specifies the SPI Handle.
+ *         This parameter can be SPI where x: 1, 2, or 3 to select the SPI peripheral.
+ * @retval None
+ */
+#define __HAL_SPI_FRM_RWOT_CYC_SET(__HANDLE__)              SET_BIT(hspi->Instance->TOP_CTRL2, SPI_TOP_CTRL2_SET_RWOT_CYCLE);
+
+/** @brief  Frame Mode Start.
+ * @param  \__HANDLE__ specifies the SPI Handle.
+ *         This parameter can be SPI where x: 1, 2, or 3 to select the SPI peripheral.
+ * @retval None
+ */
+#define __HAL_SPI_FRM_MODE_START(__HANDLE__)                SET_BIT(hspi->Instance->TOP_CTRL2, SPI_TOP_CTRL2_FRM_START)
+
+/** @brief  Frame Mode Stop.
+ * @param  \__HANDLE__ specifies the SPI Handle.
+ *         This parameter can be SPI where x: 1, 2, or 3 to select the SPI peripheral.
+ * @retval None
+ */
+#define __HAL_SPI_FRM_MODE_STOP(__HANDLE__)                CLEAR_BIT(hspi->Instance->TOP_CTRL2, SPI_TOP_CTRL2_FRM_START)
+#endif /*SPI_FRM_HDR_DATA_HDR_DATA*/
 
 #if (USE_SPI_CRC != 0)
 /** @brief  Clear the SPI CRCERR pending flag.
@@ -568,14 +641,23 @@ UNUSED(tmpreg_ovr);                            \
   *         This parameter can be SPI where x: 1, 2, or 3 to select the SPI peripheral.
   * @retval None
   */
+#ifdef SPI_FRM_HDR_DATA_HDR_DATA
+#define SPI_1LINE_TX(__HANDLE__)  CLEAR_BIT((__HANDLE__)->Instance->TOP_CTRL, SPI_TOP_CTRL_TXD_OEN)
+#else
 #define SPI_1LINE_TX(__HANDLE__)  CLEAR_BIT((__HANDLE__)->Instance->TRIWIRE_CTRL, SPI_TRIWIRE_CTRL_TXD_OEN)
+#endif
+
 
 /** @brief  Set the SPI receive-only mode.
   * @param  \__HANDLE__ specifies the SPI Handle.
   *         This parameter can be SPI where x: 1, 2, or 3 to select the SPI peripheral.
   * @retval None
   */
+#ifdef SPI_FRM_HDR_DATA_HDR_DATA
+#define SPI_1LINE_RX(__HANDLE__)  SET_BIT((__HANDLE__)->Instance->TOP_CTRL, SPI_TOP_CTRL_TXD_OEN)
+#else
 #define SPI_1LINE_RX(__HANDLE__)  SET_BIT((__HANDLE__)->Instance->TRIWIRE_CTRL, SPI_TRIWIRE_CTRL_TXD_OEN)
+#endif
 
 /** @brief  Reset the CRC calculation of the SPI.
   * @param  \__HANDLE__ specifies the SPI Handle.
@@ -669,8 +751,10 @@ UNUSED(tmpreg_ovr);                            \
 
 #define IS_SPI_FRAME_FORMAT(MODE) (((MODE) == SPI_FRAME_FORMAT_SPI) || \
                              ((MODE) == SPI_FRAME_FORMAT_SSP) || \
-                             ((MODE) == SPI_FRAME_FORMAT_NM))
+                             ((MODE) == SPI_FRAME_FORMAT_NM) || \
+                             ((MODE) == SPI_FRAME_FORMAT_FRM))
 
+#define IS_SPI_MASTER(MODE) (((MODE) == SPI_MODE_MASTER))
 
 #define IS_SPI_SFRMPOL(SFRMPOL) (((SFRMPOL) == SPI_SFRMPOL_LOW) || \
                                  ((SFRMPOL) == SPI_SFRMPOL_HIGH))
@@ -689,7 +773,7 @@ UNUSED(tmpreg_ovr);                            \
 #define IS_SPI_16BIT_ALIGNED_ADDRESS(DATA) (((uint32_t)(DATA) % 2U) == 0U)
 
 
-#ifdef SF32LB52X
+#if defined(SF32LB52X) || defined(SF32LB57X)
 #define IS_SPI_ALL_INSTANCE(__INSTANCE__)      (((__INSTANCE__) == SPI1) || \
                                                 ((__INSTANCE__) == SPI2))
 #else
@@ -921,6 +1005,37 @@ HAL_StatusTypeDef HAL_SPI_Receive_DMA(SPI_HandleTypeDef *hspi, uint8_t *pData, u
   */
 HAL_StatusTypeDef HAL_SPI_TransmitReceive_DMA(SPI_HandleTypeDef *hspi, uint8_t *pTxData, uint8_t *pRxData,
         uint16_t Size);
+
+#ifdef DMA_LINK_LIST_SUPPORT
+/**
+ * @brief  Get command buffer size for multiple transfer in DMA mode
+ * @param  Requests list of multiple transfer requests
+ * @param  Num transfer request number
+ * @retval command buffer size
+ */
+uint32_t HAL_SPI_GetMultiRtxCmdBufSize(SPI_RtxRequestTypeDef *Requests, uint16_t Num);
+
+/**
+ * @brief  Prepare command buffer for multiple transfer in DMA mode,
+ * the command update would be updated, which will be used by HAL_SPI_TransmitReceiveMultiple_DMA
+ * @param[in]  hspi pointer to spi handle
+ * @param[in]  Request list of multiple transfer requests
+ * @param[in]  Num transfer request number
+ * @param[in,out] CmdBuf Command buffer, the buffer would be updated by the function accor
+ * @param[in]  BufSize Command buffer size, the size is calculated by HAL_SPI_GetMultiRtxCmdBufSize
+ * @retval hal status
+ */
+HAL_StatusTypeDef HAL_SPI_PrepareMultiRtxCmdBuf(SPI_HandleTypeDef *hspi, SPI_RtxRequestTypeDef *Request, uint16_t Num, void *CmdBuf, uint32_t BufSize);
+
+/**
+ * @brief  Start multiple transfer according to command buffer
+ * @param[in] hspi pointer to spi handle
+ * @param[in] CmdBuf Command buffer, the buffer is prepared by HAL_SPI_PrepareMultiRtxCmdBuf
+ * @retval hal status
+ */
+HAL_StatusTypeDef HAL_SPI_TransmitReceiveMultiple_DMA(SPI_HandleTypeDef *hspi, void *CmdBuf);
+#endif /* DMA_LINK_LIST_SUPPORT */
+
 /* Transfer Abort functions */
 /**
   * @brief  Abort ongoing transfer (blocking mode).

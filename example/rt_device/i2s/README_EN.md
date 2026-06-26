@@ -66,7 +66,7 @@ Taking `SF32LB52_DevKit-LCD` as an example, this example uses `PA02 ~ PA06` as I
 If you need to use other development board models, you need to change the pinmux configuration. Here is an example for 56x and 58x models:
 ```c
 #ifdef SOC_SF32LB56X
-    HAL_PIN_Set(PAD_PA71, I2S1_LRCK, PIN_NOPULL, 1);
+    HAL_PIN_Set(PAD_PA41, I2S1_LRCK, PIN_NOPULL, 1);
     HAL_PIN_Set(PAD_PA40, I2S1_BCK, PIN_NOPULL, 1);
     HAL_PIN_Set(PAD_PA38, I2S1_SDI, PIN_PULLDOWN, 1);
     HAL_PIN_Set(PAD_PA39, I2S1_SDO, PIN_NOPULL, 1);
@@ -89,6 +89,7 @@ I2S1_BCK|--|I2S1_BCK
 I2S1_SDI|--|I2S1_SDO
 I2S1_SDO|--|I2S1_SDI
 I2S1_MCLK|--|I2S1_MCLK
+GND |--|GND
 
 Since `sf32lb58-lcd` is rather special, when connecting the wires here, 58 should be used as A (master), and `sf32lb52-lcd` should be used as B (slave) for the connection.
 If you are unsure about pin positioning, you can refer to the following figures:

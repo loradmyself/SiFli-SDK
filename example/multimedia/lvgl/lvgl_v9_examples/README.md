@@ -4,6 +4,32 @@
 可以替换 src/main.c (模拟器在 simulator/applications/application.c) 里面的lv_example_scroll_1()函数，来测试其他API，
 其他API函数，参考src/examples/lv_examples.h里面的函数定义。
 
+## 切换不同演示
+
+默认演示的是 `lv_example_scroll_1()`，如需切换到其他演示，需要修改 `src/main.c` 文件中的代码。
+
+打开 `src/main.c`，找到 main 函数中的调用部分：
+
+```c
+/*Call examples here*/
+lv_example_scroll_1();
+// lv_example_tiny_ttf_1();
+// lv_example_file_explorer_1();
+// lv_example_tjpgd_1();
+```
+
+取消注释你想要运行的演示函数，并注释掉其他的即可。例如切换到 `lv_example_tiny_ttf_1()`：
+
+```c
+/*Call examples here*/
+// lv_example_scroll_1();
+lv_example_tiny_ttf_1();
+// lv_example_file_explorer_1();
+// lv_example_tjpgd_1();
+```
+
+修改后重新编译即可看到不同的演示效果。
+
 ## 工程编译及下载：
 板子工程在project目录下可以通过指定board来编译适应相对board的工程，
 - 比如想编译可以在HDK 563上运行的工程，执行scons --board=eh-lb563即可生成工程
@@ -74,7 +100,7 @@ please input the serial port num:5
 * 首先可以通过TF读卡器，往tf中写入图片文件，再将tf卡插入板子中
 * 通过`menuconfig`中进行如下配置，具体操作如下
 ``` c
-menuconfig --board=sf32lb52-lchspi-ulp
+sdk.py menuconfig --board=sf32lb52-lchspi-ulp
 ```
 * 开启spi总线
 

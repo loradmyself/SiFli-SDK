@@ -187,6 +187,8 @@ static void audprc_rx_entry(void *param)
         {
             /* RX read (from mic)*/
             len = rt_device_read(g_audprc_dev, 0, g_pipe_data, AUDIO_BUF_SIZE / 2); //AUDIO_BUF_SIZE/2
+            if (len == 0)
+                break;
             if (len != (AUDIO_BUF_SIZE / 2))
             {
                 rt_kprintf("[EX_I2S]Got abnormal audio size = %d\n", len);
@@ -486,7 +488,7 @@ static void i2s_config_rx(rt_uint32_t channels, rt_uint32_t sr, rt_uint32_t fmt)
     struct rt_audio_caps caps;
     caps.main_type = AUDIO_TYPE_INPUT;      // for I2S2, configure RX will configure RX+TX
     caps.sub_type = AUDIO_DSP_PARAM;
-    caps.udata.config.channels   = 2;    /* i2s is always 2 */
+    caps.udata.config.channels   = channels;    /* i2s is always 2 */
     caps.udata.config.samplerate = sr;   /* sample rate */
     caps.udata.config.samplefmt = fmt;   /* depth */
     rt_device_control(g_i2s_dev, AUDIO_CTL_CONFIGURE, &caps);
@@ -553,6 +555,8 @@ static void i2s_rx_entry(void *param)
         {
             /* RX read (from mic)*/
             len = rt_device_read(g_i2s_dev, 0, g_pipe_data, AUDIO_BUF_SIZE / 2);
+            if (len == 0)
+                break;
             // rt_kprintf("[EX_I2S]from is2 len = %d", len);
             if (len != (AUDIO_BUF_SIZE / 2))
             {
@@ -625,7 +629,7 @@ static void i2s_config_tx(rt_uint32_t channels, rt_uint32_t sr, rt_uint32_t fmt)
     struct rt_audio_caps caps;
     caps.main_type = AUDIO_TYPE_INPUT;      // for I2S2, configure RX will configure RX+TX
     caps.sub_type = AUDIO_DSP_PARAM;
-    caps.udata.config.channels = 2;     /* for i2s, channels is always 2. */
+    caps.udata.config.channels = channels;
     caps.udata.config.samplefmt = fmt;  /* depth */
     caps.udata.config.samplerate = sr;  /* sample rate */
     rt_device_control(g_i2s_dev, AUDIO_CTL_CONFIGURE, &caps);
@@ -852,7 +856,13 @@ int main(void)
     HAL_PIN_Set(PAD_PA03, I2S1_SDO, PIN_NOPULL, 1);
     HAL_PIN_Set(PAD_PA02, I2S1_MCLK, PIN_NOPULL, 1);
 #elif defined(SOC_SF32LB56X)
-    HAL_PIN_Set(PAD_PA71, I2S1_LRCK, PIN_NOPULL, 1);
+    /*
+        After investigation, pins PA71 and PA40 are adjacent on the external PCB,
+        which may cause crosstalk between signals. Therefore,
+        the LRCK signal is reassigned to alternative pins
+    */
+    //HAL_PIN_Set(PAD_PA71, I2S1_LRCK, PIN_NOPULL, 1);
+    HAL_PIN_Set(PAD_PA41, I2S1_LRCK, PIN_NOPULL, 1);
     HAL_PIN_Set(PAD_PA40, I2S1_BCK, PIN_NOPULL, 1);
     HAL_PIN_Set(PAD_PA38, I2S1_SDI, PIN_PULLDOWN, 1);
     HAL_PIN_Set(PAD_PA39, I2S1_SDO, PIN_NOPULL, 1);
@@ -870,8 +880,8 @@ int main(void)
 #error "Need to confirm I2S pin config."
 #endif
 
-    device_init();
 
+    device_init();
     /* Infinite loop */
     while (1)
     {

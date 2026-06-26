@@ -850,7 +850,7 @@ __HAL_ROM_USED uint32_t HAL_RTC_get_backup(RTC_HandleTypeDef *hrtc, uint8_t idx)
 }
 
 
-#ifndef SF32LB55X
+#ifdef hwp_pbr
 HAL_RAM_RET_CODE_SECT(HAL_PBR_ConfigMode,  __HAL_ROM_USED HAL_StatusTypeDef HAL_PBR_ConfigMode(uint8_t pin, bool output_en))
 {
     HAL_StatusTypeDef ret = HAL_ERROR;
@@ -949,7 +949,7 @@ __EXIT:
     return ret;
 }
 
-#endif /* SF32LB55X */
+#endif /* hwp_pbr */
 
 
 /**

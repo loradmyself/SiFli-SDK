@@ -25,7 +25,7 @@ ls               - List information about the FILEs.//列出所有文件信息
 ```
 ## menuconfig配置
 ```
-menuconfig --board=56devkit_lcd(board=后面跟着的是板子名称)
+sdk.py menuconfig --board=56devkit_lcd(board=后面跟着的是板子名称)
 ```
 1. 打开SDIO
 ![alt text](assets/sdio.png)

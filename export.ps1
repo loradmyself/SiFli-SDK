@@ -3,32 +3,16 @@
 $sifli_sdk_path = "$PSScriptRoot"
 $env:SIFLI_SDK_PATH = $sifli_sdk_path
 
-function Get-JsonProperty {
-    param(
-        [Parameter(Mandatory = $false)] $Object,
-        [Parameter(Mandatory = $true)][string]$Name
-    )
-
-    if ($null -eq $Object) {
-        return $null
-    }
-
-    $property = $Object.PSObject.Properties[$Name]
-    if ($null -eq $property) {
-        return $null
-    }
-
-    return $property.Value
-}
-
 function Show-ExportHelp {
-    Write-Output "usage: .\export.ps1 [--profile PROFILE]"
+    Write-Output "usage: .\export.ps1 [--profile PROFILE] [-t TOOLCHAIN]"
     Write-Output ""
     Write-Output "Activate the installed SiFli-SDK environment in the current shell."
     Write-Output ""
     Write-Output "options:"
-    Write-Output "  --profile PROFILE   profile to export, defaults to `"default`""
-    Write-Output "  -h, --help          show this help message and exit"
+    Write-Output "  --profile PROFILE      profile to export, defaults to `"default`""
+    Write-Output "  -t, --toolchain TOOLCHAIN"
+    Write-Output "                         toolchain to export: gcc (default) or keil (Windows only)"
+    Write-Output "  -h, --help             show this help message and exit"
 }
 
 $profile = "default"
@@ -49,45 +33,33 @@ for ($i = 0; $i -lt $args.Count; $i++) {
     }
     if ($arg.StartsWith("--profile=")) {
         $profile = $arg.Substring("--profile=".Length)
+        continue
+    }
+    if ($arg -eq "-t" -or $arg -eq "--toolchain") {
+        if ($i + 1 -ge $args.Count) {
+            Write-Error "$arg requires a value."
+            exit 1
+        }
+        $i++
+        continue
+    }
+    if ($arg.StartsWith("--toolchain=")) {
+        continue
     }
 }
 
-$installRoot = if ($env:SIFLI_SDK_TOOLS_PATH) { $env:SIFLI_SDK_TOOLS_PATH } else { Join-Path $HOME ".sifli" }
-$statePath = Join-Path $installRoot "sifli-sdk-env.json"
-if (-not (Test-Path $statePath)) {
-    Write-Error "profile '$profile' is not installed. Missing $statePath. Run .\install.ps1 first."
+if ("$env:SIFLI_SDK_MIRROR_CHINA".Trim().ToLowerInvariant() -in @("1", "true", "yes", "on")) {
+    $env:SIFLI_SDK_GITHUB_ASSETS = "https://downloads.sifli.com/github_assets"
+    $env:SIFLI_SDK_PYPI_DEFAULT_INDEX = "https://mirrors.ustc.edu.cn/pypi/simple"
+    $env:UV_PYTHON_DOWNLOADS_JSON_URL = "https://uv.agentsmirror.com/metadata/python-downloads.json"
+}
+
+if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
+    Write-Error "uv was not found in PATH. Please install uv before running export.ps1."
     exit 1
 }
 
-try {
-    $state = Get-Content -Raw $statePath | ConvertFrom-Json
-    $schemaVersion = Get-JsonProperty -Object $state -Name "schema_version"
-    if ($schemaVersion -ne 1) {
-        throw "unsupported schema"
-    }
-    $repos = Get-JsonProperty -Object $state -Name "repos"
-    $repoEntry = Get-JsonProperty -Object $repos -Name $sifli_sdk_path
-    $profiles = Get-JsonProperty -Object $repoEntry -Name "profiles"
-    $profileEntry = Get-JsonProperty -Object $profiles -Name $profile
-    $installed = Get-JsonProperty -Object $profileEntry -Name "installed"
-    $pythonState = Get-JsonProperty -Object $installed -Name "python"
-    $envPath = [string](Get-JsonProperty -Object $pythonState -Name "env_path")
-} catch {
-    $envPath = ""
-}
-
-if ([string]::IsNullOrWhiteSpace($envPath)) {
-    Write-Error "profile '$profile' has no installed python environment recorded in $statePath. Run .\install.ps1 again."
-    exit 1
-}
-
-$pythonPath = Join-Path $envPath "Scripts/python.exe"
-if (-not (Test-Path $pythonPath)) {
-    Write-Error "installed python for profile '$profile' was not found at $pythonPath. Run .\install.ps1 again."
-    exit 1
-}
-
-$output = & $pythonPath "$sifli_sdk_path/tools/sdk_env.py" export --shell powershell @args
+$output = & uv run --with rich --with tomli_w --python 3.13 --no-project "$sifli_sdk_path/tools/sdk_env.py" export --shell powershell @args
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }

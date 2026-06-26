@@ -15,7 +15,7 @@
 + 开发板A：
     - mic录音。
     - 通过i2s发送给开发板B。
-+ 开发板A：
++ 开发板B：
     - 通过i2s接受开发板A的数据。
     - speaker播放。
 
@@ -67,7 +67,7 @@
 如需使用其他型号开发板，需要更改pinmux配置，这里以56x和58x为例：
 ```c
 #ifdef SOC_SF32LB56X
-    HAL_PIN_Set(PAD_PA71, I2S1_LRCK, PIN_NOPULL, 1);
+    HAL_PIN_Set(PAD_PA41, I2S1_LRCK, PIN_NOPULL, 1);
     HAL_PIN_Set(PAD_PA40, I2S1_BCK, PIN_NOPULL, 1);
     HAL_PIN_Set(PAD_PA38, I2S1_SDI, PIN_PULLDOWN, 1);
     HAL_PIN_Set(PAD_PA39, I2S1_SDO, PIN_NOPULL, 1);
@@ -91,6 +91,7 @@ I2S1_BCK|--|I2S1_BCK
 I2S1_SDI|--|I2S1_SDO
 I2S1_SDO|--|I2S1_SDI
 I2S1_MCLK|--|I2S1_MCLK
+GND |--|GND
 
 由于`sf32lb58-lcd`比较特殊所以这里接线的话需要58作为A（master）,`sf32lb52-lcd`作为B（slave）进行连线
 

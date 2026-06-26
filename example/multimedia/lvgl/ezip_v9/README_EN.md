@@ -21,13 +21,30 @@ This example demonstrates how to dynamically load ezip format image files using 
 
 ### Supported Platforms
 The example can run on the following development boards:
-* sf32lb52-lchspi-ulp
+* sf32lb52-lcd_n16r8 (SPI SD/TF card)
+* sf32lb52-lcd_a128r16 (SPI SD/TF card)
+* sf32lb52-lchspi-ulp (SPI SD/TF card)
+* sf32lb52-core_e8r16 (SDIO/eMMC)
+* sf32lb56-lcd_a128r12n1 (SDIO/eMMC)
+* sf32lb56-lcd_n16r12n1 (SDIO/eMMC)
+* sf32lb58-lcd_n16r32n1_dsi (SDIO/eMMC)
+* sf32lb58-lcd_a128r32n1_qspi (SDIO/eMMC)
+* sf32lb58-lcd_n16r32n1_qspi (SDIO/eMMC)
 
 ### Compilation and Flashing
 Switch to the example project directory and run scons command to compile:
 ```
-scons --board=sf32lb52-lchspi-ulp -j8
+scons --board=sf32lb56-lcd_a128r12n1 -j8
 ```
+Replace `--board` with another supported board as needed.
+
+### SD Card Backend Configuration
+This example selects the SD card backend through project configuration:
+- SPI SD/TF card: registered as `sd0` by `RT_USING_SPI_MSD`
+- SDIO/eMMC: registered as `sd0` or `sd1` by the RT-Thread SDIO/MMC driver
+
+The board-specific `proj.conf` files select the backend and device name automatically. The 58 series currently uses `sd1`; the other supported boards use `sd0`.
+The default `disk/example.ezip` is flashed into the onboard NOR/NAND root file system; the SD card is used for additional image files. Boards with a NAND root file system register it with `RT_USING_MTD_DHARA` before mounting.
 
 ### Preparing Image Files
 
@@ -65,7 +82,7 @@ If the example runs successfully, you will see the following output on the seria
 Register root to mtd device with base addr 0x12820000
 mount fs on flash to root success
 dynamic ezip loading example.
-mount fs on tf card to /sdcard success
+mount fs on sd0 to /sdcard success
 ```
 
 The LCD screen will display the loaded ezip image, centered on the screen.

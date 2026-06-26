@@ -28,13 +28,15 @@ export SIFLI_SDK_PATH="${sdk_path}"
 
 show_help() {
     cat <<'EOF'
-usage: . ./export.sh [--profile PROFILE]
+usage: . ./export.sh [--profile PROFILE] [-t TOOLCHAIN]
 
 Activate the installed SiFli-SDK environment in the current shell.
 
 options:
-  --profile PROFILE   profile to export, defaults to "default"
-  -h, --help          show this help message and exit
+  --profile PROFILE      profile to export, defaults to "default"
+  -t, --toolchain TOOLCHAIN
+                         toolchain to export: gcc (default); Keil is Windows-only
+  -h, --help             show this help message and exit
 EOF
 }
 
@@ -45,6 +47,11 @@ do
     if [ "${prev}" = "--profile" ]
     then
         profile="${arg}"
+        prev=""
+        continue
+    fi
+    if [ "${prev}" = "--toolchain" ]
+    then
         prev=""
         continue
     fi
@@ -60,6 +67,11 @@ do
         --profile=*)
             profile="${arg#--profile=}"
             ;;
+        -t|--toolchain)
+            prev="--toolchain"
+            ;;
+        --toolchain=*)
+            ;;
     esac
 done
 
@@ -69,44 +81,30 @@ then
     unset sdk_path
     return 1
 fi
-
-install_root="${SIFLI_SDK_TOOLS_PATH:-$HOME/.sifli}"
-state_path="${install_root}/sifli-sdk-env.json"
-
-if ! command -v jq >/dev/null 2>&1
+if [ "${prev}" = "--toolchain" ]
 then
-    echo "ERROR: jq was not found in PATH. Please install jq before running export.sh." >&2
+    echo "ERROR: --toolchain requires a value." >&2
     unset sdk_path
     return 1
 fi
 
-if [ ! -f "${state_path}" ]
+mirror_china_normalized=$(printf '%s' "${SIFLI_SDK_MIRROR_CHINA:-}" | tr '[:upper:]' '[:lower:]')
+case "${mirror_china_normalized}" in
+    1|true|yes|on)
+        export SIFLI_SDK_GITHUB_ASSETS="https://downloads.sifli.com/github_assets"
+        export SIFLI_SDK_PYPI_DEFAULT_INDEX="https://mirrors.ustc.edu.cn/pypi/simple"
+        export UV_PYTHON_DOWNLOADS_JSON_URL="https://uv.agentsmirror.com/metadata/python-downloads.json"
+        ;;
+esac
+
+if ! command -v uv >/dev/null 2>&1
 then
-    echo "ERROR: profile '${profile}' is not installed. Missing ${state_path}. Run ./install.sh first." >&2
+    echo "ERROR: uv was not found in PATH. Please install uv before running export.sh." >&2
     unset sdk_path
     return 1
 fi
 
-if ! env_path=$(jq -er --arg repo "${sdk_path}" --arg profile "${profile}" \
-    'select(.schema_version == 1)
-    | .repos[$repo].profiles[$profile].installed.python.env_path
-    | select(type == "string" and length > 0)' \
-    "${state_path}" 2>/dev/null)
-then
-    echo "ERROR: profile '${profile}' has no installed python environment recorded in ${state_path}. Run ./install.sh again." >&2
-    unset sdk_path
-    return 1
-fi
-
-python_path="${env_path}/bin/python"
-if [ ! -f "${python_path}" ]
-then
-    echo "ERROR: installed python for profile '${profile}' was not found at ${python_path}. Run ./install.sh again." >&2
-    unset sdk_path
-    return 1
-fi
-
-export_output=$("${python_path}" "${sdk_path}/tools/sdk_env.py" export --shell "${shell_type}" "$@")
+export_output=$(uv run --with rich --with tomli_w --python 3.13 --no-project "${sdk_path}/tools/sdk_env.py" export --shell "${shell_type}" "$@")
 export_status=$?
 if [ ${export_status} -ne 0 ]
 then

@@ -5,6 +5,7 @@
  */
 
 #include <string.h>
+#include <stdint.h>
 #include "flash_table.h"
 
 
@@ -408,10 +409,10 @@ __weak FT_CONST SPI_FLASH_FACT_CFG_T nand_cmd_table_list[] =
             {0x0F, 0, 1, 0, 0, 0, 0, 1, 1}, /* SPI_FLASH_CMD_RDSR*/
             {0x1F, 1, 1, 0, 0, 0, 0, 1, 1}, /* SPI_FLASH_CMD_WRSR*/
             {0x13, 0, 0, 0, 0, 0, 2, 1, 1}, /* SPI_FLASH_CMD_PREAD*/
-            {0x03, 0, 1, 0, 0, 0, 2, 1, 1}, /* SPI_FLASH_CMD_READ*/
-            {0x0b, 0, 1, 8, 0, 0, 2, 1, 1}, /* SPI_FLASH_CMD_FREAD*/
-            {0x3b, 0, 2, 8, 0, 0, 2, 1, 1}, /* SPI_FLASH_CMD_DREAD*/
-            {0x6b, 0, 3, 8, 0, 0, 2, 1, 1}, /* SPI_FLASH_CMD_QREAD*/
+            {0x03, 0, 1, 0, 0, 0, 1, 1, 1}, /* SPI_FLASH_CMD_READ*/
+            {0x0b, 0, 1, 8, 0, 0, 1, 1, 1}, /* SPI_FLASH_CMD_FREAD*/
+            {0x3b, 0, 2, 8, 0, 0, 1, 1, 1}, /* SPI_FLASH_CMD_DREAD*/
+            {0x6b, 0, 3, 8, 0, 0, 1, 1, 1}, /* SPI_FLASH_CMD_QREAD*/
             {0xbb, 0, 2, 4, 0, 0, 1, 2, 1}, /* SPI_FLASH_CMD_2READ*/
             {0xeb, 0, 3, 4, 0, 0, 1, 3, 1}, /* SPI_FLASH_CMD_4READ*/
             {0x9f, 0, 1, 0, 0, 0, 0, 0, 1}, /* SPI_FLASH_CMD_RDID*/
@@ -484,8 +485,10 @@ FT_CONST FLASH_RDID_TYPE_T nand_cmd_id_pool_type1[] =
     {0x8c, 0x01, 0x8c, 0x10, 0x8000000}, //XCSP1AAPK-IT_RDID
     {0x8c, 0xb1, 0x8c, 0x18, 0x20000000}, //XCSP4AAPK-IT_RDID
     {0x0b, 0x33, 0X00, 0x44, 0x20000000},//XT26G04DXXX_RDID
+    {0x0b, 0x53, 0X00, 0x44, 0x20000000},//XT26Q04DXXX_RDID
     {0xc8, 0xd9, 0xc8, 0x10, 0x8000000}, //GD5F1GQ4UxxH_RDID
     {0xc8, 0xc9, 0xc8, 0x10, 0x8000000}, //GD5F1GQ4RxxH_RDID
+    {0xc8, 0xa1, 0x48, 0x10, 0x8000000}, //GD5F1GQ4RxxH_RDID
     {FLASH_INVALID_ID, 0, 0, 0, 0},      //last one
 };
 
@@ -520,6 +523,10 @@ FT_CONST FLASH_RDID_TYPE_T nand_cmd_id_pool_type2[] =
     {0xB0, 0x25, 0xB0, 0x20, 0x10000000},   //UM19A1LISW_RDID
     {0xB0, 0x0C, 0xB0, 0x20, 0x4000000},   //UM19A9HISW_RDID
     {0xB0, 0x0D, 0xB0, 0x20, 0x4000000},   //UM19A9LISW_RDID
+    {0xB0, 0x34, 0xB0, 0x2C, 0x20000000},  //UM19B2HISW_RDID
+    {0xB0, 0x35, 0xB0, 0x2C, 0x20000000},  //UM19B2LISW_RDID
+    {0xB0, 0x1C, 0xB0, 0x20, 0x8000000},   //UM19C0HISW_RDID
+    {0xB0, 0x1D, 0xB0, 0x20, 0x8000000},   //UM19C0LISW_RDID
     {FLASH_INVALID_ID, 0, 0, 0, 0},         //last one
 };
 
@@ -657,7 +664,7 @@ __weak const nand_ext_cfg_t *spi_nand_get_ext_cfg_by_id(uint8_t fid, uint8_t did
     return NULL;
 }
 
-__weak int HAL_GET_FLASH_DEFAUT_INX(void)
+__weak int HAL_GET_NAND_FLASH_DEFAUT_IDX(void)
 {
     return -1;
 }
@@ -668,7 +675,7 @@ const SPI_FLASH_FACT_CFG_T *spi_nand_get_default_ctable(void)
     int deft;
     const SPI_FLASH_FACT_CFG_T *res = NULL;
 
-    deft = HAL_GET_FLASH_DEFAUT_INX();
+    deft = HAL_GET_NAND_FLASH_DEFAUT_IDX();
     if (deft >= 0)
     {
         res = (const SPI_FLASH_FACT_CFG_T *)&nand_cmd_table_list[deft];

@@ -16,7 +16,12 @@ menu "SiFli extend"
 
         config LV_USE_EZIP
             bool "Use on-the-fly ezip decoder"
-        
+            default y
+
+        config LV_USE_SIFLI_JPEGD
+            bool "Use SiFli on-the-fly jpeg decoder"
+            default y
+            depends on SOC_SF32LB57X
 
         config LV_USING_EXT_RESOURCE_MANAGER
             bool "Enable extended resource manager"

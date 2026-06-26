@@ -459,14 +459,14 @@ static rt_err_t sifli_get_adc_value(struct rt_adc_device *device, rt_uint32_t ch
 
 #ifndef  SF32LB55X
         ADC_SET_MUTE(sifli_adc_handler);
-#ifdef SF32LB52X
+#if defined(SF32LB52X) || defined(SF32LB57X)
         if (channel == 7)
             rt_thread_delay(1);
         else
             rt_thread_delay(10);
 #else
         rt_thread_delay(10);
-#endif
+#endif /* SF32LB52X || SF32LB57X */
 #else   /* SF32LB55X */
         ADC_CLR_FRC_EN(sifli_adc_handler);
         rt_thread_delay(5);
@@ -498,7 +498,7 @@ static rt_err_t sifli_get_adc_value(struct rt_adc_device *device, rt_uint32_t ch
 #endif
 
 
-#ifndef SF32LB52X   // TODO: remove macro check after 52x ADC calibration work
+#if !defined(SF32LB52X) && !defined(SF32LB57X)
     float fval = HAL_ADC_RegToVoltageFloat(fave, &g_adc_calib_ctx) * 10; // mv to 0.1mv based
     *value = (rt_uint32_t)fval;
 #else
@@ -507,7 +507,8 @@ static rt_err_t sifli_get_adc_value(struct rt_adc_device *device, rt_uint32_t ch
     *value = (rt_uint32_t)fval;
     if (channel == 7)   // for 52x, channel fix used for vbat with 1/2 update(need calibrate)
         *value = (rt_uint32_t)(fval * g_adc_calib_ctx.vbat_factor);
-#endif
+#endif /* !SF32LB52X && !SF32LB57X */
+
     //LOG_I("ADC vol %d , reg %f, max %d, min %d\n", *value, fave, data[ADC_SW_AVRA_CNT - 1], data[0]);
 #ifdef BSP_GPADC_SUPPORT_MULTI_CH_SAMPLING
     rt_kprintf("ch[%d]origin:%d, voltage:%d;\n", channel, adc_origin, *value);
@@ -533,10 +534,10 @@ static rt_err_t sifli_op_adc_init(struct rt_adc_device *device)
     status = HAL_ADC_Init(sifli_adc_handler);
     if (HAL_OK == status)
     {
-#ifdef SF32LB52X
+#if defined(SF32LB52X) || defined(SF32LB57X)
         uint32_t adc_freq = 240000; // use 240k for 52x to meet ATE setting
         HAL_ADC_SetFreq(sifli_adc_handler, adc_freq);
-#endif
+#endif /* SF32LB52X || SF32LB57X */
 #ifdef BSP_GPADC_SUPPORT_MULTI_CH_SAMPLING
         {
             ADC_ChannelConfTypeDef ADC_ChanConf;
@@ -725,10 +726,10 @@ static int sifli_adc_init(void)
         }
         else
         {
-#ifdef SF32LB52X
+#if defined(SF32LB52X) || defined(SF32LB57X)
             uint32_t adc_freq = 240000; // use 240k for 52x to meet ATE setting
             HAL_ADC_SetFreq(&sifli_adc_obj[i].ADC_Handler, adc_freq);
-#endif
+#endif /* SF32LB52X || SF32LB57X */
 
 
 #ifdef BSP_GPADC_SUPPORT_MULTI_CH_SAMPLING
@@ -879,7 +880,7 @@ static int adc_calib_func(int loop)
     channel = 5;
 #elif defined (SF32LB58X)
     channel = 3;
-#elif defined (SF32LB52X)
+#elif defined (SF32LB52X) || defined(SF32LB57X)
     channel = 7;
 #endif
 
@@ -1182,19 +1183,19 @@ int cmd_gpadc(int argc, char *argv[])
     else if (strcmp(argv[1], "-list") == 0)
     {
         LOG_I("Offset = %f, ratio = %f\n", g_adc_calib_ctx.offset, g_adc_calib_ctx.ratio);
-#ifdef SF32LB52X
+#if defined(SF32LB52X) || defined(SF32LB57X)
         LOG_I("vbat factor = %f\n", g_adc_calib_ctx.vbat_factor);
-#endif
+#endif /* SF32LB52X || SF32LB57X */
     }
     else if (strcmp(argv[1], "-list2") == 0)
     {
         HAL_LCPU_CONFIG_ADC_T cfg;
         int len = (int)sizeof(HAL_LCPU_CONFIG_ADC_T);
-#ifndef SF32LB52X
+#if !defined(SF32LB52X) && !defined(SF32LB57X)
         if (BSP_CONFIG_get(FACTORY_CFG_ID_ADC, (uint8_t *)&cfg, len))
 #else
         if (0)
-#endif
+#endif /* !SF32LB52X && !SF32LB57X  */
         {
             LOG_I("ADC : small VOL %d, big VOL %d, X1 mode %d\n", cfg.vol10 & 0xfff, cfg.vol25 & 0xfff, cfg.vol10 >> 15);
         }

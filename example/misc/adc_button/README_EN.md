@@ -41,7 +41,7 @@ This is only a brief explanation, please check for details[Compile the burning l
 #### menuconfig configuration
 Run the menuconfig command to perform the compilation ('..'Add the sf32-oed-epd_v11 storage path for the development board):
 ```
-menuconfig --board=sf32-oed-epd_v11 --board_search_path=..
+sdk.py menuconfig --board=sf32-oed-epd_v11 --board_search_path=..
 ```
 - If you want to change the time of the long press, you can set it by modifying the macro 'BUTTON_ADV_ACTION_CHECK_DELAY' in Menuconfig. Open the Menuconfig configuration under 'SiFli Middleware->Enable button library'.
 ![alt text](assets/menuconfig_action.png)

@@ -15,11 +15,15 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
 import urllib.error
 import urllib.request
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime
+from datetime import timezone
+from enum import StrEnum
 from typing import Any
 from typing import Dict
 from typing import List
@@ -49,27 +53,42 @@ from rich.theme import Theme
 DEFAULT_PROFILE = "default"
 DEFAULT_INSTALL_ROOT = os.path.expanduser("~/.sifli")
 ENV_COMPAT_ALGORITHM = "v1"
-STATE_SCHEMA_VERSION = 1
+STATE_SCHEMA_VERSION = 2
 LOCK_SCHEMA_VERSION = 1
 DEFAULT_PYPI_INDEX = "https://pypi.org/simple"
 DEFAULT_PYPI_FILES_PREFIX = "https://files.pythonhosted.org/packages"
 DEFAULT_UPSTREAM_URL = "https://downloads.sifli.com/dl/sifli-sdk"
 CONFIG_FILE_NAME = "config.json"
 STATE_FILE_NAME = "sifli-sdk-env.json"
+TOOLCHAIN_GCC = "gcc"
+TOOLCHAIN_KEIL = "keil"
+SUPPORTED_TOOLCHAINS = (TOOLCHAIN_GCC, TOOLCHAIN_KEIL)
+GCC_TOOL_NAME = "arm-none-eabi-gcc"
 CHINA_MIRROR_ENV_NAME = "SIFLI_SDK_MIRROR_CHINA"
 CHINA_MIRROR_PRESET = {
     "SIFLI_SDK_GITHUB_ASSETS": "https://downloads.sifli.com/github_assets",
     "SIFLI_SDK_PYPI_DEFAULT_INDEX": "https://mirrors.ustc.edu.cn/pypi/simple",
     "UV_PYTHON_DOWNLOADS_JSON_URL": "https://uv.agentsmirror.com/metadata/python-downloads.json",
-    "UV_PYPY_INSTALL_MIRROR": "https://uv.agentsmirror.com/pypy",
 }
 
 POSIX_SHELLS = {"bash", "zsh", "sh"}
 POWERSHELL_SHELLS = {"powershell", "pwsh"}
+STAGING_CLEANUP_MIN_AGE_SECONDS = 60 * 60
+STAGING_DIR_RE = re.compile(r"^.+-.+-[0-9a-f]{32}$")
 
 
 class SDKEnvError(RuntimeError):
     pass
+
+
+class InstallIntent(StrEnum):
+    CREATE = "create"
+    UPDATE = "update"
+
+
+class InstallAction(StrEnum):
+    INSTALL = "install"
+    UNINSTALL = "uninstall"
 
 
 RICH_THEME = Theme(
@@ -375,6 +394,34 @@ class ToolPlan:
     tool: legacy_tools.SiFliSDKTool
 
 
+@dataclass(frozen=True)
+class ResolvedEnvInstance:
+    key: str
+    compat_sha: str
+    env_state: Optional[Dict[str, Any]]
+    python_env_path: str
+    conan_home: str
+
+
+@dataclass(frozen=True)
+class EnvironmentInstallDecision:
+    resolved_env: ResolvedEnvInstance
+    python_env_path: str
+    conan_home: str
+    skip_install: bool
+    previous_env_key: Optional[str]
+    prune_env_keys: Tuple[str, ...]
+    reason: str
+
+
+@dataclass(frozen=True)
+class UninstallPlan:
+    env_keys: Tuple[str, ...]
+    env_dirs: Tuple[str, ...]
+    cache_files: Tuple[str, ...]
+    staging_paths: Tuple[str, ...]
+
+
 def repo_root() -> str:
     return os.path.realpath(os.path.join(os.path.dirname(__file__), ".."))
 
@@ -400,12 +447,46 @@ def parse_csv_env(value: Optional[str]) -> List[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def is_windows_host() -> bool:
+    return os.name == "nt"
+
+
 def normalize_target(value: str) -> str:
     return value.strip().lower().replace("-", "")
 
 
 def normalize_path(path: str) -> str:
     return os.path.normcase(os.path.normpath(path))
+
+
+def normalize_filesystem_path(path: str) -> str:
+    return os.path.normpath(os.path.realpath(os.path.expandvars(os.path.expanduser(path))))
+
+
+def keil_armclang_bin(root: str) -> str:
+    return os.path.join(root, "ARM", "ARMCLANG", "bin")
+
+
+def validate_keil_toolchain(root: str) -> Dict[str, str]:
+    if not is_windows_host():
+        raise SDKEnvError("--keil is only supported on Windows")
+    if not root or not str(root).strip():
+        raise SDKEnvError("--keil requires a Keil root directory")
+
+    normalized_root = normalize_filesystem_path(str(root).strip())
+    if not os.path.isdir(normalized_root):
+        raise SDKEnvError(f"Keil root directory does not exist: {normalized_root}")
+
+    armclang_bin = normalize_filesystem_path(keil_armclang_bin(normalized_root))
+    if not os.path.isdir(armclang_bin):
+        raise SDKEnvError(
+            f"Keil root directory must contain ARM/ARMCLANG/bin: {normalized_root}"
+        )
+
+    return {
+        "root": normalized_root,
+        "armclang_bin": armclang_bin,
+    }
 
 
 def shell_kind(shell: str) -> str:
@@ -512,24 +593,191 @@ def compute_env_compat_sha256(lock_path: str, pyproject_path: str, uv_lock_path:
     return hashlib.sha256(payload).hexdigest()
 
 
-def load_state(path: str) -> Dict[str, Any]:
-    if not os.path.exists(path):
-        return {"schema_version": STATE_SCHEMA_VERSION, "repos": {}}
-    with open(path, "rb") as f:
-        raw = json.load(f)
-    if int(raw.get("schema_version", 0)) != STATE_SCHEMA_VERSION:
-        return {"schema_version": STATE_SCHEMA_VERSION, "repos": {}}
+def current_timestamp() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def normalize_auto_reconcile(value: Any) -> str:
+    normalized = str(value or "ask")
+    return normalized if normalized in {"ask", "always", "never"} else "ask"
+
+
+def normalize_git_head(value: Any) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def empty_state_doc() -> Dict[str, Any]:
+    return {"schema_version": STATE_SCHEMA_VERSION, "repos": {}, "envs": {}}
+
+
+def state_envs(state_doc: Dict[str, Any]) -> Dict[str, Any]:
+    envs = state_doc.setdefault("envs", {})
+    if not isinstance(envs, dict):
+        state_doc["envs"] = {}
+        envs = state_doc["envs"]
+    return envs
+
+
+def normalize_profile_state_doc(profile_state: Any) -> Dict[str, Any]:
+    if not isinstance(profile_state, dict):
+        profile_state = {}
+    preferences = profile_state.get("preferences")
+    if not isinstance(preferences, dict):
+        preferences = {}
+    preferences["auto_reconcile"] = normalize_auto_reconcile(preferences.get("auto_reconcile"))
+    profile_state["preferences"] = preferences
+
+    selected_env_key = profile_state.get("selected_env_key")
+    if not isinstance(selected_env_key, str) or not selected_env_key.strip():
+        profile_state["selected_env_key"] = None
+    else:
+        profile_state["selected_env_key"] = selected_env_key.strip()
+
+    last_seen_git_head = normalize_git_head(profile_state.get("last_seen_git_head"))
+    if last_seen_git_head is None:
+        profile_state.pop("last_seen_git_head", None)
+    else:
+        profile_state["last_seen_git_head"] = last_seen_git_head
+
+    if "toolchains" in profile_state and not isinstance(profile_state["toolchains"], dict):
+        profile_state.pop("toolchains", None)
+
+    profile_state.pop("installed", None)
+    return profile_state
+
+
+def env_key(profile: str, compat_sha: str) -> str:
+    return f"{profile}|{compat_sha}"
+
+
+def normalize_env_state_doc(env_state: Any) -> Dict[str, Any]:
+    if not isinstance(env_state, dict):
+        return {}
+
+    normalized = copy.deepcopy(env_state)
+    sdk_state = normalized.get("sdk")
+    normalized_sdk_state: Dict[str, Any] = {}
+    if isinstance(sdk_state, dict):
+        compat_algorithm = str(sdk_state.get("env_compat_algorithm", "")).strip()
+        compat_sha = str(sdk_state.get("env_compat_sha256", "")).strip()
+        if compat_sha and not compat_algorithm:
+            compat_algorithm = ENV_COMPAT_ALGORITHM
+        if compat_algorithm:
+            normalized_sdk_state["env_compat_algorithm"] = compat_algorithm
+        if compat_sha:
+            normalized_sdk_state["env_compat_sha256"] = compat_sha
+    normalized["sdk"] = normalized_sdk_state
+
+    last_used_at = normalized.get("last_used_at")
+    if not isinstance(last_used_at, str) or not last_used_at.strip():
+        normalized.pop("last_used_at", None)
+    else:
+        normalized["last_used_at"] = last_used_at.strip()
+    return normalized
+
+
+def migrate_v1_env_state(profile: str, installed: Any) -> tuple[Optional[str], Optional[Dict[str, Any]]]:
+    if not isinstance(installed, dict) or not installed:
+        return None, None
+
+    migrated = normalize_env_state_doc(installed)
+    sdk_state = migrated.get("sdk")
+    if not isinstance(sdk_state, dict):
+        sdk_state = {}
+        migrated["sdk"] = sdk_state
+
+    compat_sha = str(sdk_state.get("env_compat_sha256", "")).strip()
+    if not compat_sha:
+        compat_sha = hashlib.sha256(canonical_json_bytes(installed)).hexdigest()
+        sdk_state["env_compat_sha256"] = compat_sha
+    if not sdk_state.get("env_compat_algorithm"):
+        sdk_state["env_compat_algorithm"] = ENV_COMPAT_ALGORITHM
+
+    migrated["last_used_at"] = str(migrated.get("last_used_at") or current_timestamp())
+    return env_key(profile, compat_sha), migrated
+
+
+def migrate_v1_state(raw: Dict[str, Any]) -> Dict[str, Any]:
+    migrated = empty_state_doc()
     repos = raw.get("repos")
     if not isinstance(repos, dict):
-        return {"schema_version": STATE_SCHEMA_VERSION, "repos": {}}
-    return raw
+        return migrated
+
+    for root, repo_entry in repos.items():
+        if not isinstance(repo_entry, dict):
+            continue
+        profiles = repo_entry.get("profiles")
+        if not isinstance(profiles, dict):
+            continue
+        for profile, legacy_profile_state in profiles.items():
+            if not isinstance(profile, str):
+                continue
+            new_profile_state = get_profile_state(migrated, str(root), profile)
+            preferences = legacy_profile_state.get("preferences") if isinstance(legacy_profile_state, dict) else {}
+            if isinstance(preferences, dict):
+                new_profile_state["preferences"]["auto_reconcile"] = normalize_auto_reconcile(
+                    preferences.get("auto_reconcile")
+                )
+
+            toolchains = legacy_profile_state.get("toolchains") if isinstance(legacy_profile_state, dict) else None
+            if isinstance(toolchains, dict):
+                new_profile_state["toolchains"] = copy.deepcopy(toolchains)
+
+            installed = legacy_profile_state.get("installed") if isinstance(legacy_profile_state, dict) else None
+            legacy_sdk_state = installed.get("sdk") if isinstance(installed, dict) and isinstance(installed.get("sdk"), dict) else {}
+            legacy_git_head = normalize_git_head(legacy_sdk_state.get("git_head"))
+            if legacy_git_head is not None:
+                new_profile_state["last_seen_git_head"] = legacy_git_head
+            migrated_env_key, env_state = migrate_v1_env_state(profile, installed)
+            if migrated_env_key and env_state:
+                state_envs(migrated).setdefault(migrated_env_key, env_state)
+                new_profile_state["selected_env_key"] = migrated_env_key
+    return migrated
+
+
+def normalize_state_doc(raw: Dict[str, Any]) -> Dict[str, Any]:
+    schema_version = int(raw.get("schema_version", 0))
+    if schema_version == STATE_SCHEMA_VERSION:
+        normalized = empty_state_doc()
+        repos = raw.get("repos")
+        if isinstance(repos, dict):
+            for root, repo_entry in repos.items():
+                if not isinstance(repo_entry, dict):
+                    continue
+                for profile, profile_state in (repo_entry.get("profiles") or {}).items():
+                    if not isinstance(profile, str):
+                        continue
+                    normalized_profile_state = get_profile_state(normalized, str(root), profile)
+                    normalized_profile_state.update(normalize_profile_state_doc(copy.deepcopy(profile_state)))
+        envs = raw.get("envs")
+        if isinstance(envs, dict):
+            normalized["envs"] = {
+                str(key): normalize_env_state_doc(env_state)
+                for key, env_state in envs.items()
+                if isinstance(key, str) and isinstance(env_state, dict)
+            }
+        return normalized
+    if schema_version == 1:
+        return migrate_v1_state(raw)
+    return empty_state_doc()
+
+
+def load_state(path: str) -> Dict[str, Any]:
+    if not os.path.exists(path):
+        return empty_state_doc()
+    with open(path, "rb") as f:
+        raw = json.load(f)
+    return normalize_state_doc(raw)
 
 
 def get_profile_state(state_doc: Dict[str, Any], root: str, profile: str) -> Dict[str, Any]:
     repos = state_doc.setdefault("repos", {})
     repo_entry = repos.setdefault(root, {})
     profiles = repo_entry.setdefault("profiles", {})
-    return profiles.setdefault(profile, {"installed": {}, "preferences": {"auto_reconcile": "ask"}})
+    return profiles.setdefault(profile, {"selected_env_key": None, "preferences": {"auto_reconcile": "ask"}})
 
 
 def read_profile_state(path: str, root: str, profile: str) -> Optional[Dict[str, Any]]:
@@ -542,22 +790,116 @@ def read_profile_state(path: str, root: str, profile: str) -> Optional[Dict[str,
     )
 
 
+def iter_selected_env_keys(state_doc: Dict[str, Any]) -> List[str]:
+    selected: List[str] = []
+    repos = state_doc.get("repos")
+    if not isinstance(repos, dict):
+        return selected
+    for repo_entry in repos.values():
+        if not isinstance(repo_entry, dict):
+            continue
+        profiles = repo_entry.get("profiles")
+        if not isinstance(profiles, dict):
+            continue
+        for profile_state in profiles.values():
+            if not isinstance(profile_state, dict):
+                continue
+            key = profile_state.get("selected_env_key")
+            if isinstance(key, str) and key.strip():
+                selected.append(key.strip())
+    return selected
+
+
+def env_reference_count(state_doc: Dict[str, Any], env_key_value: str) -> int:
+    return sum(1 for key in iter_selected_env_keys(state_doc) if key == env_key_value)
+
+
+def selected_env_key_for_profile(
+    state_doc: Dict[str, Any],
+    root: str,
+    profile: str,
+) -> Optional[str]:
+    profile_state = (
+        state_doc.get("repos", {})
+        .get(root, {})
+        .get("profiles", {})
+        .get(profile)
+    )
+    if not isinstance(profile_state, dict):
+        return None
+    selected_env_key = profile_state.get("selected_env_key")
+    if not isinstance(selected_env_key, str) or not selected_env_key.strip():
+        return None
+    return selected_env_key.strip()
+
+
+def reusable_env_paths(env_state: Optional[Dict[str, Any]]) -> Optional[tuple[str, str]]:
+    env_path = recorded_python_env_path(env_state)
+    conan_home = recorded_conan_home(env_state)
+    if not env_path or not conan_home:
+        return None
+    if not os.path.exists(python_executable(env_path)):
+        return None
+    if not os.path.isdir(conan_home):
+        return None
+    return env_path, conan_home
+
+
 def write_profile_state(
     path: str,
     root: str,
     profile: str,
-    installed: Optional[Dict[str, Any]] = None,
+    env_key_value: Optional[str] = None,
+    env_state: Optional[Dict[str, Any]] = None,
     auto_reconcile: Optional[str] = None,
+    toolchains: Optional[Dict[str, Optional[Dict[str, str]]]] = None,
+    last_seen_git_head: Optional[str] = None,
+    touch_selected_env: bool = False,
+    prune_env_keys: Optional[Sequence[str]] = None,
 ) -> None:
     state_doc = load_state(path)
     profile_state = get_profile_state(state_doc, root, profile)
-    if installed is not None:
-        profile_state["installed"] = installed
+    if env_key_value is not None:
+        profile_state["selected_env_key"] = env_key_value
+    if toolchains is not None:
+        existing_toolchains = profile_state.get("toolchains")
+        if not isinstance(existing_toolchains, dict):
+            existing_toolchains = {}
+        for name, value in toolchains.items():
+            if value is None:
+                existing_toolchains.pop(name, None)
+            else:
+                existing_toolchains[name] = value
+        if existing_toolchains:
+            profile_state["toolchains"] = existing_toolchains
+        else:
+            profile_state.pop("toolchains", None)
     profile_state.setdefault("preferences", {})
     if auto_reconcile is not None:
-        profile_state["preferences"]["auto_reconcile"] = auto_reconcile
-    if profile_state["preferences"].get("auto_reconcile") not in {"ask", "always", "never"}:
-        profile_state["preferences"]["auto_reconcile"] = "ask"
+        profile_state["preferences"]["auto_reconcile"] = normalize_auto_reconcile(auto_reconcile)
+    if last_seen_git_head is not None:
+        normalized_git_head = normalize_git_head(last_seen_git_head)
+        if normalized_git_head is None:
+            profile_state.pop("last_seen_git_head", None)
+        else:
+            profile_state["last_seen_git_head"] = normalized_git_head
+
+    envs = state_envs(state_doc)
+    if env_state is not None:
+        if not env_key_value:
+            raise SDKEnvError("env_key is required when writing environment state")
+        stored_env_state = normalize_env_state_doc(env_state)
+        stored_env_state["last_used_at"] = current_timestamp()
+        envs[env_key_value] = stored_env_state
+    elif touch_selected_env:
+        target_env_key = env_key_value or profile_state.get("selected_env_key")
+        if isinstance(target_env_key, str) and isinstance(envs.get(target_env_key), dict):
+            envs[target_env_key]["last_used_at"] = current_timestamp()
+    for stale_key in prune_env_keys or []:
+        if stale_key == profile_state.get("selected_env_key"):
+            continue
+        if env_reference_count(state_doc, stale_key) == 0:
+            envs.pop(stale_key, None)
     atomic_write_json(path, state_doc)
     log_ok(f"Updated state file {path}")
 
@@ -601,8 +943,12 @@ def read_sdk_release_line(root: str) -> str:
     return sdk_release_line(read_version_txt(root))
 
 
-def python_env_path(config: RuntimeConfig, lock: ProfileLock) -> str:
-    return os.path.join(config.install_root, "python_env", lock.profile, f"py{lock.python_version}")
+def env_instance_root(config: RuntimeConfig, profile: str, compat_sha: str) -> str:
+    return os.path.join(config.install_root, "envs", profile, compat_sha)
+
+
+def python_env_path(config: RuntimeConfig, lock: ProfileLock, compat_sha: str) -> str:
+    return os.path.join(env_instance_root(config, lock.profile, compat_sha), "python")
 
 
 def python_bin_dir(env_path: str) -> str:
@@ -617,8 +963,56 @@ def current_interpreter_env_path() -> str:
     return os.path.realpath(os.path.dirname(os.path.dirname(sys.executable)))
 
 
-def conan_home_path(config: RuntimeConfig, lock: ProfileLock) -> str:
-    return os.path.join(config.install_root, "conan", lock.profile)
+def conan_home_path(config: RuntimeConfig, lock: ProfileLock, compat_sha: str) -> str:
+    return os.path.join(env_instance_root(config, lock.profile, compat_sha), "conan")
+
+
+def envs_root(config: RuntimeConfig) -> str:
+    return os.path.join(config.install_root, "envs")
+
+
+def env_profile_root(config: RuntimeConfig, profile: str) -> str:
+    return os.path.join(envs_root(config), profile)
+
+
+def split_env_key(env_key_value: str) -> Optional[tuple[str, str]]:
+    if "|" not in env_key_value:
+        return None
+    profile, compat_sha = env_key_value.split("|", 1)
+    profile = profile.strip()
+    compat_sha = compat_sha.strip()
+    if not profile or not compat_sha:
+        return None
+    return profile, compat_sha
+
+
+def direct_child_path(parent: str, child_name: str) -> str:
+    parent_real = os.path.realpath(parent)
+    child_real = os.path.realpath(os.path.join(parent_real, child_name))
+    if os.path.dirname(child_real) != parent_real:
+        raise SDKEnvError(f"refusing to operate outside managed directory: {child_real}")
+    return child_real
+
+
+def managed_env_root_from_recorded_path(
+    config: RuntimeConfig,
+    profile: str,
+    path: Optional[str],
+) -> Optional[str]:
+    if not path:
+        return None
+    profile_root = os.path.realpath(env_profile_root(config, profile))
+    path_real = os.path.realpath(path)
+    try:
+        rel = os.path.relpath(path_real, profile_root)
+    except ValueError:
+        return None
+    if rel == os.curdir or rel.startswith(os.pardir + os.sep) or rel == os.pardir:
+        return None
+    env_name = rel.split(os.sep, 1)[0]
+    if not env_name:
+        return None
+    return direct_child_path(profile_root, env_name)
 
 
 def repo_tools_dir(root: str) -> str:
@@ -830,6 +1224,18 @@ def install_tool_plan(
 
 def conan_archive_name(config_id: str) -> str:
     return f"{config_id}.zip" if not config_id.endswith(".zip") else config_id
+
+
+def cache_filenames_for_current_lock(lock: ProfileLock, plans: Sequence[ToolPlan]) -> set[str]:
+    filenames = {conan_archive_name(lock.conan_config_id)}
+    for plan in plans:
+        if not plan.required:
+            continue
+        download_obj = plan.tool.versions[plan.version].get_download_for_platform(legacy_tools.PYTHON_PLATFORM)
+        if download_obj is None:
+            continue
+        filenames.add(download_obj.rename_dist or os.path.basename(download_obj.url))
+    return filenames
 
 
 def ensure_conan_config_archive(
@@ -1071,8 +1477,70 @@ def uv_index_args(config: RuntimeConfig) -> List[str]:
     return args
 
 
-def ensure_python_env(config: RuntimeConfig, lock: ProfileLock) -> str:
-    env_path = python_env_path(config, lock)
+def recorded_python_env_path(env_state: Optional[Dict[str, Any]]) -> Optional[str]:
+    if not isinstance(env_state, dict):
+        return None
+    python_state = env_state.get("python")
+    if not isinstance(python_state, dict):
+        return None
+    env_path = python_state.get("env_path")
+    if not isinstance(env_path, str) or not env_path.strip():
+        return None
+    return env_path
+
+
+def recorded_conan_home(env_state: Optional[Dict[str, Any]]) -> Optional[str]:
+    if not isinstance(env_state, dict):
+        return None
+    conan_state = env_state.get("conan")
+    if not isinstance(conan_state, dict):
+        return None
+    conan_home = conan_state.get("home")
+    if not isinstance(conan_home, str) or not conan_home.strip():
+        return None
+    return conan_home
+
+
+def resolve_env_instance(
+    config: RuntimeConfig,
+    lock: ProfileLock,
+    state_doc: Optional[Dict[str, Any]] = None,
+) -> ResolvedEnvInstance:
+    compat_sha = compute_env_compat_sha256(lock.path, lock.pyproject_path, lock.uv_lock_path)
+    current_env_key = env_key(lock.profile, compat_sha)
+    loaded_state = state_doc if state_doc is not None else load_state(config.state_path)
+    env_state_raw = state_envs(loaded_state).get(current_env_key)
+    env_state = env_state_raw if isinstance(env_state_raw, dict) else None
+    return ResolvedEnvInstance(
+        key=current_env_key,
+        compat_sha=compat_sha,
+        env_state=env_state,
+        python_env_path=recorded_python_env_path(env_state) or python_env_path(config, lock, compat_sha),
+        conan_home=recorded_conan_home(env_state) or conan_home_path(config, lock, compat_sha),
+    )
+
+
+def install_paths_for_env(
+    config: RuntimeConfig,
+    lock: ProfileLock,
+    resolved_env: ResolvedEnvInstance,
+) -> tuple[str, str]:
+    recorded_env_path = recorded_python_env_path(resolved_env.env_state)
+    recorded_home = recorded_conan_home(resolved_env.env_state)
+    python_path = (
+        recorded_env_path
+        if recorded_env_path and os.path.exists(python_executable(recorded_env_path))
+        else python_env_path(config, lock, resolved_env.compat_sha)
+    )
+    conan_home = (
+        recorded_home
+        if recorded_home and os.path.isdir(recorded_home)
+        else conan_home_path(config, lock, resolved_env.compat_sha)
+    )
+    return python_path, conan_home
+
+
+def ensure_python_env(config: RuntimeConfig, lock: ProfileLock, env_path: str) -> str:
     uv_env = os.environ.copy()
     apply_china_mirror_preset(uv_env)
     sync_env = uv_env.copy()
@@ -1104,9 +1572,14 @@ def ensure_python_env(config: RuntimeConfig, lock: ProfileLock) -> str:
     return env_path
 
 
-def initialize_conan(config: RuntimeConfig, lock: ProfileLock, env_path: str, bundle_dir: Optional[str]) -> None:
+def initialize_conan(
+    config: RuntimeConfig,
+    lock: ProfileLock,
+    env_path: str,
+    conan_home: str,
+    bundle_dir: Optional[str],
+) -> None:
     archive_path = ensure_conan_config_archive(config, lock, bundle_dir)
-    conan_home = conan_home_path(config, lock)
     os.makedirs(conan_home, exist_ok=True)
     conan_bin = os.path.join(python_bin_dir(env_path), "conan.exe" if os.name == "nt" else "conan")
     env = os.environ.copy()
@@ -1126,16 +1599,13 @@ def collect_installed_state(
     lock: ProfileLock,
     targets: Sequence[str],
     plans: Sequence[ToolPlan],
+    compat_sha: str,
     env_path: str,
+    conan_home: str,
 ) -> Dict[str, Any]:
-    root = repo_root()
-    compat_sha = compute_env_compat_sha256(lock.path, lock.pyproject_path, lock.uv_lock_path)
     tool_versions = installed_tool_versions(plans, config)
     return {
         "sdk": {
-            "version_txt": read_version_txt(root),
-            "git_head": current_git_head(root),
-            "dirty": current_git_dirty(root),
             "env_compat_algorithm": ENV_COMPAT_ALGORITHM,
             "env_compat_sha256": compat_sha,
         },
@@ -1151,11 +1621,25 @@ def collect_installed_state(
         "tools": tool_versions,
         "conan": {
             "config_id": lock.conan_config_id,
-            "home": conan_home_path(config, lock),
+            "home": conan_home,
         },
         "cache_root": config.cache_root,
         "install_root": config.install_root,
     }
+
+
+def ensure_required_tools_recorded(plans: Sequence[ToolPlan], installed_state: Dict[str, Any]) -> None:
+    tool_state = installed_state.get("tools") if isinstance(installed_state.get("tools"), dict) else {}
+    missing = [
+        f"{plan.name}@{plan.version}"
+        for plan in plans
+        if plan.required and tool_state.get(plan.name) != plan.version
+    ]
+    if missing:
+        raise SDKEnvError(
+            "install state is incomplete; required tools were not recorded: "
+            + ", ".join(missing)
+        )
 
 
 def parse_install_targets(lock: ProfileLock, cli_targets: Optional[str], compat_args: Sequence[str]) -> List[str]:
@@ -1184,6 +1668,26 @@ def parse_install_targets(lock: ProfileLock, cli_targets: Optional[str], compat_
     return list(lock.default_targets)
 
 
+def parse_install_intent_and_targets(
+    lock: ProfileLock,
+    cli_targets: Optional[str],
+    compat_args: Sequence[str],
+) -> tuple[InstallIntent, List[str]]:
+    install_intent = InstallIntent.CREATE
+    remaining_args = list(compat_args)
+    if remaining_args and remaining_args[0].strip().lower() == InstallIntent.UPDATE.value:
+        install_intent = InstallIntent.UPDATE
+        remaining_args = remaining_args[1:]
+    return install_intent, parse_install_targets(lock, cli_targets, remaining_args)
+
+
+def parse_install_action(compat_args: Sequence[str]) -> tuple[InstallAction, List[str]]:
+    remaining_args = list(compat_args)
+    if remaining_args and remaining_args[0].strip().lower() == InstallAction.UNINSTALL.value:
+        return InstallAction.UNINSTALL, remaining_args[1:]
+    return InstallAction.INSTALL, remaining_args
+
+
 def merge_managed_paths(current_path: str, old_managed_paths: Sequence[str], new_managed_paths: Sequence[str]) -> str:
     current_items = [item for item in current_path.split(os.pathsep) if item]
     old_set = {normalize_path(item) for item in old_managed_paths if item}
@@ -1200,10 +1704,79 @@ def merge_managed_paths(current_path: str, old_managed_paths: Sequence[str], new
     return os.pathsep.join(merged)
 
 
-def install_command_hint(profile: str, shell: str) -> str:
+def install_command_hint(
+    profile: str,
+    shell: str,
+    install_intent: InstallIntent = InstallIntent.CREATE,
+) -> str:
+    intent_arg = " update" if install_intent == InstallIntent.UPDATE else ""
     if shell_kind(shell) == "powershell":
-        return f".\\install.ps1 --profile {profile}"
-    return f"./install.sh --profile {profile}"
+        return f".\\install.ps1{intent_arg} --profile {profile}"
+    return f"./install.sh{intent_arg} --profile {profile}"
+
+
+def keil_install_command_hint(profile: str) -> str:
+    base = ".\\install.ps1"
+    if profile != DEFAULT_PROFILE:
+        base += f" --profile {profile}"
+    return base + r" --keil C:\Keil_v5"
+
+
+def export_command_name(shell: str) -> str:
+    return "export.ps1" if shell_kind(shell) == "powershell" else "export.sh"
+
+
+def render_export_command(root: str, profile: str, shell: str, toolchain: str) -> str:
+    command = f"{os.path.join(root, export_command_name(shell))} --profile {profile}"
+    if toolchain != TOOLCHAIN_GCC:
+        command += f" --toolchain {toolchain}"
+    return command
+
+
+def load_keil_toolchain_state(config: RuntimeConfig, lock: ProfileLock) -> Dict[str, str]:
+    if not is_windows_host():
+        raise SDKEnvError("Keil export is only supported on Windows")
+
+    profile_state = read_profile_state(config.state_path, repo_root(), lock.profile)
+    toolchains = profile_state.get("toolchains") if isinstance(profile_state, dict) else None
+    keil = toolchains.get(TOOLCHAIN_KEIL) if isinstance(toolchains, dict) else None
+    if not isinstance(keil, dict):
+        raise SDKEnvError(
+            f"Keil toolchain is not configured for profile '{lock.profile}'. "
+            f"Run `{keil_install_command_hint(lock.profile)}` first."
+        )
+
+    root = str(keil.get("root", "")).strip()
+    armclang_bin = str(keil.get("armclang_bin", "")).strip()
+    if not root or not armclang_bin:
+        raise SDKEnvError(
+            f"Keil toolchain state for profile '{lock.profile}' is incomplete. "
+            f"Run `{keil_install_command_hint(lock.profile)}` again."
+        )
+
+    validated = validate_keil_toolchain(root)
+    recorded_bin = normalize_filesystem_path(armclang_bin)
+    if recorded_bin != validated["armclang_bin"]:
+        raise SDKEnvError(
+            f"Keil toolchain state for profile '{lock.profile}' is inconsistent. "
+            f"Run `{keil_install_command_hint(lock.profile)}` again."
+        )
+    return validated
+
+
+def gcc_exec_path(plans: Sequence[ToolPlan], config: RuntimeConfig, installed: Dict[str, str]) -> str:
+    for plan in plans:
+        if plan.name != GCC_TOOL_NAME:
+            continue
+        if installed.get(plan.name) != plan.version:
+            continue
+        paths = tool_export_paths(plan, tool_install_dir(config, plan))
+        if paths:
+            return os.path.realpath(paths[0])
+    raise SDKEnvError(
+        f"installed {GCC_TOOL_NAME} toolchain was not found. "
+        "Run the install script again before exporting the GCC environment."
+    )
 
 
 def build_export_environment(
@@ -1211,14 +1784,21 @@ def build_export_environment(
     lock: ProfileLock,
     plans: Sequence[ToolPlan],
     env_path: str,
+    conan_home: str,
     shell: str,
+    toolchain: str = TOOLCHAIN_GCC,
 ) -> Dict[str, str]:
     root = repo_root()
     install_cmd_name = "install.ps1" if shell_kind(shell) == "powershell" else "install.sh"
-    export_cmd_name = "export.ps1" if shell_kind(shell) == "powershell" else "export.sh"
     current_path = os.environ.get("PATH", "")
     old_managed = [item for item in os.environ.get("SIFLI_SDK_MANAGED_PATHS", "").split(os.pathsep) if item]
     installed = installed_tool_versions(plans, config)
+    if toolchain not in SUPPORTED_TOOLCHAINS:
+        raise SDKEnvError(f"unsupported toolchain '{toolchain}'")
+
+    keil_toolchain: Optional[Dict[str, str]] = None
+    if toolchain == TOOLCHAIN_KEIL:
+        keil_toolchain = load_keil_toolchain_state(config, lock)
 
     managed_paths: List[str] = [python_bin_dir(env_path)]
     for tool_name in lock.path_order:
@@ -1228,10 +1808,14 @@ def build_export_environment(
             if installed.get(plan.name) != plan.version:
                 continue
             managed_paths.extend(tool_export_paths(plan, tool_install_dir(config, plan)))
+    if keil_toolchain is not None:
+        managed_paths.append(keil_toolchain["armclang_bin"])
     managed_paths.append(repo_tools_dir(root))
 
     managed_paths = [os.path.realpath(path) for path in managed_paths]
     path_value = merge_managed_paths(current_path, old_managed, managed_paths)
+    rtt_cc = TOOLCHAIN_KEIL if keil_toolchain is not None else TOOLCHAIN_GCC
+    rtt_exec_path = keil_toolchain["root"] if keil_toolchain is not None else gcc_exec_path(plans, config, installed)
 
     env_map: Dict[str, str] = {
         "SIFLI_SDK_PATH": root,
@@ -1241,16 +1825,16 @@ def build_export_environment(
         "SIFLI_SDK_PYTHON_ENV_PATH": env_path,
         "SIFLI_SDK_MANAGED_PATHS": os.pathsep.join(managed_paths),
         "SIFLI_SDK_TOOLS_INSTALL_CMD": f"{os.path.join(root, install_cmd_name)} --profile {lock.profile}",
-        "SIFLI_SDK_TOOLS_EXPORT_CMD": f"{os.path.join(root, export_cmd_name)} --profile {lock.profile}",
+        "SIFLI_SDK_TOOLS_EXPORT_CMD": render_export_command(root, lock.profile, shell, toolchain),
         "SIFLI_SDK": root,
-        "CONAN_HOME": conan_home_path(config, lock),
+        "CONAN_HOME": conan_home,
         "ENV_ROOT": env_path,
         "PKGS_ROOT": pkg_root(config),
         "PKGS_DIR": pkg_root(config),
-        "RTT_CC": "gcc",
+        "RTT_CC": rtt_cc,
         "PYTHONPATH": os.path.join(root, "tools", "build"),
         "PATH": path_value,
-        "RTT_EXEC_PATH": path_value,
+        "RTT_EXEC_PATH": rtt_exec_path,
     }
 
     for plan in plans:
@@ -1287,15 +1871,17 @@ def write_export_script(env_map: Dict[str, str], shell: str) -> str:
     return script_path
 
 
-def export_reexec_argv(args: argparse.Namespace, config: RuntimeConfig, lock: ProfileLock) -> List[str]:
+def export_reexec_argv(args: argparse.Namespace, lock: ProfileLock, env_path: str) -> List[str]:
     argv = [
-        python_executable(python_env_path(config, lock)),
+        python_executable(env_path),
         os.path.join(repo_root(), "tools", "sdk_env.py"),
         "export",
         "--profile",
         lock.profile,
         "--shell",
         args.shell,
+        "--toolchain",
+        getattr(args, "toolchain", TOOLCHAIN_GCC),
     ]
     if args.cache_dir:
         argv.extend(["--cache-dir", args.cache_dir])
@@ -1314,18 +1900,18 @@ def required_plan_names(plans: Sequence[ToolPlan]) -> List[str]:
     return [plan.name for plan in plans if plan.required]
 
 
-def detect_drift(
+def validate_resolved_env_instance(
     config: RuntimeConfig,
     lock: ProfileLock,
     plans: Sequence[ToolPlan],
-) -> Tuple[List[str], str]:
+    resolved_env: ResolvedEnvInstance,
+    expected_targets: Optional[Sequence[str]] = None,
+) -> List[str]:
     reasons: List[str] = []
-    current_compat = compute_env_compat_sha256(lock.path, lock.pyproject_path, lock.uv_lock_path)
-    profile_state = read_profile_state(config.state_path, repo_root(), lock.profile)
-    if not profile_state:
-        return ["state is missing"], current_compat
+    installed = resolved_env.env_state
+    if not isinstance(installed, dict):
+        return ["environment instance is not installed for the current checkout"]
 
-    installed = profile_state.get("installed") if isinstance(profile_state.get("installed"), dict) else {}
     sdk_state = installed.get("sdk") if isinstance(installed.get("sdk"), dict) else {}
     python_state = installed.get("python") if isinstance(installed.get("python"), dict) else {}
     conan_state = installed.get("conan") if isinstance(installed.get("conan"), dict) else {}
@@ -1334,22 +1920,23 @@ def detect_drift(
 
     if sdk_state.get("env_compat_algorithm") != ENV_COMPAT_ALGORITHM:
         reasons.append("state env_compat_algorithm is missing or unsupported")
-    if sdk_state.get("env_compat_sha256") != current_compat:
-        reasons.append("environment compatibility hash changed")
+    if sdk_state.get("env_compat_sha256") != resolved_env.compat_sha:
+        reasons.append("environment compatibility hash does not match the current checkout")
     if python_state.get("version") != lock.python_version:
         reasons.append("python version changed")
-    if python_state.get("env_path") != python_env_path(config, lock):
-        reasons.append("python env path changed")
-    if not os.path.exists(python_executable(python_env_path(config, lock))):
+    if not recorded_python_env_path(installed):
+        reasons.append("python env path is missing from state")
+    if not os.path.exists(python_executable(resolved_env.python_env_path)):
         reasons.append("python env interpreter is missing")
     if conan_state.get("config_id") != lock.conan_config_id:
         reasons.append("conan config_id changed")
-    if conan_state.get("home") != conan_home_path(config, lock):
-        reasons.append("conan home changed")
-    if not os.path.isdir(conan_home_path(config, lock)):
+    if not recorded_conan_home(installed):
+        reasons.append("conan home is missing from state")
+    if not os.path.isdir(resolved_env.conan_home):
         reasons.append("conan home is missing")
-    if [normalize_target(item) for item in installed_targets] != list(lock.default_targets):
-        reasons.append("installed targets do not match profile defaults")
+    targets = list(expected_targets) if expected_targets is not None else list(lock.default_targets)
+    if [normalize_target(item) for item in installed_targets] != [normalize_target(item) for item in targets]:
+        reasons.append("installed targets do not match expected targets")
 
     for plan in plans:
         if not plan.required:
@@ -1359,11 +1946,23 @@ def detect_drift(
             continue
         if not validate_tool_dir(plan, tool_install_dir(config, plan)):
             reasons.append(f"required tool {plan.name}@{plan.version} is missing or invalid")
-    return reasons, current_compat
+    return reasons
+
+
+def validate_env_instance(
+    config: RuntimeConfig,
+    lock: ProfileLock,
+    plans: Sequence[ToolPlan],
+    expected_targets: Optional[Sequence[str]] = None,
+    state_doc: Optional[Dict[str, Any]] = None,
+) -> Tuple[List[str], ResolvedEnvInstance]:
+    resolved_env = resolve_env_instance(config, lock, state_doc)
+    reasons = validate_resolved_env_instance(config, lock, plans, resolved_env, expected_targets)
+    return reasons, resolved_env
 
 
 def prompt_reconcile_choice(reasons: Sequence[str]) -> str:
-    log_warn("Environment drift detected")
+    log_warn("SDK environment for the current checkout is missing or invalid")
     for reason in reasons:
         print(f"  - {reason}", file=log_stream())
     print("Choose one of: once / always / never", file=log_stream())
@@ -1379,8 +1978,69 @@ def auto_reconcile_preference(config: RuntimeConfig, profile: str) -> str:
     if not profile_state:
         return "ask"
     preferences = profile_state.get("preferences") if isinstance(profile_state.get("preferences"), dict) else {}
-    value = str(preferences.get("auto_reconcile", "ask"))
-    return value if value in {"ask", "always", "never"} else "ask"
+    return normalize_auto_reconcile(preferences.get("auto_reconcile"))
+
+
+def decide_environment_install(
+    config: RuntimeConfig,
+    lock: ProfileLock,
+    plans: Sequence[ToolPlan],
+    targets: Sequence[str],
+    state_doc: Dict[str, Any],
+    root: str,
+    install_intent: InstallIntent = InstallIntent.CREATE,
+) -> EnvironmentInstallDecision:
+    resolved_env = resolve_env_instance(config, lock, state_doc)
+    target_reasons = validate_resolved_env_instance(config, lock, plans, resolved_env, targets)
+    previous_env_key = selected_env_key_for_profile(state_doc, root, lock.profile)
+    prune_env_keys: Tuple[str, ...] = ()
+
+    if not target_reasons:
+        if previous_env_key and previous_env_key != resolved_env.key:
+            prune_env_keys = (previous_env_key,)
+        log_kv("env action", "reuse existing target")
+        return EnvironmentInstallDecision(
+            resolved_env=resolved_env,
+            python_env_path=resolved_env.python_env_path,
+            conan_home=resolved_env.conan_home,
+            skip_install=True,
+            previous_env_key=previous_env_key,
+            prune_env_keys=prune_env_keys,
+            reason="target environment is already valid",
+        )
+
+    if (
+        install_intent == InstallIntent.UPDATE
+        and previous_env_key
+        and previous_env_key != resolved_env.key
+    ):
+        old_env_state = state_envs(state_doc).get(previous_env_key)
+        old_paths = reusable_env_paths(old_env_state if isinstance(old_env_state, dict) else None)
+        if old_paths and env_reference_count(state_doc, previous_env_key) == 1:
+            log_kv("env action", "upgrade selected env in place")
+            return EnvironmentInstallDecision(
+                resolved_env=resolved_env,
+                python_env_path=old_paths[0],
+                conan_home=old_paths[1],
+                skip_install=False,
+                previous_env_key=previous_env_key,
+                prune_env_keys=(previous_env_key,),
+                reason="previous environment is referenced only by this SDK",
+            )
+
+    if previous_env_key and previous_env_key != resolved_env.key:
+        prune_env_keys = (previous_env_key,)
+    env_path, conan_home = install_paths_for_env(config, lock, resolved_env)
+    log_kv("env action", "prepare target env")
+    return EnvironmentInstallDecision(
+        resolved_env=resolved_env,
+        python_env_path=env_path,
+        conan_home=conan_home,
+        skip_install=False,
+        previous_env_key=previous_env_key,
+        prune_env_keys=prune_env_keys,
+        reason="target environment needs installation",
+    )
 
 
 def perform_install(
@@ -1389,36 +2049,374 @@ def perform_install(
     lock: ProfileLock,
     targets: Sequence[str],
     auto_reconcile: Optional[str] = None,
+    keil_toolchain: Optional[Dict[str, str]] = None,
+    install_intent: InstallIntent = InstallIntent.CREATE,
 ) -> Dict[str, Any]:
     log_step(f"Starting install for profile '{lock.profile}'")
     log_kv("mode", "install")
+    log_kv("intent", install_intent.value)
     plans = load_tool_plans(repo_root(), config, lock, targets)
-    env_path = ensure_python_env(config, lock)
+    root = repo_root()
+    state_doc = load_state(config.state_path)
+    env_decision = decide_environment_install(
+        config,
+        lock,
+        plans,
+        targets,
+        state_doc,
+        root,
+        install_intent,
+    )
+    resolved_env = env_decision.resolved_env
+    env_path = env_decision.python_env_path
+    conan_home = env_decision.conan_home
+    log_kv("env key", resolved_env.key)
+    log_kv("compat sha", resolved_env.compat_sha)
+    log_kv("env decision", env_decision.reason)
+    preference = auto_reconcile or auto_reconcile_preference(config, lock.profile)
+    if env_decision.skip_install:
+        write_profile_state(
+            config.state_path,
+            root,
+            lock.profile,
+            env_key_value=resolved_env.key,
+            auto_reconcile=preference,
+            toolchains={TOOLCHAIN_KEIL: keil_toolchain} if keil_toolchain is not None else None,
+            last_seen_git_head=current_git_head(root),
+            touch_selected_env=True,
+            prune_env_keys=env_decision.prune_env_keys,
+        )
+        log_ok(f"Install completed for profile '{lock.profile}'")
+        return resolved_env.env_state or {}
+
+    env_path = ensure_python_env(config, lock, env_path)
     for plan in plans:
         if plan.required:
             install_tool_plan(config, plan, args.from_bundle)
-    initialize_conan(config, lock, env_path, args.from_bundle)
-    installed_state = collect_installed_state(config, lock, targets, plans, env_path)
-    preference = auto_reconcile or auto_reconcile_preference(config, lock.profile)
+    initialize_conan(config, lock, env_path, conan_home, args.from_bundle)
+    installed_state = collect_installed_state(
+        config,
+        lock,
+        targets,
+        plans,
+        resolved_env.compat_sha,
+        env_path,
+        conan_home,
+    )
+    ensure_required_tools_recorded(plans, installed_state)
     write_profile_state(
         config.state_path,
-        repo_root(),
+        root,
         lock.profile,
-        installed=installed_state,
+        env_key_value=resolved_env.key,
+        env_state=installed_state,
         auto_reconcile=preference,
+        toolchains={TOOLCHAIN_KEIL: keil_toolchain} if keil_toolchain is not None else None,
+        last_seen_git_head=current_git_head(root),
+        prune_env_keys=env_decision.prune_env_keys,
     )
     log_ok(f"Install completed for profile '{lock.profile}'")
     return installed_state
 
 
-def warn_non_blocking_drift(config: RuntimeConfig, lock: ProfileLock) -> None:
-    current_head = current_git_head(repo_root())
-    profile_state = read_profile_state(config.state_path, repo_root(), lock.profile)
-    if not profile_state:
+def managed_roots_from_env_state(
+    config: RuntimeConfig,
+    profile: str,
+    env_key_value: str,
+    env_state: Optional[Dict[str, Any]],
+    *,
+    strict: bool,
+) -> List[str]:
+    roots: List[str] = []
+    outside_paths: List[str] = []
+    for label, path in (
+        ("python env", recorded_python_env_path(env_state)),
+        ("conan home", recorded_conan_home(env_state)),
+    ):
+        if not path:
+            continue
+        root = managed_env_root_from_recorded_path(config, profile, path)
+        if root is None:
+            outside_paths.append(f"{label}: {path}")
+        else:
+            roots.append(root)
+
+    if outside_paths and strict:
+        raise SDKEnvError(
+            f"environment {env_key_value} records paths outside managed env root "
+            f"{env_profile_root(config, profile)}: {', '.join(outside_paths)}"
+        )
+    return sorted(set(roots))
+
+
+def env_dir_for_state_cleanup(
+    config: RuntimeConfig,
+    profile: str,
+    env_key_value: str,
+    env_state: Dict[str, Any],
+) -> str:
+    parsed = split_env_key(env_key_value)
+    if parsed is None:
+        raise SDKEnvError(f"invalid environment key in state: {env_key_value}")
+    key_profile, compat_sha = parsed
+    if key_profile != profile:
+        raise SDKEnvError(f"environment key {env_key_value} does not belong to profile '{profile}'")
+
+    expected_root = direct_child_path(env_profile_root(config, profile), compat_sha)
+    roots = managed_roots_from_env_state(
+        config,
+        profile,
+        env_key_value,
+        env_state,
+        strict=True,
+    )
+    if not roots:
+        return expected_root
+    if len(roots) > 1:
+        raise SDKEnvError(
+            f"environment {env_key_value} records paths in multiple managed env directories: "
+            + ", ".join(roots)
+        )
+    return roots[0]
+
+
+def protected_env_roots(config: RuntimeConfig, state_doc: Dict[str, Any], protected_keys: set[str]) -> set[str]:
+    protected_roots: set[str] = set()
+    envs = state_envs(state_doc)
+    for env_key_value in protected_keys:
+        parsed = split_env_key(env_key_value)
+        if parsed is None:
+            continue
+        profile, compat_sha = parsed
+        try:
+            protected_roots.add(direct_child_path(env_profile_root(config, profile), compat_sha))
+        except SDKEnvError:
+            continue
+        env_state = envs.get(env_key_value)
+        if isinstance(env_state, dict):
+            protected_roots.update(
+                managed_roots_from_env_state(
+                    config,
+                    profile,
+                    env_key_value,
+                    env_state,
+                    strict=False,
+                )
+            )
+    return protected_roots
+
+
+def direct_children(path: str) -> List[str]:
+    if not os.path.isdir(path):
+        return []
+    return [direct_child_path(path, name) for name in sorted(os.listdir(path))]
+
+
+def is_stale_sdk_staging_path(path: str, now: Optional[float] = None) -> bool:
+    if not os.path.isdir(path) or os.path.islink(path):
+        return False
+    if not STAGING_DIR_RE.match(os.path.basename(path)):
+        return False
+    try:
+        modified_at = os.path.getmtime(path)
+    except OSError:
+        return False
+    current_time = time.time() if now is None else now
+    return current_time - modified_at >= STAGING_CLEANUP_MIN_AGE_SECONDS
+
+
+def build_uninstall_plan(
+    config: RuntimeConfig,
+    lock: ProfileLock,
+    state_doc: Dict[str, Any],
+    resolved_env: ResolvedEnvInstance,
+    include_cache: bool,
+    plans: Sequence[ToolPlan],
+    all_profiles: bool = False,
+    force: bool = False,
+) -> UninstallPlan:
+    protected_keys = set() if force else set(iter_selected_env_keys(state_doc))
+    if not force:
+        protected_keys.add(resolved_env.key)
+    protected_roots = protected_env_roots(config, state_doc, protected_keys)
+
+    env_keys: List[str] = []
+    env_dirs: set[str] = set()
+    envs = state_envs(state_doc)
+    for env_key_value in sorted(envs):
+        parsed = split_env_key(env_key_value)
+        if parsed is None:
+            if force:
+                env_keys.append(env_key_value)
+            continue
+        if not all_profiles and parsed[0] != lock.profile:
+            continue
+        if not force and env_key_value in protected_keys:
+            continue
+        env_state = envs.get(env_key_value)
+        if force:
+            env_keys.append(env_key_value)
+            continue
+        if not isinstance(env_state, dict):
+            continue
+        env_dir = env_dir_for_state_cleanup(config, parsed[0], env_key_value, env_state)
+        env_keys.append(env_key_value)
+        if env_dir not in protected_roots and os.path.isdir(env_dir):
+            env_dirs.add(env_dir)
+
+    profiles = {lock.profile}
+    if all_profiles:
+        for key in envs:
+            parsed = split_env_key(key)
+            if parsed is not None:
+                profiles.add(parsed[0])
+        for profile_dir in direct_children(envs_root(config)):
+            if os.path.isdir(profile_dir):
+                profiles.add(os.path.basename(profile_dir))
+
+    for profile in sorted(profiles):
+        profile_root = env_profile_root(config, profile)
+        for env_dir in direct_children(profile_root):
+            if not os.path.isdir(env_dir):
+                continue
+            env_key_value = env_key(profile, os.path.basename(env_dir))
+            if not force and (env_key_value in protected_keys or env_dir in protected_roots):
+                continue
+            env_dirs.add(env_dir)
+
+    if force:
+        for env_key_value in sorted(envs):
+            if env_key_value not in env_keys:
+                env_keys.append(env_key_value)
+
+    if not all_profiles:
+        filtered_keys: List[str] = []
+        for env_key_value in env_keys:
+            parsed = split_env_key(env_key_value)
+            if parsed is not None and parsed[0] == lock.profile:
+                filtered_keys.append(env_key_value)
+        env_keys = filtered_keys
+
+    cache_files: Tuple[str, ...] = ()
+    staging_paths: Tuple[str, ...] = ()
+    if include_cache:
+        keep_cache = cache_filenames_for_current_lock(lock, plans)
+        dist_path = os.path.join(config.cache_root, "dist")
+        cache_files = tuple(
+            path
+            for path in direct_children(dist_path)
+            if os.path.isfile(path)
+            and not os.path.basename(path).endswith(".tmp")
+            and os.path.basename(path) not in keep_cache
+        )
+        staging_paths = tuple(
+            path for path in direct_children(config.staging_root) if is_stale_sdk_staging_path(path)
+        )
+
+    return UninstallPlan(
+        env_keys=tuple(env_keys),
+        env_dirs=tuple(sorted(env_dirs)),
+        cache_files=tuple(sorted(cache_files)),
+        staging_paths=tuple(sorted(staging_paths)),
+    )
+
+
+def remove_path(path: str) -> None:
+    try:
+        if os.path.isdir(path) and not os.path.islink(path):
+            shutil.rmtree(path)
+        else:
+            os.unlink(path)
+    except FileNotFoundError:
         return
-    installed = profile_state.get("installed", {})
-    sdk_state = installed.get("sdk", {}) if isinstance(installed, dict) else {}
-    recorded_head = sdk_state.get("git_head")
+    except OSError as exc:
+        raise SDKEnvError(f"failed to remove {path}: {exc}") from exc
+
+
+def remove_env_keys_from_state(path: str, env_keys: Sequence[str], force: bool = False) -> None:
+    if not env_keys and not force:
+        return
+    state_doc = load_state(path)
+    envs = state_envs(state_doc)
+    if force:
+        repos = state_doc.get("repos")
+        if isinstance(repos, dict):
+            for repo_entry in repos.values():
+                if not isinstance(repo_entry, dict):
+                    continue
+                profiles = repo_entry.get("profiles")
+                if not isinstance(profiles, dict):
+                    continue
+                for profile_state in profiles.values():
+                    if isinstance(profile_state, dict):
+                        profile_state["selected_env_key"] = None
+    else:
+        for env_key_value in env_keys:
+            if env_reference_count(state_doc, env_key_value) > 0:
+                raise SDKEnvError(f"refusing to remove environment still selected by a profile: {env_key_value}")
+    for env_key_value in env_keys:
+        envs.pop(env_key_value, None)
+    atomic_write_json(path, state_doc)
+    log_ok(f"Updated state file {path}")
+
+
+def describe_uninstall_plan(plan: UninstallPlan, dry_run: bool) -> None:
+    prefix = "Would remove" if dry_run else "Removing"
+    for env_key_value in plan.env_keys:
+        log_info(f"{prefix} environment state {env_key_value}")
+    for path in plan.env_dirs:
+        log_info(f"{prefix} environment directory {path}")
+    for path in plan.cache_files:
+        log_info(f"{prefix} cached artifact {path}")
+    for path in plan.staging_paths:
+        log_info(f"{prefix} staging path {path}")
+
+
+def perform_uninstall(args: argparse.Namespace, config: RuntimeConfig, lock: ProfileLock) -> UninstallPlan:
+    all_profiles = getattr(args, "all_profiles", False)
+    force = getattr(args, "force", False)
+    target = "all profiles" if all_profiles else f"profile '{lock.profile}'"
+    log_step(f"Starting uninstall for {target}")
+    clean_cache = getattr(args, "clean_cache", False)
+    dry_run = getattr(args, "dry_run", False)
+    plans = load_tool_plans(repo_root(), config, lock, lock.default_targets) if clean_cache else []
+    state_doc = load_state(config.state_path)
+    resolved_env = resolve_env_instance(config, lock, state_doc)
+    plan = build_uninstall_plan(
+        config=config,
+        lock=lock,
+        state_doc=state_doc,
+        resolved_env=resolved_env,
+        include_cache=clean_cache,
+        plans=plans,
+        all_profiles=all_profiles,
+        force=force,
+    )
+    describe_uninstall_plan(plan, dry_run)
+    if dry_run:
+        log_ok(f"Uninstall dry-run completed for {target}")
+        return plan
+
+    remove_env_keys_from_state(config.state_path, plan.env_keys, force=force)
+    for path in plan.env_dirs:
+        remove_path(path)
+    for path in plan.cache_files:
+        remove_path(path)
+    for path in plan.staging_paths:
+        remove_path(path)
+
+    if not any((plan.env_keys, plan.env_dirs, plan.cache_files, plan.staging_paths)):
+        log_ok(f"No old environment or cache entries to remove for {target}")
+    else:
+        log_ok(f"Uninstall completed for {target}")
+    return plan
+
+
+def warn_non_blocking_drift(profile_state: Optional[Dict[str, Any]]) -> None:
+    current_head = current_git_head(repo_root())
+    recorded_head = None
+    if isinstance(profile_state, dict):
+        recorded_head = normalize_git_head(profile_state.get("last_seen_git_head"))
     if recorded_head and current_head and recorded_head != current_head:
         log_warn(f"git HEAD changed from {recorded_head} to {current_head}, but environment is still compatible.")
     if current_git_dirty(repo_root()):
@@ -1426,15 +2424,57 @@ def warn_non_blocking_drift(config: RuntimeConfig, lock: ProfileLock) -> None:
 
 
 def handle_install(args: argparse.Namespace) -> int:
+    action, action_args = parse_install_action(args.compat_args)
+    if action == InstallAction.UNINSTALL:
+        if action_args:
+            raise SDKEnvError(f"unsupported uninstall arguments: {' '.join(action_args)}")
+        if getattr(args, "targets", None):
+            raise SDKEnvError("--targets is not supported with install uninstall")
+        if getattr(args, "keil", None):
+            raise SDKEnvError("--keil is not supported with install uninstall")
+        if getattr(args, "from_bundle", None):
+            raise SDKEnvError("--from-bundle is not supported with install uninstall")
+        if getattr(args, "force", False) and not getattr(args, "all_profiles", False):
+            raise SDKEnvError("--force requires install uninstall --all")
+        config = RuntimeConfig.load(args)
+        lock = ProfileLock.load(repo_root(), args.profile)
+        log_banner(
+            f"Cleaning SiFli-SDK {read_version_txt(repo_root())}",
+            f"profile={lock.profile}",
+        )
+        perform_uninstall(args, config, lock)
+        return 0
+
+    if (
+        getattr(args, "dry_run", False)
+        or getattr(args, "clean_cache", False)
+        or getattr(args, "all_profiles", False)
+        or getattr(args, "force", False)
+    ):
+        raise SDKEnvError("--dry-run, --cache, --all, and --force are only supported with install uninstall")
+
+    keil_arg = getattr(args, "keil", None)
+    keil_toolchain = validate_keil_toolchain(keil_arg) if keil_arg else None
     config = RuntimeConfig.load(args)
     lock = ProfileLock.load(repo_root(), args.profile)
-    targets = parse_install_targets(lock, args.targets, args.compat_args)
+    install_intent, targets = parse_install_intent_and_targets(lock, args.targets, action_args)
     log_banner(
         f"Installing SiFli-SDK {read_version_txt(repo_root())}",
         f"profile={lock.profile}",
     )
+    log_kv("install intent", install_intent.value)
     log_kv("selected targets", ",".join(targets))
-    perform_install(args, config, lock, targets)
+    if keil_toolchain is not None:
+        log_kv("keil root", keil_toolchain["root"])
+        log_kv("keil armclang bin", keil_toolchain["armclang_bin"])
+    perform_install(
+        args,
+        config,
+        lock,
+        targets,
+        install_intent=install_intent,
+        keil_toolchain=keil_toolchain,
+    )
     log_ok(f"SiFli-SDK profile '{lock.profile}' installed.")
     return 0
 
@@ -1447,19 +2487,20 @@ def handle_check(args: argparse.Namespace) -> int:
         f"profile={lock.profile}",
     )
     plans = load_tool_plans(repo_root(), config, lock, lock.default_targets)
-    reasons, _compat = detect_drift(config, lock, plans)
+    reasons, resolved_env = validate_env_instance(config, lock, plans)
     if reasons:
         log_warn("Checking environment compatibility failed")
         for reason in reasons:
             print(f"  - {reason}", file=log_stream())
         return 1
     log_done("Checking environment compatibility")
-    warn_non_blocking_drift(config, lock)
+    warn_non_blocking_drift(read_profile_state(config.state_path, repo_root(), lock.profile))
     log_done("Environment is ready")
     return 0
 
 
 def handle_export(args: argparse.Namespace) -> int:
+    toolchain = getattr(args, "toolchain", TOOLCHAIN_GCC)
     config = RuntimeConfig.load(args)
     lock = ProfileLock.load(repo_root(), args.profile)
     log_banner(
@@ -1467,8 +2508,11 @@ def handle_export(args: argparse.Namespace) -> int:
         f"profile={lock.profile}",
     )
     log_kv("shell", args.shell)
+    log_kv("toolchain", toolchain)
+    if toolchain == TOOLCHAIN_KEIL and not is_windows_host():
+        raise SDKEnvError("Keil export is only supported on Windows")
     plans = load_tool_plans(repo_root(), config, lock, lock.default_targets)
-    reasons, _compat = detect_drift(config, lock, plans)
+    reasons, resolved_env = validate_env_instance(config, lock, plans)
     preference = auto_reconcile_preference(config, lock.profile)
     log_kv("auto reconcile", preference)
 
@@ -1486,9 +2530,13 @@ def handle_export(args: argparse.Namespace) -> int:
         if effective_choice == "never":
             if preference == "ask" and sys.stdin.isatty() and sys.stdout.isatty():
                 write_profile_state(config.state_path, repo_root(), lock.profile, auto_reconcile="never")
+            create_hint = install_command_hint(lock.profile, args.shell)
+            update_hint = install_command_hint(lock.profile, args.shell, InstallIntent.UPDATE)
             raise SDKEnvError(
-                f"environment drift detected for profile '{lock.profile}'. "
-                f"Re-run `{install_command_hint(lock.profile, args.shell)}` to rebuild the SDK environment, then export again."
+                f"environment instance for profile '{lock.profile}' is missing or invalid for the current checkout. "
+                f"Run `{create_hint}` to prepare a new environment for the current lock, or `{update_hint}` "
+                "to try updating the currently selected environment in place. Shared environments are kept isolated "
+                "and will use a new environment instance. Export again after install completes."
             )
 
         persist_preference = "ask" if effective_choice == "once" else effective_choice
@@ -1499,29 +2547,62 @@ def handle_export(args: argparse.Namespace) -> int:
                 offline=args.offline,
                 mirror=args.mirror,
                 from_bundle=args.from_bundle,
+                toolchain=toolchain,
             ),
             config,
             lock,
             lock.default_targets,
+            install_intent=InstallIntent.UPDATE,
             auto_reconcile=persist_preference,
         )
-        expected_env = python_env_path(config, lock)
+        resolved_env = resolve_env_instance(config, lock)
+        expected_env = resolved_env.python_env_path
         current_env = current_interpreter_env_path()
         if current_env != os.path.realpath(expected_env):
             new_python = python_executable(expected_env)
             if not os.path.exists(new_python):
                 raise SDKEnvError(f"reconciled environment is missing interpreter: {new_python}")
             log_step("Restarting export with reconciled Python environment")
-            os.execv(new_python, export_reexec_argv(args, config, lock))
+            os.execv(new_python, export_reexec_argv(args, lock, expected_env))
         plans = load_tool_plans(repo_root(), config, lock, lock.default_targets)
-        reasons, _compat = detect_drift(config, lock, plans)
+        reasons, resolved_env = validate_env_instance(config, lock, plans)
         if reasons:
             raise SDKEnvError("environment reconcile did not produce a clean install state")
     log_done("Checking environment compatibility")
 
-    warn_non_blocking_drift(config, lock)
+    state_doc = load_state(config.state_path)
+    profile_state = (
+        state_doc.get("repos", {})
+        .get(repo_root(), {})
+        .get("profiles", {})
+        .get(lock.profile)
+    )
+    previous_env_key = selected_env_key_for_profile(state_doc, repo_root(), lock.profile)
+    prune_env_keys: Tuple[str, ...] = (
+        (previous_env_key,)
+        if previous_env_key and previous_env_key != resolved_env.key
+        else ()
+    )
+    warn_non_blocking_drift(profile_state)
+    write_profile_state(
+        config.state_path,
+        repo_root(),
+        lock.profile,
+        env_key_value=resolved_env.key,
+        last_seen_git_head=current_git_head(repo_root()),
+        touch_selected_env=True,
+        prune_env_keys=prune_env_keys,
+    )
     log_value("Identified shell", args.shell)
-    env_map = build_export_environment(config, lock, plans, python_env_path(config, lock), args.shell)
+    env_map = build_export_environment(
+        config,
+        lock,
+        plans,
+        resolved_env.python_env_path,
+        resolved_env.conan_home,
+        args.shell,
+        toolchain,
+    )
     script_path = write_export_script(env_map, args.shell)
     log_done("Generating shell export script")
     log_value("Export script", script_path)
@@ -1536,16 +2617,22 @@ def build_parser() -> argparse.ArgumentParser:
     install = subparsers.add_parser("install", help="Install the current profile environment")
     install.add_argument("--profile", default=DEFAULT_PROFILE)
     install.add_argument("--targets")
+    install.add_argument("--keil", metavar="PATH", help="record a Windows Keil root containing ARM/ARMCLANG/bin")
     install.add_argument("--cache-dir")
     install.add_argument("--staging-dir")
     install.add_argument("--mirror")
     install.add_argument("--offline", action="store_true")
     install.add_argument("--from-bundle")
+    install.add_argument("--dry-run", action="store_true", help="preview install uninstall cleanup without deleting")
+    install.add_argument("--cache", action="store_true", dest="clean_cache", help="also clean unused cache artifacts")
+    install.add_argument("--all", action="store_true", dest="all_profiles", help="clean old environments for all profiles")
+    install.add_argument("--force", action="store_true", help="with uninstall --all, remove all managed environments")
     install.add_argument("compat_args", nargs="*")
 
     export = subparsers.add_parser("export", help="Export shell environment for the current profile")
     export.add_argument("--profile", default=DEFAULT_PROFILE)
     export.add_argument("--shell", required=True)
+    export.add_argument("-t", "--toolchain", choices=SUPPORTED_TOOLCHAINS, default=TOOLCHAIN_GCC)
     export.add_argument("--cache-dir")
     export.add_argument("--staging-dir")
     export.add_argument("--mirror")

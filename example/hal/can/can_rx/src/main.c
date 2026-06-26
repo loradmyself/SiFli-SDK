@@ -121,6 +121,9 @@ static void CAN_Config(void)
 
 int main(void)
 {
+    HAL_PIN_Set(PAD_PA03, CAN1_TXD,  PIN_PULLUP, 1);             // CAN1_TXD
+    HAL_PIN_Set(PAD_PA04, CAN1_RXD,  PIN_PULLUP, 1);             // CAN1_RXD
+
     HAL_RCC_HCPU_enable2(HPSYS_RCC_ENR2_CAN1, 1);
 
     CAN_Config();

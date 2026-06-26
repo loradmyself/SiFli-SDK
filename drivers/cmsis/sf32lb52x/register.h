@@ -607,6 +607,9 @@ typedef enum IRQn
 #define DMA2_CSELR          ((DMA_Request_TypeDef *) &DMA2->CSELR1)
 #define DMA2_CHANNEL_NUM    (8)
 
+
+#define HASH_ACC_BASE       (&hwp_aes_acc->HASH_SETTING)
+
 /**
  *
  * @} Peripheral_memory_map
@@ -720,6 +723,9 @@ typedef enum
 #define IS_LCPU(id)  ((*id)&1)
 
 #define SF32LB52X_LETTER_SERIES()  ((__HAL_SYSCFG_GET_REVID() == HAL_CHIP_REV_ID_A4) || (__HAL_SYSCFG_GET_REVID() == HAL_CHIP_REV_ID_B4))
+
+/* Peripheral_timer_clk */
+#define FIXED_GPTBTIM_SRC_CLK   (24000000)
 
 #if defined (USE_HAL_DRIVER)
 #include "bf0_hal.h"

@@ -16,6 +16,7 @@
 #include "webrtc/common_audio/signal_processing/include/signal_processing_library.h"
 #include "webrtc/common_audio/vad/vad_core.h"
 #include "webrtc/typedefs.h"
+#include "webrtc_mem.h"
 
 static const int kInitCheck = 42;
 static const int kValidRates[] = { 8000, 16000, 32000, 48000 };

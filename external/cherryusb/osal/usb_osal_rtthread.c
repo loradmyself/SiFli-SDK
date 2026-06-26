@@ -25,13 +25,11 @@ usb_osal_thread_t usb_osal_thread_create(const char *name, uint32_t stack_size, 
 
 void usb_osal_thread_delete(usb_osal_thread_t thread)
 {
-    if (thread == NULL) {
-        rt_thread_t self = rt_thread_self();
-        rt_thread_control(self, RT_THREAD_CTRL_CLOSE, RT_NULL);
-        return;
+    if (thread != NULL) {
+        rt_thread_delete((rt_thread_t)thread);
+    } else {
+        rt_thread_exit();
     }
-
-    rt_thread_delete(thread);
 }
 
 void usb_osal_thread_schedule_other(void)

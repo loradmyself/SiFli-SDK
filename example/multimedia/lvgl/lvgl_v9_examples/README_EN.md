@@ -5,6 +5,32 @@ This example is used to test LVGL V9 APIs with the official provided examples.
 You can replace the lv_example_scroll_1() function in src/main.c (simulator is in simulator/applications/application.c) to test other APIs.
 For other API functions, refer to the function definitions in src/examples/lv_examples.h.
 
+## Switching Different Demos
+
+By default, the demo runs `lv_example_scroll_1()`. To switch to other demos, modify the `src/main.c` file.
+
+Open `src/main.c` and find the demo call in the main function:
+
+```c
+/*Call examples here*/
+lv_example_scroll_1();
+// lv_example_tiny_ttf_1();
+// lv_example_file_explorer_1();
+// lv_example_tjpgd_1();
+```
+
+Uncomment the demo you want to run and comment out the others. For example, to switch to `lv_example_tiny_ttf_1()`:
+
+```c
+/*Call examples here*/
+// lv_example_scroll_1();
+lv_example_tiny_ttf_1();
+// lv_example_file_explorer_1();
+// lv_example_tjpgd_1();
+```
+
+Recompile after making changes to see the different demo effect.
+
 ## Project Compilation and Download:
 The board project is located in the project directory and can be compiled for a specific board by specifying the board,
 - For example, to compile a project that can run on HDK 563, execute scons --board=eh-lb563 to generate the project
@@ -74,7 +100,7 @@ please input the serial port num:5
 * First, you can use a TF card reader to write image files to the TF card, then insert the TF card into the board
 * Perform the following configuration through menuconfig, the specific operation is as follows
 ``` c
-menuconfig --board=sf32lb52-lchspi-ulp
+sdk.py menuconfig --board=sf32lb52-lchspi-ulp
 ```
 * Enable SPI bus
 

@@ -758,6 +758,8 @@ typedef enum
 
 #define IS_LCPU(id)  ((*id)&1)
 
+/** hwp_pmuc is in lpsys, lcpu can access it directly */
+#define PMUC_IN_LPSYS
 
 #if defined (USE_HAL_DRIVER)
 #include "bf0_hal.h"

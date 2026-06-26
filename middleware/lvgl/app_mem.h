@@ -79,7 +79,7 @@ static inline void *app_cache_calloc(size_t nmemb, size_t size, image_cache_t ca
     size_t total = nmemb * size;
     void *ptr = app_cache_alloc(total, cache_type);
 
-    if(ptr != RT_NULL)
+    if (ptr != RT_NULL)
     {
         rt_memset(ptr, 0, total);
     }
@@ -179,7 +179,7 @@ static inline void *app_anim_calloc(size_t nmemb, size_t size)
     size_t total = nmemb * size;
     void *ptr = app_anim_mem_alloc(total, true);
 
-    if(ptr != RT_NULL)
+    if (ptr != RT_NULL)
     {
         rt_memset(ptr, 0, total);
     }
@@ -210,6 +210,34 @@ void app_mem_invalid_icache(void *data, uint32_t size);
 @retval app memory type.
 */
 uint8_t app_get_mem_type(void *data);
+/**
+@brief      alloc mem for switch_animation's snapshot. use fixed length.
+@param[in]  nbytes Size of snapshot mem
+@param[in]  index  snapshot index
+*/
+void       *app_anim_buf_alloc(size_t nbytes, uint8_t index);
+
+/**
+@brief      alloc mem for switch_animation's snapshot. _ext use variable length.
+@param[in]  nbytes Size of snapshot mem
+@param[in]  index  snapshot index
+*/
+void       *app_anim_buf_alloc_ex(size_t nbytes, uint8_t index);
+
+/**
+@brief      free snapshot mem.
+@param[in]  ptr snapshot Pointer to be free, which successsful apply by app_anim_buf_alloc_ex
+*/
+void       *app_anim_buf_free(void *ptr);
+
+
+#if LV_USE_TINY_TTF
+/**
+@brief allocate/free tiny ttf draw buffer memory from the tiny heap
+*/
+void *app_tiny_ttf_mem_alloc(size_t size);
+void app_tiny_ttf_mem_free(void *buf);
+#endif
 
 #if PKG_USING_FFMPEG
 /**
@@ -390,6 +418,10 @@ void *audio_mem_calloc(uint32_t count, uint32_t size);
 
 #ifndef FT_CACHE_SIZE
 #define FT_CACHE_SIZE 0
+#endif
+
+#ifndef TINY_TTF_CACHE_SIZE
+#define TINY_TTF_CACHE_SIZE 0
 #endif
 
 #ifndef FREETYPE_ACT_CACHE_SIZE

@@ -103,6 +103,7 @@
         #define COMPATIBLE_WITH_SIFLI_EPIC_FILL  /*Compatible lvgl fill with sifli EPIC fill*/
 
         #if ((!defined(SF32LB55X) && (4 == FT_BPP)) || (!(defined(SF32LB55X)||defined(SF32LB56X)||defined(SF32LB58X)) && (2 == FT_BPP))) && LV_USING_FREETYPE_ENGINE
+            //TODO:  too complex condition
             #define COMPATIBLE_WITH_SIFLI_EPIC_Ax  1 /*Attach dummy pixels for every row to align to 1 byte for A2/A4 color format*/
         #else
             #define COMPATIBLE_WITH_SIFLI_EPIC_Ax  0 /*55x not support Ax*/
@@ -195,7 +196,30 @@
     /*--END OF LV_CONF_SIFLI_H--*/
 
 #endif /*__RTTHREAD__*/
+#ifndef BSP_USING_PC_SIMULATOR
+    #include "rtconfig.h"
+    #include "drv_lcd.h"
 
+
+    /**************************************************
+    2. Defination of LCD buffer(s) on PSRAM
+    ****************************************************/
+    #ifdef LCD_FB_USING_AUTO
+        #if   defined(BSP_USING_RAMLESS_LCD) && defined(DRV_LCD_COMPRESSED_BUF_AVALIABLE)
+            #define LCD_FB_USING_TWO_COMPRESSED
+        #elif defined(BSP_USING_RAMLESS_LCD) && !defined(DRV_LCD_COMPRESSED_BUF_AVALIABLE)
+            #define LCD_FB_USING_TWO_UNCOMPRESSED
+        #elif !defined(BSP_USING_RAMLESS_LCD) && defined(DRV_LCD_COMPRESSED_BUF_AVALIABLE)
+            #define LCD_FB_USING_ONE_COMPRESSED
+        #elif !defined(BSP_USING_RAMLESS_LCD) && !defined(DRV_LCD_COMPRESSED_BUF_AVALIABLE)
+            #if defined (DRV_EPIC_NEW_API)
+                #define LCD_FB_USING_TWO_UNCOMPRESSED
+            #else
+                #define LCD_FB_USING_ONE_UNCOMPRESSED
+            #endif
+        #endif
+    #endif /* LCD_FB_USING_AUTO */
+#endif // !BSP_USING_PC_SIMULATOR
 
 
 #ifdef DISABLE_LVGL_V8
@@ -253,6 +277,7 @@
     #define LV_IMG_CF_RAW_ALPHA  LV_COLOR_FORMAT_RAW_ALPHA
 
     #define LV_IMAGE_FLAGS_EZIP  LV_IMAGE_FLAGS_USER1
+    #define LV_IMAGE_FLAGS_JPEG  LV_IMAGE_FLAGS_USER2
 
     #ifndef LV_USE_BIN
         #define LV_USE_BTN LV_USE_BUTTON

@@ -34,7 +34,8 @@ __HAL_ROM_USED HAL_StatusTypeDef HAL_TSEN_Init(TSEN_HandleTypeDef *htsen)
 
 
     HAL_RCC_EnableModule(RCC_MOD_TSEN);
-#ifdef SF32LB52X
+//TODO:
+#if !defined(TSEN_BGR_EN)
     hwp_hpsys_cfg->ANAU_CR |= HPSYS_CFG_ANAU_CR_EN_BG;
 #else
     htsen->Instance->BGR |= TSEN_BGR_EN;
@@ -57,7 +58,7 @@ __HAL_ROM_USED HAL_StatusTypeDef HAL_TSEN_DeInit(TSEN_HandleTypeDef *htsen)
     if (htsen == NULL)
         return HAL_ERROR;
 
-#ifdef SF32LB52X
+#if !defined(TSEN_BGR_EN)
     hwp_hpsys_cfg->ANAU_CR &= (~HPSYS_CFG_ANAU_CR_EN_BG);
 #else
     htsen->Instance->ANAU_ANA_TP &= ~TSEN_ANAU_ANA_TP_ANAU_IARY_EN;
@@ -115,7 +116,12 @@ static void HAL_TSEN_Disable(TSEN_HandleTypeDef *htsen)
 
 __HAL_ROM_USED void HAL_TSEN_IRQHandler(TSEN_HandleTypeDef *htsen)
 {
+    //TODO:
+#ifdef TSEN_TSEN_IRQ_TSEN_ICR
     htsen->Instance->TSEN_IRQ |= TSEN_TSEN_IRQ_TSEN_ICR;
+#else
+    htsen->Instance->TSEN_IRQ |= TSEN_TSEN_IRQ_TSEN_ICR_0;
+#endif
     htsen->temperature = HAL_TSEN_Data(htsen);
     HAL_TSEN_Disable(htsen);
     NVIC_DisableIRQ(TSEN_IRQn);
@@ -126,7 +132,12 @@ __HAL_ROM_USED HAL_TSEN_StateTypeDef HAL_TSEN_Read_IT(TSEN_HandleTypeDef *htsen)
 {
     if (htsen->State == HAL_TSEN_STATE_READY)
     {
+//TODO:
+#ifdef TSEN_TSEN_IRQ_TSEN_ICR
         htsen->Instance->TSEN_IRQ |= TSEN_TSEN_IRQ_TSEN_ICR;
+#else
+        htsen->Instance->TSEN_IRQ |= TSEN_TSEN_IRQ_TSEN_ICR_0;
+#endif
         NVIC_ClearPendingIRQ(TSEN_IRQn);
         NVIC_EnableIRQ(TSEN_IRQn);
         HAL_TSEN_Enable(htsen);
@@ -157,7 +168,11 @@ __HAL_ROM_USED int HAL_TSEN_Read(TSEN_HandleTypeDef *htsen)
                 break;
             }
         }
+#ifdef TSEN_TSEN_IRQ_TSEN_ICR
         htsen->Instance->TSEN_IRQ |= TSEN_TSEN_IRQ_TSEN_ICR;
+#else
+        htsen->Instance->TSEN_IRQ |= TSEN_TSEN_IRQ_TSEN_ICR_0;
+#endif
         if (r >= 0)
         {
             r = HAL_TSEN_Data(htsen);

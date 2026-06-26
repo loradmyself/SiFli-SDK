@@ -22,9 +22,9 @@ def create_env(proj_path = None):
     # Set default compile options
     SifliEnv(proj_path)
 
-def build():
+def build(env=None):
     # prepare building environment
-    objs = PrepareBuilding(None)
+    objs = PrepareBuilding(env)
     env = GetCurrentEnv()
 
     TARGET = os.path.join(env['build_dir'], rtconfig.TARGET_NAME + '.' + rtconfig.TARGET_EXT)

@@ -1,107 +1,118 @@
 # ADC_battery Example
-Source code path: example/hal/adc/adc_battery
+Source path: example/hal/adc/adc_battery
 ## Supported Platforms
-The example can run on the following development boards
-* sf32lb52-lcd_n16r8
-
+This example can run on the following development boards:
++ sf32lb52-lcd series
++ sf32lb56-lcd series
++ sf32lb58-lcd series
 ## Overview
-* Operating HAL functions for single-channel ADC to read battery voltage
+* Uses HAL APIs to read battery voltage through a single ADC channel
 
-## Example Usage
-### Compilation and Programming
-The demonstration code defaults to single-channel ADC sampling demonstration
+## Usage
+### Build and Flash
+The demo code defaults to single-channel ADC sampling.
 
-Switch to the example project directory and run the scons command to compile:
+Go to the example project directory and run the following SCons command to build:
 
 ```
 scons --board=sf32lb52-lcd_n16r8 -j8
 ```
 
-Execute the programming command
+Run the flashing command:
 ```
 build_sf32lb52-lcd_n16r8_hcpu\uart_download.bat
 ```
 
-Select the port as prompted to download:
+Select the serial port as prompted to download the firmware:
 
 ```none
 please input the serial port num:5
 ```
 
-#### Example Output Results Display:
-* Voltage reading log before connecting battery
+#### Output Example
+The measured voltage value is printed once per second.
 
-![alt text](assets/beffer.png)
+* Comparison of logs before and after connecting the battery
 
-* Voltage reading log after connecting battery
+![alt text](assets/before_after.png)
 
-![alt text](assets/last.png)
+* The measurement pin locations for 58_lcd and 56_lcd are:
 
-The log prints the value as the raw register value, and Voltage is the converted mV voltage
+Measurement point for 58:
 
+![58](assets/58.png)
+
+Measurement point for 56:
+
+![56](assets/56.png)
 
 #### ADC Configuration Flow
 
-* Set channel 7 corresponding to the battery Vbat interface
+* Set the ADC channel that corresponds to the battery Vbat input. Adjust this according to your board platform. The 52-series example uses channel 7.
 
 ![alt text](assets/1.png)
 
-* Enable adc device in menuconfig
+* Enable the ADC device in menuconfig
 
 ```
-menuconfig --board=sf32lb52-lcd_n16r8
+sdk.py menuconfig --board=sf32lb52-lcd_n16r8
 ```
 
 ![alt text](assets/2.png)
 
-**Note**: 
-* Enable the corresponding ADC clock source (enabled by default in code, not mandatory here)
+* Set the ADC channel pin you want to measure to analog input mode (except channel 7 on the 52-series platform)
+
+![alt text](assets/pin.png)
+
+**Note:**
+* Enable the corresponding ADC clock source. It is already enabled in the default code, so this step is not mandatory.
 ```c
 /* 2, open adc clock source  */
 HAL_RCC_EnableModule(RCC_MOD_GPADC);
 ```
 
-* ADC Calibration
-1. To improve ADC accuracy, SiFli series chips undergo ADC calibration at the factory (calibration parameters are written to the chip's internal OTP area). Different series have different calibration methods.  
-To ensure ADC accuracy, it needs to be called once every power-on. The following is the calibration function, which reads OTP parameters to calculate the slope `adc_vol_ratio` and offset `adc_vol_offset`:
+* ADC calibration
+1. To improve ADC accuracy, SiFli chips are factory-calibrated and the calibration parameters are stored in the OTP area. The calibration method differs across chip families.  
+    To ensure ADC accuracy, this calibration routine should be called once after each power-on. The function below reads the OTP parameters and computes the slope `adc_vol_ratio` and offset `adc_vol_offset`.
 
 ```c
 static int utest_adc_calib(void)
 ```
-2. After ADC sampling obtains the raw register value, call the function `example_adc_get_float_mv` and calculate the final voltage value based on the calibrated slope `adc_vol_ratio` and offset `adc_vol_offset`.
-3. For 52 series chips, CH8 (Channel 7) is internally connected to Vbat through two equal voltage divider resistors. To get the Vbat value, conversion is needed. To reduce voltage divider resistor errors, the two resistors have been calibrated at the factory:
+2. After obtaining the raw register value, call `example_adc_get_float_mv` to calculate the final voltage using the calibrated slope `adc_vol_ratio` and offset `adc_vol_offset`.
+3. On the 52-series chip, CH8 (Channel 7) is internally connected to Vbat through two equal divider resistors. To obtain the Vbat value, conversion is required. To reduce the error introduced by the divider resistors, the two resistors are factory-calibrated.
 ```c
-static float adc_vbat_factor = 2.01; /* Calibrate the two voltage divider resistors from 52 chip internal CH8 (Channel 7) to Vbat */
+static float adc_vbat_factor = 2.01; /* Calibration factor for the two internal divider resistors from CH8 (Channel 7) to Vbat on 52-series chips */
 static void example_adc_vbat_fact_calib(uint32_t voltage, uint32_t reg)
 {
     float vol_from_reg;
 
-    // get voltage calculate by register data
+    // Calculate voltage from the register value
     vol_from_reg = (reg - adc_vol_offset) * adc_vol_ratio / ADC_RATIO_ACCURATE;
     adc_vbat_factor = (float)voltage / vol_from_reg;
 }
-/* Method to convert CH8 (Channel 7) sampling to Vbat voltage value, refer to code in sifli_get_adc_value function */
+/* Convert the sampled CH8 (Channel 7) value to Vbat voltage, see the code in sifli_get_adc_value */
     float fval = sifli_adc_get_float_mv(fave) * 10; // mv to 0.1mv based
     *value = (rt_uint32_t)fval;
-    if (channel == 7)   // for 52x, channel fix used for vbat with 1/2 update(need calibrate)
-        *value = (rt_uint32_t)(fval * adc_vbat_factor); /* Convert sampled actual ADC voltage to Vbat voltage value*/
+    if (channel == 7)   // for 52x, this channel is fixed for Vbat with a 1/2 divider (calibration required)
+        *value = (rt_uint32_t)(fval * adc_vbat_factor); /* Convert the sampled ADC voltage to Vbat voltage */
 ```
-## Exception Diagnosis
-* ADC sampled voltage value is incorrect
-1. Check if ADC hardware is connected correctly. ADC sampling channels are fixed IO ports and cannot be arbitrarily assigned. For which IO corresponds to CH0-7, refer to the chip manual.  
-2. ADC input voltage range is 0V - reference voltage (52 defaults to 3v3), cannot exceed the input range  
-3. Use debugging tools like Ozone or LightWork. After starting ADC sampling, connect online and check the corresponding register configuration status against the chip manual.
+## Troubleshooting
+* The sampled ADC voltage is incorrect
+1. Check whether the ADC hardware connections are correct. ADC channels map to fixed IO pins and cannot be assigned arbitrarily. Refer to the chip manual for the CH0-CH7 mapping.  
+2. The ADC input range is 0V to the reference voltage (3.3V by default on the 52-series). Do not exceed the input range.  
+3. Use a debugging tool such as Ozone or LightWork. After starting ADC sampling, connect online and inspect the corresponding register configuration against the chip manual.
 * ADC accuracy is insufficient
-1. Check if ADC calibration parameters are obtained and used
-2. Check if voltage divider resistor accuracy meets requirements
-3. Check if ADC reference voltage is stable and has excessive ripple (refer to ADC voltage reference chip manual for specifics) 
+1. Verify that the ADC calibration parameters are being obtained and applied.
+2. Check whether the divider resistors meet the required accuracy.
+3. Verify that the ADC reference voltage is stable and does not have excessive ripple (see the ADC reference section in the chip manual).
 
   
-## Reference Documents
+## References
 * EH-SF32LB52X_Pin_config_V1.3.0_20231110.xlsx
-* DS0052-SF32LB52x-芯片技术规格书 V0p3.pdf
-## Update Log
-|Version |Date   |Release Notes |
+* DS0052-SF32LB52x Chip Technical Specification V0p3.pdf
+## Revision History
+| Version | Date | Notes |
 |:---|:---|:---|
 |0.0.1 |10/2024 |Initial version |
+|0.0.2 |05/2026 |Added notes for 56 and 58 |
 | | | |

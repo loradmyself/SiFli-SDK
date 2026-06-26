@@ -5,6 +5,7 @@
  */
 
 #include <string.h>
+#include <stdint.h>
 #include "flash_table.h"
 
 #define FLASH_DEFAULT_CMD_TABLE         (NOR_TYPE0)
@@ -499,6 +500,7 @@ FT_CONST FLASH_RDID_TYPE_T flash_cmd_id_pool_typ0[] =
 FT_CONST FLASH_RDID_TYPE_T flash_cmd_id_pool_typ1[] =
 {
     {0x85, 0x60, 0x16, 1, 0x400000},    //P25Q32L_RDID
+    {0x85, 0x42, 0x16, 1, 0x400000},    //P25Q32L_RDID, old id
     {0x85, 0x60, 0x17, 1, 0x800000},    //P25Q64H_RDID, P25Q64SH
     {0x85, 0x60, 0x18, 1, 0x1000000},   //P25Q128L_RDID
     {0x85, 0x65, 0x18, 1, 0x1000000},   //P25Q128LA_RDID
@@ -529,6 +531,7 @@ FT_CONST FLASH_RDID_TYPE_T flash_cmd_id_pool_typ2[] =
     {0xef, 0x40, 0x19, 0, 0x2000000},   //W25Q256JVM_RDID
     {0x68, 0x49, 0x19, 0, 0x2000000},   //BY25Q256FS
     {0x5e, 0x40, 0x19, 0, 0x2000000},   //ZQ25Q256AW1G
+    {0xa1, 0x60, 0x19, 1, 0x2000000},   //FM25LP256_RDID
     {FLASH_INVALID_ID, 0, 0, 0, 0},      //last one
 };
 FT_CONST FLASH_RDID_TYPE_T flash_cmd_id_pool_typ3[] =

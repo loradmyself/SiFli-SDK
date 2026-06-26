@@ -27,6 +27,22 @@ __weak void BSP_SD_PowerUp(void)
 }
 
 
+__weak void BSP_Flash4_PowerUp(void)
+{
+#if defined(SF32LB58X) && defined(BSP_ENABLE_MPI4)
+    HAL_PIN_Set(PAD_PA39, MPI4_CLK, PIN_NOPULL, 1);
+    HAL_PIN_Set(PAD_PA30, MPI4_CS, PIN_NOPULL, 1);
+    HAL_PIN_Set(PAD_PA40, MPI4_DIO0, PIN_PULLDOWN, 1);
+    HAL_PIN_Set(PAD_PA37, MPI4_DIO1, PIN_PULLDOWN, 1);
+    HAL_PIN_Set(PAD_PA36, MPI4_DIO2, PIN_PULLUP, 1);
+    HAL_PIN_Set(PAD_PA38, MPI4_DIO3, PIN_PULLUP, 1);
+#endif /* SF32LB58X && BSP_ENABLE_MPI4 */
+}
+
+__weak void BSP_Flash4_PowerDown(void)
+{
+
+}
 
 #if !defined(__CLANG_ARM) && defined (__GNUC__) && defined(BSP_USING_NO_OS)
 

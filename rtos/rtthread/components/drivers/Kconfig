@@ -144,8 +144,8 @@ menuconfig RT_USING_PM
     if RT_USING_PM
         choice
             prompt "Select PM Mode"
-            default PM_STANDBY_ENABLE if !SOC_SF32LB52X
-            default PM_DEEP_ENABLE   if SOC_SF32LB52X
+            default PM_DEEP_ENABLE   if SOC_SF32LB52X || SOC_SF32LB57X
+            default PM_STANDBY_ENABLE
             config PM_STANDBY_ENABLE
                 bool "Enable Standby Mode"
             config PM_DEEP_ENABLE
@@ -471,6 +471,9 @@ menu "Using USB"
                 int "usb thread stack size"
                 default 4096
         endif
+        config INSERT_DETE_USB_PIN
+            int "USB Insertion Detection PIN"
+            default -1		
         if RT_USING_USB_DEVICE
             config USB_VENDOR_ID
                 hex "USB Vendor ID"

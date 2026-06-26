@@ -21,6 +21,10 @@
 #include "audio_cvsd.h"
 #include "audio_filter.h"
 
+#ifdef BT_VOICE_RELAY
+    #include "audio_bt_voice_rely.h"
+#endif
+
 #define DBG_TAG           "audio"
 #define DBG_LVL           AUDIO_DBG_LVL
 #include "log.h"
@@ -568,7 +572,6 @@ uint8_t mix_process()
     return 0;
 }
 
-extern uint8_t audio_3a_dnlink_buf_is_full(uint8_t size);
 void bt_voice_uplink_send()
 {
     //audio_server interface
@@ -685,7 +688,6 @@ void bt_voice_downlink_process(uint8_t is_ready)
 
             RT_ASSERT(sco_hdr->length == 0x3c);
             getnum = rt_ringbuffer_get(g_sco_ipc.pt_bt2speaker_rbf, &pt_dn_data->in_data[0], sco_hdr->length);//only support 60byte data length
-
 
             if (getnum == sco_hdr->length)
             {
@@ -820,6 +822,14 @@ void _hcpu_2_lcpu_ipc_audio_notify()
 int32_t _hl_bt_audio_queue_rx_ind(ipc_queue_handle_t handle, size_t size)
 {
     LOG_D("_hl_bt_audio_queue_rx_ind");
+
+#ifdef BT_VOICE_RELAY
+    if (bt_voice_rely_is_ready())
+    {
+        bt_voice_rely_downlink_process(1);
+        return 0;
+    }
+#endif
 
     bt_rx_event_to_audio_server();
 

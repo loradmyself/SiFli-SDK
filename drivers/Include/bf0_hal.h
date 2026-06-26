@@ -12,10 +12,11 @@ extern "C" {
 #endif
 
 #include "stdint.h"
-
 //#define HAL_DEBUG_ENABLED
 //#define TARMAC
-
+#ifndef WIN32
+#include "register.h"
+#endif /* !WIN32 */
 /* Includes ------------------------------------------------------------------*/
 #ifdef SOC_BF0_HCPU
 #include "bf0_hal_conf_hcpu.h"
@@ -101,10 +102,15 @@ extern "C" {
   */
 #define __HAL_SYSCFG_SET_SECURITY()      (hwp_hpsys_cfg->SCR|=HPSYS_CFG_SCR_FKEY_MODE)
 
+//TODO:
+#ifdef HPSYS_CFG_SCR_FKEY_MODE
 /** @brief  Clear Security Key control.
   */
 
 #define __HAL_SYSCFG_CLEAR_SECURITY()      (hwp_hpsys_cfg->SCR&=~HPSYS_CFG_SCR_FKEY_MODE)
+#else
+#define __HAL_SYSCFG_CLEAR_SECURITY()
+#endif
 
 #define __HAL_SYSCFG_GET_SID()            (hwp_hpsys_cfg->IDR>>HPSYS_CFG_IDR_SID_Pos)           /*!< Get serial ID*/
 #define __HAL_SYSCFG_GET_CID()            ((hwp_hpsys_cfg->IDR>>HPSYS_CFG_IDR_CID_Pos)&0xff)    /*!< Get Chip ID*/
@@ -127,7 +133,8 @@ extern "C" {
 #define __HAL_SYSCFG_USB_DM_PD()         (hwp_hpsys_cfg->USBCR|=HPSYS_CFG_USBCR_DM_PD)        /*!< Pull Down USB DM pin, host only*/
 
 
-#ifdef SF32LB55X
+//TODO:
+#ifndef HPSYS_CFG_SYSCR_WDT1_REBOOT
 #define __HAL_SYSCFG_Enable_WDT_REBOOT(enable)
 #else
 #ifdef SOC_BF0_HCPU
@@ -223,18 +230,13 @@ extern "C" {
 #endif /* SF32LB55X */
 
 
-#ifdef SF32LB52X
-#ifdef SOC_BF0_HCPU
+#if defined(SOC_BF0_HCPU) || defined(PMUC_IN_LPSYS)
 #define HAL_LXT_ENABLED() HAL_RTC_LXT_ENABLED()
 #define HAL_LXT_DISABLED() (!HAL_RTC_LXT_ENABLED())
 #else
 #define HAL_LXT_ENABLED() HAL_GetLXTEnabled()
 #define HAL_LXT_DISABLED() (!HAL_GetLXTEnabled())
-#endif
-#else
-#define HAL_LXT_ENABLED() HAL_PMU_LXT_ENABLED()
-#define HAL_LXT_DISABLED() HAL_PMU_LXT_DISABLED()
-#endif
+#endif /* SOC_BF0_HCPU || PMUC_IN_LPSYS */
 
 
 /**
@@ -354,7 +356,7 @@ void HAL_IncTick(void);
   */
 void HAL_Delay(uint32_t Delay);
 void HAL_Delay_us(uint32_t us);
-void HAL_Delay_us_(__IO uint32_t us);
+void HAL_Delay_us_(uint32_t us);
 
 /**
   * @brief This function provides the function that will copy memory content from source address to destination according to word alignment.
@@ -448,6 +450,8 @@ __STATIC_INLINE void HAL_sw_breakpoint(void)
 }
 #endif
 
+/*ARM specific code*/
+#if defined(SysTick)
 __STATIC_INLINE uint32_t HAL_DisableInterrupt(void)
 {
     uint32_t mask;
@@ -461,6 +465,19 @@ __STATIC_INLINE void HAL_EnableInterrupt(uint32_t mask)
 {
     __set_PRIMASK(mask);
 }
+#elif defined(__RV_CSR_CLEAR)
+__STATIC_INLINE uint32_t HAL_DisableInterrupt(void)
+{
+    __RV_CSR_CLEAR(CSR_MSTATUS, MSTATUS_MIE);
+    return 0;
+}
+
+__STATIC_INLINE void HAL_EnableInterrupt(uint32_t mask)
+{
+    __RV_CSR_SET(CSR_MSTATUS, MSTATUS_MIE);
+}
+
+#endif
 
 uint32_t HAL_GetLXTEnabled(void);
 

@@ -21,13 +21,30 @@
 
 ### 支持的平台
 例程可以运行在以下开发板
-* sf32lb52-lchspi-ulp
+* sf32lb52-lcd_n16r8（SPI SD/TF卡）
+* sf32lb52-lcd_a128r16（SPI SD/TF卡）
+* sf32lb52-lchspi-ulp（SPI SD/TF卡）
+* sf32lb52-core_e8r16（SDIO/eMMC）
+* sf32lb56-lcd_a128r12n1（SDIO/eMMC）
+* sf32lb56-lcd_n16r12n1（SDIO/eMMC）
+* sf32lb58-lcd_n16r32n1_dsi（SDIO/eMMC）
+* sf32lb58-lcd_a128r32n1_qspi（SDIO/eMMC）
+* sf32lb58-lcd_n16r32n1_qspi（SDIO/eMMC）
 
 ### 编译和烧录
 切换到例程project目录，运行scons命令执行编译：
 ```
-scons --board=sf32lb52-lchspi-ulp -j8
+scons --board=sf32lb56-lcd_a128r12n1 -j8
 ```
+其它支持板子替换 `--board` 即可。
+
+### SD卡后端配置
+本例程通过工程配置选择SD卡后端：
+- SPI SD/TF卡：通过 `RT_USING_SPI_MSD` 注册 `sd0`
+- SDIO/eMMC：通过RT-Thread SDIO/MMC驱动注册 `sd0` 或 `sd1`
+
+板级 `proj.conf` 会按开发板自动选择后端和设备名。58系列当前使用 `sd1`，其它支持板子使用 `sd0`。
+默认的 `disk/example.ezip` 会随Flash根文件系统烧录到板载NOR/NAND分区；SD卡用于加载额外图片文件。NAND根文件系统板卡使用 `RT_USING_MTD_DHARA` 注册后再挂载。
 
 ### 准备图片文件
 
@@ -65,7 +82,7 @@ scons --board=sf32lb52-lchspi-ulp -j8
 Register root to mtd device with base addr 0x12820000
 mount fs on flash to root success
 dynamic ezip loading example.
-mount fs on tf card to /sdcard success
+mount fs on sd0 to /sdcard success
 ```
 
 LCD屏幕将显示加载的ezip图片，图片居中显示。

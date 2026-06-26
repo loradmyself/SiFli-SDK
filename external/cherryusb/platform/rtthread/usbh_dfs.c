@@ -151,11 +151,7 @@ static void usbh_msc_thread(CONFIG_USB_OSAL_THREAD_SET_ARGV)
         rt_kprintf("udisk: %s mount failed, ret = %d\n", name, ret);
     }
 
-    /* NOTE: usb_osal_thread_delete(NULL) causes system crash for unknown reason.
-     * Simply returning from the thread function also achieves thread self-deletion,
-     * so we skip the explicit delete call here.
-     */
-    // usb_osal_thread_delete(NULL);
+    usb_osal_thread_delete(NULL);
 }
 
 void usbh_msc_run(struct usbh_msc *msc_class)

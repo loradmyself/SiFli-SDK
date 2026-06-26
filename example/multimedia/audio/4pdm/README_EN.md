@@ -86,8 +86,8 @@ Indicates configuring PDM2 for stereo recording, using Anyka algorithm, output a
 pdm open pdm12 4 anyka  
 Indicates configuring PDM1/PDM2 each for stereo, using Anyka algorithm, output as mono, generating anyka_4.wav.  
 
-2. Stop recording command: `pdm stop`  
-  pdm stop  
+2. Stop recording command: `pdm close`  
+  pdm close  
 Indicates stopping the recording.  
 
 3. Playback recording command: `pdm play [filename]`  

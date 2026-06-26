@@ -62,7 +62,7 @@ MSH_CMD_EXPORT_ALIAS(app_mem_log, app_mem, app_mem: open or close app_mem log);
     /**
     for the case when pram exists.
     Note:
-    1. for message/image(gif/rotate)/ft, it can't exsit both in SRAM and PSRAM. customer can choose the configuration.
+    1. for message/image(gif/rotate)/ft/tiny_ttf, it can't exsit both in SRAM and PSRAM. customer can choose the configuration.
     2. for image cache, it can be configured both in PSRAM and in SRAM
     */
 
@@ -83,6 +83,10 @@ MSH_CMD_EXPORT_ALIAS(app_mem_log, app_mem, app_mem: open or close app_mem log);
         APP_L1_NON_RET_BSS_SECT(app_sram_non_ret_cache, ALIGN(4) static uint8_t app_ft_cache[FT_CACHE_SIZE]);
     #endif
 
+    #if LV_USE_TINY_TTF && defined(TINY_TTF_CACHE_IN_SRAM_STANDALONE)
+        APP_L1_NON_RET_BSS_SECT(app_sram_non_ret_cache, ALIGN(4) static uint8_t app_tiny_ttf_cache[TINY_TTF_CACHE_SIZE]);
+    #endif
+
     APP_L1_NON_RET_BSS_SECT_END
 
     /**
@@ -101,6 +105,10 @@ MSH_CMD_EXPORT_ALIAS(app_mem_log, app_mem, app_mem: open or close app_mem log);
 
     #ifdef FREETYPE_CACHE_IN_PSRAM
         APP_L2_RET_BSS_SECT(app_psram_ret_cache, ALIGN(4) static uint8_t app_ft_cache[FT_CACHE_SIZE]);
+    #endif
+
+    #if LV_USE_TINY_TTF && defined(TINY_TTF_CACHE_IN_PSRAM)
+        APP_L2_RET_BSS_SECT(app_psram_ret_cache, ALIGN(4) static uint8_t app_tiny_ttf_cache[TINY_TTF_CACHE_SIZE]);
     #endif
 
     #ifdef QUICKJS_PSRAM_SIZE
@@ -131,6 +139,10 @@ MSH_CMD_EXPORT_ALIAS(app_mem_log, app_mem, app_mem: open or close app_mem log);
         APP_L1_NON_RET_BSS_SECT(app_sram_non_ret_cache, ALIGN(4) static uint8_t app_ft_cache[FT_CACHE_SIZE]);
     #endif
 
+    #if LV_USE_TINY_TTF && defined(TINY_TTF_CACHE_IN_SRAM_STANDALONE)
+        APP_L1_NON_RET_BSS_SECT(app_sram_non_ret_cache, ALIGN(4) static uint8_t app_tiny_ttf_cache[TINY_TTF_CACHE_SIZE]);
+    #endif
+
     APP_L1_NON_RET_BSS_SECT_END
 
 #endif
@@ -156,7 +168,7 @@ MSH_CMD_EXPORT_ALIAS(app_mem_log, app_mem, app_mem: open or close app_mem log);
 
 #if PKG_USING_FFMPEG && (MEDIA_CACHE_SIZE > 0)
     APP_L2_RET_BSS_SECT_BEGIN(app_ffmpeg_ret_cache)
-        APP_L2_RET_BSS_SECT(app_ffmpeg_ret_cache, ALIGN(4) static uint8_t app_ffmpeg_cache[MEDIA_CACHE_SIZE]);
+    APP_L2_RET_BSS_SECT(app_ffmpeg_ret_cache, ALIGN(4) static uint8_t app_ffmpeg_cache[MEDIA_CACHE_SIZE]);
     APP_L2_RET_BSS_SECT_END
 #endif
 
@@ -170,6 +182,10 @@ MSH_CMD_EXPORT_ALIAS(app_mem_log, app_mem, app_mem: open or close app_mem log);
 
 #ifndef FREETYPE_CACHE_IN_SRAM
     struct rt_memheap app_ft_memheap;
+#endif
+
+#if LV_USE_TINY_TTF && (defined(TINY_TTF_CACHE_IN_SRAM_STANDALONE) || defined(TINY_TTF_CACHE_IN_PSRAM))
+    struct rt_memheap app_tiny_ttf_memheap;
 #endif
 
 #ifdef QUICKJS_PSRAM_SIZE
@@ -233,6 +249,10 @@ static int app_cahe_memheap_init(void)
 #endif
     }
 #endif
+#endif
+
+#if LV_USE_TINY_TTF && (defined(TINY_TTF_CACHE_IN_SRAM_STANDALONE) || defined(TINY_TTF_CACHE_IN_PSRAM))
+    rt_memheap_init(&app_tiny_ttf_memheap, "app_tiny_ttf_memheap", (void *)app_tiny_ttf_cache, TINY_TTF_CACHE_SIZE);
 #endif
 
 #ifdef QUICKJS_PSRAM_SIZE
@@ -835,6 +855,12 @@ void *audio_mem_calloc(uint32_t count, uint32_t size)
     memset(ptr, 0, count * size);
     return ptr;
 }
+
+void *audio_mem_recalloc(void *p, size_t new_size)
+{
+    return ffmpeg_realloc(p, new_size);
+}
+
 #endif
 
 #ifdef LV_USING_FREETYPE_ENGINE
@@ -927,6 +953,26 @@ uint32_t app_mem_get_ft_cache_avail_size(void)
     return total_size - ft_alloc_size;
 }
 #endif
+#endif
+
+#if LV_USE_TINY_TTF
+void * app_tiny_ttf_mem_alloc(size_t size)
+{
+#if defined(TINY_TTF_CACHE_IN_SRAM_STANDALONE) || defined(TINY_TTF_CACHE_IN_PSRAM)
+    return rt_memheap_alloc(&app_tiny_ttf_memheap, size);
+#else
+    return rt_malloc(size);
+#endif
+}
+
+void app_tiny_ttf_mem_free(void *buf)
+{
+#if defined(TINY_TTF_CACHE_IN_SRAM_STANDALONE) || defined(TINY_TTF_CACHE_IN_PSRAM)
+    rt_memheap_free(buf);
+#else
+    rt_free(buf);
+#endif
+}
 #endif
 
 

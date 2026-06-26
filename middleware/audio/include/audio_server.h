@@ -70,7 +70,8 @@ typedef enum
 {
     FADE_NONE   = 0,
     FADE_START  = 1,
-    FADE_END    = 2,
+    FADE_ZERO   = 2,
+    FADE_END    = 3,
 } fade_state_e;
 
 typedef enum
@@ -177,7 +178,7 @@ struct audio_device
     */
     int (*open)(void *user_data, audio_device_input_callback callback);
     int (*close)(void *user_data);
-    uint32_t (*output)(void *user_data, struct rt_ringbuffer *rb);
+    uint32_t (*output)(void *user_data, struct rt_ringbuffer32 *rb);
     void *user_data;
     int (*ioctl)(void *user_data, int cmd, void *val);
 };
@@ -208,9 +209,9 @@ int audio_read(audio_client_t handle, uint8_t *buf, uint32_t buf_size);
 #define AUDIO_IOCTL_FLUSH_TIME_MS                   1   // parameter type is uint32_t *
 #define AUDIO_IOCTL_IS_FADE_OUT_DONE                2   // parameter type is NA
 #define AUDIO_IOCTL_BYTES_IN_CACHE                  3   // parameter type is uint32_t *
-#define AUDIO_IOCTL_ENABLE_CPU_LOW_SPEED            4   /* parameter type is uint32_t
-                                                              1 low speed
-                                                              0 high speed */
+#define AUDIO_IOCTL_ENABLE_CPU_LOW_SPEED            4   // parameter type is uint32_t. 1---low speed; 0---high speed
+#define AUDIO_IOCTL_SET_CACHE_SAMPLERATE            5   // parameter type is uint32_t
+#define AUDIO_IOCTL_SET_CACHE_CH                    6   // parameter type is uint32_t
 
 
 int audio_ioctl(audio_client_t handle, int cmd, void *parameter);

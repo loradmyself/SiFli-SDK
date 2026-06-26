@@ -29,6 +29,9 @@
     #include "acpu_ctrl.h"
 #endif
 
+#if !defined(__GNUC__)
+    #error "anyka lib only support GCC compiler"
+#endif
 /*
     sometime audio_3a_uplink() const more than 10ms for dual mic, so use a thread to processl data only,
     processed data in jitter buffer cache, m_jitterBufLen should big enough to cache processed data
@@ -119,7 +122,7 @@ static const char factory_near_1mic[] =
 
 static const char factory_near_2mic[] =
 {
-    "--eqLoad=1"
+    "--eqLoad=0"
     " --eqmode=user"
     " --preGain=0dB"
     " --bands=\"4, hpf 800 0dB 0.85 enable, pf1 2500 -9dB 3 enable, pf1 3000 -9dB 3 enable, hpf 800 0dB 0.85 enable\""
@@ -132,7 +135,7 @@ static const char factory_near_2mic[] =
     " --nrEna=1"
     " --noiseSuppressDb=-40"
     " --agcEna=1"
-    " --agcLevel=0.25FS"
+    " --agcLevel=0.85FS"
     " --maxGain=4"
     " --minGain=0.1"
     " --nearSensitivity=20"
@@ -141,13 +144,13 @@ static const char factory_near_2mic[] =
     " --vol_dB=3dB"
     " --dencLoad=1"
     " --arrayGeometry=\"2, 0 0 0, 0.036 0 0\""
-    " --targetSpherical=\"3 0 1\""
+    " --targetSpherical=\"0 1 1\""
     " --interfSphericals=\"3, 1 0 2, 2 0 2, 0 0 2\""
 };
 
 static const char factory_near_4mic[] =
 {
-    "--eqLoad=1"
+    "--eqLoad=0"
     " --eqmode=user"
     " --preGain=0dB"
     " --bands=\"4, hpf 800 0dB 0.85 enable, pf1 2500 -9dB 3 enable, pf1 3000 -9dB 3 enable, hpf 800 0dB 0.85 enable\""
@@ -160,7 +163,7 @@ static const char factory_near_4mic[] =
     " --nrEna=1"
     " --noiseSuppressDb=-40"
     " --agcEna=1"
-    " --agcLevel=0.25FS"
+    " --agcLevel=0.85FS"
     " --maxGain=4"
     " --minGain=0.1"
     " --nearSensitivity=20"
@@ -169,7 +172,7 @@ static const char factory_near_4mic[] =
     " --vol_dB=3dB"
     " --dencLoad=1"
     " --arrayGeometry=\"4, 0.035 0.018 0, 0.035 -0.018 0, -0.035 0.018 0, -0.035 -0.018 0\""
-    " --targetSpherical=\"3 0 1\""
+    " --targetSpherical=\"0 1 1\""
     " --interfSphericals=\"3, 1 0 2, 2 0 2, 0 0 2\""
 };
 
@@ -177,7 +180,6 @@ static void input_thread_entry(void *parameter);
 
 static void disable_parameter(char *src, uint8_t is_bt_voice, uint8_t disable_uplink_agc)
 {
-#if 0
     char *p;
     if (!is_bt_voice)
     {
@@ -195,7 +197,6 @@ static void disable_parameter(char *src, uint8_t is_bt_voice, uint8_t disable_up
             memcpy(p, "--agcEna=0", strlen("--agcEna=0"));
         }
     }
-#endif
 }
 
 static void audio_3a_module_init(audio_3a_t *env, uint32_t samplerate)
@@ -249,19 +250,15 @@ static void my_notify(T_ECHO_EVENT event, T_pVOID param, T_HANDLE cb_notify_para
     //rt_kprintf("~~~~notify: 0x%x\n", code);
 }
 
+RT_WEAK void anyka_dump_data(T_ECHO_DUMP_ITEM_ID item_id, T_S32 size, T_pCVOID data, T_pCVOID meta, T_HANDLE cb_dump_param, T_U8 pathId)
+{
+
+}
 static void my_dump(T_ECHO_DUMP_ITEM_ID item_id, T_S32 size, T_pCVOID data, T_pCVOID meta, T_HANDLE cb_dump_param, T_U8 pathId)
 {
-#if 0
-    if (item_id == ECHO_ITEM_ADC_STREAM)
-    {
-        wav_save_data(data_adc, sizeof(data_adc), (uint8_t *)data, size, &data_adc_len);
-    }
-    else if (item_id == ECHO_ITEM_NEAR_DENC)
-    {
-        wav_save_data(data_denc, sizeof(data_denc), (uint8_t *)data, size, &data_denc_len);
-    }
-#endif
+    anyka_dump_data(item_id, size, data, meta, cb_dump_param, pathId);
 }
+
 static T_pVOID my_malloc(T_U32 size)
 {
     return audio_mem_malloc(size);
@@ -334,7 +331,6 @@ void audio_3a_open(uint32_t samplerate, uint8_t is_bt_voice, uint8_t disable_upl
         arg.all_mic_channels = all_mic_channels;
         arg.is_bt_voice = is_bt_voice;
 
-        SCB_CleanInvalidateDCache();
         acpu_run_task(ACPU_TASK_audio_3a_open, &arg, sizeof(arg), &error_code);
         RT_ASSERT(error_code == 0);
         audio_mem_free(arg.const_far);
@@ -465,7 +461,6 @@ void audio_3a_close()
 
 #if ANYKA_RUN_IN_ACPU
         uint8_t error_code = 1;
-        SCB_CleanInvalidateDCache();
         acpu_run_task(ACPU_TASK_audio_3a_close, NULL, 0, &error_code);
         RT_ASSERT(error_code == 0);
 #else
@@ -495,7 +490,7 @@ void audio_3a_close()
     }
 }
 
-uint8_t audio_3a_dnlink_buf_is_full(uint8_t size)
+uint8_t audio_3a_dnlink_buf_is_full(uint16_t size)
 {
     audio_3a_t *env = &g_audio_3a_env;
 
@@ -509,7 +504,7 @@ uint8_t audio_3a_dnlink_buf_is_full(uint8_t size)
     }
 }
 
-void audio_3a_downlink(uint8_t *fifo, uint8_t size)
+void audio_3a_downlink(uint8_t *fifo, uint16_t size)
 {
     audio_3a_t *thiz = &g_audio_3a_env;
     uint16_t putsize, getsize;
@@ -550,7 +545,6 @@ void audio_3a_downlink(uint8_t *fifo, uint8_t size)
         arg.data_in = data_in;
         arg.data_out = data_out;
         arg.tick = tick;
-        SCB_CleanInvalidateDCache();
         acpu_run_task(ACPU_TASK_audio_3a_downlink, &arg, sizeof(arg), &error_code);
         RT_ASSERT(error_code == 0);
 #else
@@ -660,7 +654,6 @@ static inline void process_data(audio_3a_t *thiz)
     arg.ts = ts;
     arg.fifo = fifo;
     arg.result = result;
-    SCB_CleanInvalidateDCache();
     acpu_run_task(ACPU_TASK_audio_3a_uplink, &arg, sizeof(arg), &error_code);
     RT_ASSERT(error_code == 0);
 #else

@@ -7,6 +7,7 @@
 #include "rtconfig.h"
 #include "littlevgl2rtt.h"
 #include "lvgl.h"
+#include "lvsf.h"
 #include "board.h"
 //#include "EventRecorder.h"
 #include "drv_io.h"
@@ -79,6 +80,9 @@ bool EPIC_SUPPORTED_CF(lv_img_cf_t cf)
     case LV_IMG_CF_YUV420_PLANAR:
     case LV_IMG_CF_YUV420_PLANAR2:
 #endif /* EPIC_SUPPORT_YUV */
+#ifdef EPIC_SUPPORT_JPEGD
+    case LVSF_IMG_CF_JPEG:
+#endif /* EPIC_SUPPORT_JPEGD */
         ret = true;
         break;
 
@@ -166,6 +170,12 @@ static uint32_t lv_img_2_epic_cf2(uint32_t cf)
         color_mode = EPIC_INPUT_YUV420_PLANAR;
     }
 #endif /* EPIC_SUPPORT_YUV */
+#ifdef EPIC_SUPPORT_JPEGD
+    else if (LVSF_IMG_CF_JPEG == cf)
+    {
+        color_mode = EPIC_INPUT_JPEG;
+    }
+#endif /* EPIC_SUPPORT_JPEGD */
     else
     {
         rt_kprintf("Unknown format %d\r\n", cf);
@@ -210,6 +220,26 @@ static uint32_t lv_img_2_epic_cf(const lv_img_dsc_t *src)
             color_mode = lv_img_2_epic_cf2(src->header.cf);
         }
     }
+#ifdef EPIC_SUPPORT_YUV
+    else if (LV_IMG_CF_YUV422_PACKED_YUYV == src->header.cf)
+    {
+        color_mode = EPIC_INPUT_YUV422_PACKED_YUYV;
+    }
+    else if (LV_IMG_CF_YUV422_PACKED_UYVY == src->header.cf)
+    {
+        color_mode = EPIC_INPUT_YUV422_PACKED_UYVY;
+    }
+    else if (LV_IMG_CF_YUV420_PLANAR == src->header.cf || LV_IMG_CF_YUV420_PLANAR2 == src->header.cf)
+    {
+        color_mode = EPIC_INPUT_YUV420_PLANAR;
+    }
+#endif /* EPIC_SUPPORT_YUV */
+#ifdef EPIC_SUPPORT_JPEGD
+    else if (LVSF_IMG_CF_JPEG == src->header.cf)
+    {
+        color_mode = EPIC_INPUT_JPEG;
+    }
+#endif /* EPIC_SUPPORT_JPEGD */
     else
     {
         color_mode = lv_img_2_epic_cf2(src->header.cf);

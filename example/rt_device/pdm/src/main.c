@@ -92,7 +92,10 @@ void rx_thread_entry(void *parameter)
         while (1)
         {
             len = rt_device_read(g_pdm_device, 0, tmp_buf, CFG_AUDIO_RECORD_PIPE_SIZE);
-            RT_ASSERT(len == CFG_AUDIO_RECORD_PIPE_SIZE);
+            if (len == 0)
+            {
+                break;
+            }
 
             if (rt_ringbuffer_space_len(&g_rx_ring) < CFG_AUDIO_RECORD_PIPE_SIZE)
             {

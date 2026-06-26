@@ -95,8 +95,8 @@ pdm open pdm2 2 anyka
 pdm open pdm12 4 anyka  
 表示，配置为PDM1/PDM2各自双声道，使用安凯算法处理4mic，输出为单声道。  
 
-2. 结束录音命令：`pdm stop`  
-pdm stop  
+2. 结束录音命令：`pdm close`  
+pdm close  
 表示，结束录音。  
 
 3. 播放录音命令：`pdm play`  

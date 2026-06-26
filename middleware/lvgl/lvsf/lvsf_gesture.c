@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: 2019-2025 SiFli Technologies(Nanjing) Co., Ltd
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 #include "rtconfig.h"
 #include "lvgl.h"
 #include "lvsf.h"
@@ -6,7 +12,7 @@
 
 #include "gui_app_fwk.h"
 
-#define LVSF_GESTURE_DETECT_WIDTH     (20)
+#define LVSF_GESTURE_DETECT_WIDTH     ((LV_HOR_RES_MAX / 20) > 20 ? (LV_HOR_RES_MAX / 20) : 20)//(20)
 #define LVSF_GESTURE_DETECT_HEIGHT    (10)
 #define LVSF_GESTURE_LIMIT   (LV_DPI_DEF / 4)
 /*
@@ -32,17 +38,8 @@ void lvsf_gesture_bars_realign(void)
 {
     if (gesture_detect_objs[0])
     {
-        if (gesture_img_objs[0])
-        {
-            lv_obj_set_size(gesture_detect_objs[0], lv_obj_get_self_width(gesture_img_objs[0]) + LVSF_GESTURE_DETECT_WIDTH, LV_VER_RES_MAX);
-            lv_obj_align(gesture_img_objs[0], LV_ALIGN_LEFT_MID, 0, 0);
-            lv_obj_add_flag(gesture_img_objs[0], LV_OBJ_FLAG_HIDDEN);
-        }
-        else
-        {
-            lv_obj_set_size(gesture_detect_objs[0], LVSF_GESTURE_DETECT_WIDTH, LV_VER_RES_MAX);
-        }
-        lv_obj_align(gesture_detect_objs[0], LV_ALIGN_OUT_LEFT_MID, LVSF_GESTURE_DETECT_WIDTH, 0);
+        lv_obj_set_size(gesture_detect_objs[0], LVSF_GESTURE_DETECT_WIDTH, LV_VER_RES_MAX);
+        lv_obj_align(gesture_detect_objs[0], LV_ALIGN_OUT_LEFT_MID, 0, 0);
     }
     if (gesture_detect_objs[2])
     {
@@ -76,13 +73,12 @@ static void gesture_enable_update(bool enable)
 
 static void left_bar_event_handler(lv_event_t *e)
 {
-#define x_2_process(x) ((x > 0) ? (x * MANUAL_TRAN_ANIM_MAX_PROCESS / LV_HOR_RES) : 0)
-    lv_obj_t *obj = lv_event_get_target(e);
-    lv_event_code_t event = lv_event_get_code(e);
-
+#define x_2_process(x) ((x > 0) ? (x * GUI_APP_TRANS_PROGRESS_MAX / LV_HOR_RES) : 0)
+    lv_obj_t *obj = lv_event_get_current_target(e);
+    lv_event_code_t code = lv_event_get_code(e);
+    lv_event_to_name(code);
     static lv_coord_t drag_offset = 0;
-    //LOG_I("left_bar_event_handler  got event %s", lv_event_to_name(event));
-    if (event == LV_EVENT_SCROLL_BEGIN)
+    if (code == LV_EVENT_PRESSED)
     {
         if (gesture_img_objs[0])
             lv_obj_clear_flag(gesture_img_objs[0], LV_OBJ_FLAG_HIDDEN);
@@ -91,23 +87,20 @@ static void left_bar_event_handler(lv_event_t *e)
 
         gui_app_manual_animation_start(x_2_process(obj->coords.x1));
     }
-    else if (event == LV_EVENT_PRESSING)
+    else if (code == LV_EVENT_PRESSING)
     {
-        drag_offset = LV_ABS(obj->coords.x1 - drag_offset);
-
-        if (drag_offset > LVSF_GESTURE_LIMIT)
-        {
-        }
-
+        lv_point_t vect;
+        lv_indev_t *input = lv_indev_get_act();
+        lv_indev_get_vect(input, &vect);
+        lv_obj_align_to(obj, obj, LV_ALIGN_CENTER, vect.x, 0);
+        drag_offset = LV_ABS(obj->coords.x1 + vect.x - drag_offset);
         if (gesture_is_active) gui_app_manual_animation_update(x_2_process(obj->coords.x1));
     }
-    else if (event == LV_EVENT_SCROLL_END)
+    else if ((code == LV_EVENT_RELEASED) || (code == LV_EVENT_PRESS_LOST))
     {
         drag_offset = LV_ABS(obj->coords.x1 - drag_offset);
-
-        if (gesture_is_active) gui_app_manual_animation_stop(x_2_process(obj->coords.x1));
-
-
+        if (gesture_is_active)
+            gui_app_manual_animation_stop(x_2_process(obj->coords.x1));
         lvsf_gesture_bars_realign();
         gesture_is_active = false;
         gesture_enable_update(gesture_is_enabled);
@@ -123,14 +116,9 @@ void lvsf_gesture_init(lv_obj_t *parent)
 
     //Create left and right invisible bar
     bar = lv_obj_create(parent);
-    //lv_obj_set_drag(bar, true);
-    //lv_obj_set_drag_dir(bar, LV_DRAG_DIR_HOR);
-    lv_obj_set_scroll_dir(bar, LV_DIR_HOR);
+    lv_obj_remove_style_all(bar);
     lv_obj_add_flag(bar, LV_OBJ_FLAG_PRESS_LOCK);
-    //lv_obj_set_event_cb(bar, left_bar_event_handler);
-    lv_obj_add_event_cb(bar, left_bar_event_handler, (lv_event_code_t)NULL, 0);
-    lv_obj_set_style_bg_opa(bar, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(bar, lv_palette_main(LV_PALETTE_RED), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_add_event_cb(bar, left_bar_event_handler, LV_EVENT_ALL, 0);
     gesture_detect_objs[0] = bar;
 
 #if 0 //Reserved for future
@@ -191,6 +179,31 @@ void lvsf_gesture_enable(void)
 uint8_t lvsf_gesture_enable_register(uint8_t enable)
 {
     return 0;
+}
+
+void lvsf_gesture_bars_realign(void)
+{
+    return;
+}
+
+void lvsf_gesture_init(lv_obj_t *parent)
+{
+    return;
+}
+
+void lvsf_gesture_deinit(void)
+{
+    return;
+}
+
+void lvsf_gesture_disable(void)
+{
+    return;
+}
+
+void lvsf_gesture_enable(void)
+{
+    return;
 }
 
 #endif /* GUI_APP_FRAMEWORK && !APP_TRANS_ANIMATION */

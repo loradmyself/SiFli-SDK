@@ -43,7 +43,7 @@ please input the serial port num: 5  (填写相应的端口号)
 #### menuconfig配置
 运行menuconfig命令执行编译（`..`添加开发板sf32-oed-epd_v11存放路径）：
 ```
-menuconfig --board=sf32-oed-epd_v11 --board_search_path=..
+sdk.py menuconfig --board=sf32-oed-epd_v11 --board_search_path=..
 ```
 - 如果想修改长按的时间可以通过修改Menuconfig内的宏`BUTTON_ADV_ACTION_CHECK_DELAY`进行设置。打开Menuconfig在 `SiFli Middleware->Enable button library` 下配置。
 ![alt text](assets/menuconfig_action.png)

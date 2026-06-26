@@ -6,8 +6,9 @@
 
 /*
 */
+#include <stdint.h>
+#include <string.h>
 #include "sifli_bbm.h"
-#include "string.h"
 
 typedef struct
 {
@@ -472,16 +473,16 @@ static int bbm_det_bbm_blk(void)
         bad = bbm_get_bb(blk);
         if (bad)
         {
-            blk++;
             BBM_INFO("DET %d bad\n", blk);
+            blk++;
             continue;
         }
 #ifdef  BBM_TABLE_AUTO_TEST
         int fmt = bbm_get_test_format(blk, 0);
         if (fmt == ERR_FACT_BAD)
         {
-            blk++;
             BBM_DBG("DET %d bad\n", blk);
+            blk++;
             continue;
         }
 #endif
@@ -829,8 +830,8 @@ int bbm_init_table()
         bad = bbm_get_bb(next_idle);
         if (bad)
         {
+            BBM_DBG("DET2 %d bad\n", next_idle);
             next_idle++;
-            BBM_DBG("DET %d bad\n", next_idle);
             continue;
         }
         memset(bbm_page_cache, 0xff, bbm_page_size);

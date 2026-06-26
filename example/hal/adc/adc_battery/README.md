@@ -2,8 +2,9 @@
 源码路径：example/hal/adc/adc_battery
 ## 支持的平台
 例程可以运行在以下开发板
-* sf32lb52-lcd_n16r8
-
++ sf32lb52-lcd系列
++ sf32lb56-lcd系列
++ sf32lb58-lcd系列 
 ## 概述
 * 操作Hal函数单路ADC读取电池电压
 
@@ -29,30 +30,39 @@ please input the serial port num:5
 ```
 
 #### 例程输出结果展示:
-* 接入电池前读取的电压log
+每秒循环打印读取的电压值
 
-![alt text](assets/beffer.png)
+* 接入电池前读取的电压log与接入电池后读取的电压log对比
 
-* 接入电池后读取的电压log
+![alt text](assets/before_after.png)
 
-![alt text](assets/last.png)
+* 58_lcd 以及 56_lcd 的测量引脚点位为：
 
-log中打印value值原始寄存器值，Voltage是转换后的mV电压
+58的测量点位：
 
+![58](assets/58.png)
+
+56的测量点位：
+
+![56](assets/56.png)
 
 #### ADC配置流程
 
-* 设置电池Vbat接口对应的通道7
+* 设置电池Vbat接口对应的通道，根据自己的板子平台修改，此处以52为例为通道7
 
 ![alt text](assets/1.png)
 
 * 在menuconfig中打开adc device
 
 ```
-menuconfig --board=sf32lb52-lcd_n16r8
+sdk.py menuconfig --board=sf32lb52-lcd_n16r8
 ```
 
 ![alt text](assets/2.png)
+
+* 将需要测量的ADC通道引脚设置为模拟输入模式(非52平台通道7)
+
+![alt text](assets/pin.png)
 
 **注意**: 
 * 打开对应的ADC的时钟源（默认代码开启，此处不是必须）
@@ -104,4 +114,5 @@ static void example_adc_vbat_fact_calib(uint32_t voltage, uint32_t reg)
 |版本 |日期   |发布说明 |
 |:---|:---|:---|
 |0.0.1 |10/2024 |初始版本 |
+|0.0.2 |05/2026 |增加对56，58的说明 |
 | | | |

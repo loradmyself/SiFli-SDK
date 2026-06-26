@@ -15,6 +15,7 @@
 #include <rtthread.h>
 
 #include "ipc/ringbuffer.h"
+#include "ipc/ringbuffer32.h"
 #include "ipc/completion.h"
 #include "ipc/dataqueue.h"
 #include "ipc/workqueue.h"
