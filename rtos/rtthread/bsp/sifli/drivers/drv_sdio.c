@@ -111,7 +111,11 @@ static struct rthw_sdio sdio_hw[SDIO_MAX];
 #define RTHW_SDIO_UNLOCK(_sdio) rt_mutex_release(&_sdio->mutex);
 
 ALIGN(SDIO_ALIGN_LEN)
-HAL_RETM_BSS_SECT(cache_buf_pool, static rt_uint8_t cache_buf_pool[SDIO_MAX][SDIO_BUFF_SIZE]);
+#if defined(CFG_FACTORY_DEBUG)
+    HAL_RETM_BSS_SECT(cache_buf_pool, static rt_uint8_t cache_buf_pool[SDIO_MAX][SDIO_BUFF_SIZE / 64]);
+#else
+    HAL_RETM_BSS_SECT(cache_buf_pool, static rt_uint8_t cache_buf_pool[SDIO_MAX][SDIO_BUFF_SIZE]);
+#endif
 
 
 static rt_uint32_t sifli_sdio_clk_get(SD_TypeDef *instance)
@@ -1116,7 +1120,23 @@ struct rt_mmcsd_host *sdio_host_create(struct rthw_sdio *sdio)
     host->valid_ocr = 0X00FFFF80;/* The voltage range supported is 1.65v-3.6v */
 
     // set 1 bit only, config it when 4 bits ready
-    host->flags = MMCSD_MUTBLKWRITE | MMCSD_SUP_SDIO_IRQ | MMCSD_BUSWIDTH_4;
+    host->flags = MMCSD_MUTBLKWRITE | MMCSD_SUP_SDIO_IRQ;
+
+    /* Per-controller 4-bit mode control (match by instance base address) */
+#ifndef SDMMC1_BUS_WIDTH_1_ONLY
+    if ((uint32_t)sdio->des.instance == SDMMC1_BASE)
+    {
+        host->flags |= MMCSD_BUSWIDTH_4;
+    }
+#endif /* SDMMC1_BUS_WIDTH_1_ONLY */
+#ifdef SDMMC2_BASE
+#ifndef SDMMC2_BUS_WIDTH_1_ONLY
+    if ((uint32_t)sdio->des.instance == SDMMC2_BASE)
+    {
+        host->flags |= MMCSD_BUSWIDTH_4;
+    }
+#endif /* SDMMC2_BUS_WIDTH_1_ONLY */
+#endif /* SDMMC2_BASE */
 
     host->max_seg_size = SDIO_BUFF_SIZE;
     host->max_dma_segs = 1;
@@ -1603,6 +1623,8 @@ static int sdiox_init(uint32_t idx)
     rt_pm_release(PM_SLEEP_MODE_IDLE);
     rt_pm_hw_device_stop();
 #endif /* RT_USING_PM */
+
+    return 0;
 
 }
 

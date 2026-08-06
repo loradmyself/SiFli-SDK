@@ -83,6 +83,11 @@ static uint8_t g_mic_chhose; // 0---mic1_left; 1---mic1_right; 2---mic2_left; 3-
 */
 static uint16_t g_mic_delay_ref = 352;
 
+#if defined(AUDIO_TX_USING_I2S)
+    #define MIC_DELAY_REF_16K               600 //宽带实测delay值8左右
+    #define MIC_DELAY_REF_8K                431 //窄带实测delay值8左右
+#endif
+
 static const char factory_far[] =
 {
     "--eqLoad=0"
@@ -323,7 +328,7 @@ void audio_3a_open(uint32_t samplerate, uint8_t is_bt_voice, uint8_t disable_upl
         arg.const_far = audio_mem_malloc(sizeof(factory_far) + 1);
         RT_ASSERT(arg.const_far);
         strcpy(arg.const_far, factory_far);
-        arg.const_near = audio_mem_malloc(strlen(factory_near_1mic) + 1);
+        arg.const_near = audio_mem_malloc(strlen(near) + 1);
         RT_ASSERT(arg.const_near);
         strcpy(arg.const_near, near);
         disable_parameter(arg.const_near, is_bt_voice, disable_uplink_agc);
@@ -760,7 +765,7 @@ void audio_3a_uplink(uint8_t *fifo, uint16_t fifo_size, uint8_t is_mute, uint8_t
         {
             rt_ringbuffer_get(thiz->rbuf_out, result, 120);
 #ifdef AUDIO_BT_AUDIO
-            msbc_encode_process(result, 120);
+            bt_voice_encode_process(result, 120);
 #endif
         }
     }
@@ -770,7 +775,7 @@ void audio_3a_uplink(uint8_t *fifo, uint16_t fifo_size, uint8_t is_mute, uint8_t
         {
             rt_ringbuffer_get(thiz->rbuf_out, result, 240);
 #ifdef AUDIO_BT_AUDIO
-            msbc_encode_process(result, 240);
+            bt_voice_encode_process(result, 240);
 #endif
         }
     }

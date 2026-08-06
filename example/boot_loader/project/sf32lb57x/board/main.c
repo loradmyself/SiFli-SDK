@@ -47,6 +47,11 @@ struct sec_configuration *temp_sec_config;
 
 ALIGN(4) struct sec_configuration sec_config_cache;
 
+#ifdef CFG_BOOTROM
+    __attribute__((used))
+    const char *const bootrom_ver = "v1.1";
+#endif /* CFG_BOOTROM */
+
 void boot_ram(void)
 {
     sboot_standby_boot_tbl_t *boot_tbl = (sboot_standby_boot_tbl_t *)hwp_hpsys_aon->RESERVE0;
@@ -593,6 +598,9 @@ static void print_uid(void)
     HAL_Delay_us(0);
 
     print_boot_info();
+
+    /* init pmcu ldo en ss register according to efuse setting */
+    board_ldo_en_ss_init();
 
     if (!boot_is_bootmode())
     {
