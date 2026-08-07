@@ -7,7 +7,7 @@ import rtconfig
 CONFIG_H263_DECODER_SUPPORT = 0
 CONFIG_AUDIO_USING_FLOAT = 1
 CONFIG_AUDIO_USING_FIXED = 0
-CONFIG_AAC_ENCODER = 0
+CONFIG_AAC_ENCODER = 1  # Disabled - only need decoder for performance test
 CONFIG_FLAC_DECODER = 0
 CONFIG_AAC_DECODER_SUPPORT = 1
 CONFIG_OGG_DECODER_SUPPORT = 0
@@ -356,7 +356,8 @@ src += common_src + h264_src + audio_src
 src += ogg_decoder_src
 
 #src += resample_src
-#src += aac_encoder_src
+#src += aac_encoder_src  # Disabled - only need decoder
+#CPPDEFINES += ['CONFIG_AAC_ENCODER']
 #src += flac_decoder_src
 #src += scale_src
 if (CONFIG_H263_DECODER_SUPPORT == 1):

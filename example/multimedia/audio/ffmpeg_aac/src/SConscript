@@ -1,0 +1,17 @@
+import os
+from building import *
+
+cwd = GetCurrentDir()
+
+src = Glob('*.c')
+
+CPPPATH = []
+CPPPATH += [os.path.join(cwd, '../../../../../external/ffmpeg')]
+CPPPATH += [os.path.join(cwd, '../../../../../external/ffmpeg/libavcodec')]
+CPPPATH += [os.path.join(cwd, '../../../../../external/ffmpeg/libavformat')]
+CPPPATH += [os.path.join(cwd, '../../../../../external/ffmpeg/libavutil')]
+CPPPATH += [os.path.join(cwd, '../../../../../external/ffmpeg/libswresample')]
+CPPPATH += [os.path.join(cwd, '../../../../../external/ffmpeg/libswscale')]
+
+group = DefineGroup('Applications', src, depend=[''], CPPPATH=CPPPATH)
+Return('group')

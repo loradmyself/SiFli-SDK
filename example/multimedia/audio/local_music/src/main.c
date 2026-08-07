@@ -3,15 +3,20 @@
 #include "drv_io.h"
 #include "stdio.h"
 #include "string.h"
-#include "time.h"
 #include <rtdevice.h>
 #if RT_USING_DFS
     #include "dfs_file.h"
     #include "dfs_posix.h"
 #endif
 #include "audio_server.h"
-#include "audio_mp3ctrl.h"
 #include "drv_flash.h"
+#include <core_cm33.h>
+
+/* FFmpeg media decoder */
+#include "media_dec.h"
+
+/* CPU Usage Profiler */
+#include "cpu_usage_profiler.h"
 
 /* Common functions for RT-Thread based platform -----------------------------------------------*/
 
@@ -21,250 +26,261 @@
 
 #define FS_ROOT "root"
 
+/* 音频文件路径 - 使用 disk 目录下的文件 */
+#define MUSIC_FILE_PATH "/iphone.mp3"
+
+/* Performance monitoring */
+struct perf_stats {
+    uint32_t total_decode_cycles;
+    uint32_t max_decode_cycles;
+    uint32_t min_decode_cycles;
+    uint32_t frame_count;
+    uint32_t error_count;
+    uint32_t last_start_tick;
+};
+
+static struct perf_stats g_perf = {0};
+static ffmpeg_handle g_ffmpeg_handle = NULL;
+
 /**
  * @brief Mount fs.
  */
 int mnt_init(void)
 {
     register_mtd_device(FS_REGION_START_ADDR, FS_REGION_SIZE, FS_ROOT);
-    if (dfs_mount(FS_ROOT, "/", "elm", 0, 0) == 0) // fs exist
+    if (dfs_mount(FS_ROOT, "/", "elm", 0, 0) == 0)
     {
-        rt_kprintf("mount fs on flash to root success\n");
+        rt_kprintf("[INIT] mount fs on flash to root success\n");
     }
     else
     {
-        // auto mkfs, remove it if you want to mkfs manual
-        rt_kprintf("mount fs on flash to root fail\n");
-        if (dfs_mkfs("elm", FS_ROOT) == 0)//Format file system
+        rt_kprintf("[INIT] mount fs on flash to root fail\n");
+        if (dfs_mkfs("elm", FS_ROOT) == 0)
         {
-            rt_kprintf("make elm fs on flash sucess, mount again\n");
+            rt_kprintf("[INIT] make elm fs on flash success, mount again\n");
             if (dfs_mount(FS_ROOT, "/", "elm", 0, 0) == 0)
-                rt_kprintf("mount fs on flash success\n");
+                rt_kprintf("[INIT] mount fs on flash success\n");
             else
-                rt_kprintf("mount to fs on flash fail\n");
+                rt_kprintf("[INIT] mount to fs on flash fail\n");
         }
         else
-            rt_kprintf("dfs_mkfs elm flash fail\n");
+            rt_kprintf("[INIT] dfs_mkfs elm flash fail\n");
     }
     return RT_EOK;
 }
 INIT_ENV_EXPORT(mnt_init);
 
-/* User code start from here --------------------------------------------------------*/
-#define MUSIC_FILE_PATH "/16k.wav"
-
-/* Semaphore used to wait aes interrupt. */
-/* mp3 handle */
-static mp3ctrl_handle g_mp3_handle = NULL;
-/* mp3 process thread */
-static rt_thread_t g_mp3_proc_thread = NULL;
-/* message queue used by mp3 process thread */
-static rt_mq_t g_mp3_proc_mq = NULL;
-
-typedef enum
-{
-    CMD_MP3_PALY = 0,  /* mp3 play */
-    CMD_MP3_STOP,      /* mp3 stop */
-    CMD_MP3_PAUSE,     /* mp3 pause */
-    CMD_MP3_RESUME,    /* mp3 resume */
-    CMD_MP3_MAX
-} CMD_MP3_E;
-
-typedef struct
-{
-    uint8_t cmd;  /* see enum CMD_MP3_E. */
-    mp3_ioctl_cmd_param_t param;  /* mp3_ioctl_cmd_param_t */
-    uint32_t loop;  /*loop times. 0 : play one time. 1 ~ n : play 2 ~ n+1 times. */
-} mp3_ctrl_info_t;
+/* Performance monitoring functions -----------------------------------------------*/
 
 /**
- * @brief send msg to mp3 proc thread.
+ * @brief Initialize DWT cycle counter for performance measurement
  */
-static void send_msg_to_mp3_proc(mp3_ctrl_info_t *info)
+static void perf_init(void)
 {
-    rt_err_t err = rt_mq_send(g_mp3_proc_mq, info, sizeof(mp3_ctrl_info_t));
-    RT_ASSERT(err == RT_EOK);
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CYCCNT = 0;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+    rt_kprintf("[PERF] DWT cycle counter initialized\n");
 }
 
 /**
- * @brief Example for play file.
- * @param file_name music file (.wav .mp3) path.
- * @param loop loop times. 0 : play one time. 1 ~ n : play 2 ~ n+1 times.
- *
- * @retval none
+ * @brief Start performance measurement
  */
-void play_file(const char *file_name, uint32_t loop)
+static void perf_start(void)
 {
-    rt_kprintf("[LOCAL MUSIC]%s %s\n", __func__, file_name);
-    mp3_ctrl_info_t info = {0};
-
-    info.cmd = CMD_MP3_PALY;
-    info.loop = loop;
-    info.param.filename = file_name;
-    info.param.len = -1;
-
-    send_msg_to_mp3_proc(&info);
+    g_perf.last_start_tick = DWT->CYCCNT;
 }
 
 /**
- * @brief Example for stop playing.
- *
- * @retval none
+ * @brief Stop performance measurement and update stats
  */
-void play_stop(void)
+static void perf_stop(void)
 {
-    rt_kprintf("[LOCAL MUSIC]%s\n", __func__);
-    mp3_ctrl_info_t info = {0};
-    info.cmd = CMD_MP3_STOP;
-    send_msg_to_mp3_proc(&info);
+    uint32_t end = DWT->CYCCNT;
+    uint32_t cycles;
+
+    /* Handle overflow */
+    if (end >= g_perf.last_start_tick)
+    {
+        cycles = end - g_perf.last_start_tick;
+    }
+    else
+    {
+        cycles = (0xFFFFFFFF - g_perf.last_start_tick) + end + 1;
+    }
+
+    g_perf.total_decode_cycles += cycles;
+    g_perf.frame_count++;
+
+    if (cycles > g_perf.max_decode_cycles)
+    {
+        g_perf.max_decode_cycles = cycles;
+    }
+
+    if (g_perf.min_decode_cycles == 0 || cycles < g_perf.min_decode_cycles)
+    {
+        g_perf.min_decode_cycles = cycles;
+    }
 }
 
 /**
- * @brief Example for pause playing.
- *
- * @retval none
+ * @brief Print performance report
  */
-void play_pause(void)
+static void perf_report(void)
 {
-    rt_kprintf("[LOCAL MUSIC]%s\n", __func__);
-    mp3_ctrl_info_t info = {0};
-    info.cmd = CMD_MP3_PAUSE;
-    send_msg_to_mp3_proc(&info);
+    rt_kprintf("\n========================================\n");
+    rt_kprintf("       AAC/MP3 Decode Performance\n");
+    rt_kprintf("========================================\n");
+
+    if (g_perf.frame_count == 0)
+    {
+        rt_kprintf("No frames decoded yet\n");
+        rt_kprintf("========================================\n\n");
+        return;
+    }
+
+    uint32_t avg_cycles = g_perf.total_decode_cycles / g_perf.frame_count;
+    uint32_t cpu_freq = 200000000;  /* 200 MHz */
+
+    rt_kprintf("Total frames: %d\n", g_perf.frame_count);
+    rt_kprintf("Avg decode: %d cycles (%.2f ms)\n",
+               avg_cycles, (float)avg_cycles / (cpu_freq / 1000));
+    rt_kprintf("Max decode: %d cycles (%.2f ms)\n",
+               g_perf.max_decode_cycles,
+               (float)g_perf.max_decode_cycles / (cpu_freq / 1000));
+    rt_kprintf("Min decode: %d cycles (%.2f ms)\n",
+               g_perf.min_decode_cycles,
+               (float)g_perf.min_decode_cycles / (cpu_freq / 1000));
+    rt_kprintf("Error frames: %d\n", g_perf.error_count);
+    rt_kprintf("CPU Usage: %.1f%%\n", cpu_get_usage());
+    rt_kprintf("========================================\n\n");
 }
 
+/* FFmpeg Memory Callbacks ---------------------------------------*/
 /**
- * @brief Example for resume playing.
- *
- * @retval none
+ * @brief FFmpeg 内存分配回调包装函数
+ *        解决 rt_size_t (64位) 和 size_t (32位) 类型不匹配问题
  */
-void play_resume(void)
+static void *ffmpeg_mem_malloc(size_t size)
 {
-    rt_kprintf("[LOCAL MUSIC]%s\n", __func__);
-    mp3_ctrl_info_t info = {0};
-    info.cmd = CMD_MP3_RESUME;
-    send_msg_to_mp3_proc(&info);
+    return rt_malloc((rt_size_t)size);
 }
 
-/**
- * @brief callback function for mp3ctrl_open.
- */
-static int play_callback_func(audio_server_callback_cmt_t cmd, void *callback_userdata, uint32_t reserved)
+static void ffmpeg_mem_free(void *ptr)
 {
-    rt_kprintf("[LOCAL MUSIC]%s cmd %d\n", __func__, cmd);
+    rt_free(ptr);
+}
+
+static void *ffmpeg_mem_realloc(void *ptr, size_t new_size)
+{
+    return rt_realloc(ptr, (rt_size_t)new_size);
+}
+
+/* FFmpeg Callback -----------------------------------------------*/
+
+/**
+ * @brief FFmpeg notification callback
+ */
+static int ffmpeg_notify_callback(uint32_t user_data, ffmpeg_cmd_e cmd, uint32_t val)
+{
     switch (cmd)
     {
-    case as_callback_cmd_play_to_end:
-        /* To close audio client when playing has been completed. */
-        play_stop();
+    case e_ffmpeg_play_to_end:
+        rt_kprintf("[FFMPEG] Play to end\n");
+        perf_report();
         break;
-
+    case e_ffmpeg_play_to_error:
+        rt_kprintf("[FFMPEG] Play error\n");
+        g_perf.error_count++;
+        break;
+    case e_ffmpeg_play_frames:
+        /* 每帧解码完成时统计 - 这里只能统计回调的时间，实际解码时间在 FFmpeg 内部 */
+        break;
     default:
         break;
     }
-
     return 0;
 }
 
+/* FFmpeg playback -----------------------------------------------*/
+
 /**
- * @brief Mp3 process thread entry.
+ * @brief 使用 FFmpeg 播放音频文件 (AAC/MP3/WAV)
  */
-void mp3_proc_thread_entry(void *params)
+static void ffmpeg_play_file(const char *file_path)
 {
-    rt_err_t err = RT_ERROR;
-    mp3_ctrl_info_t msg;
+    rt_kprintf("[FFMPEG] Playing: %s\n", file_path);
 
-    while (1)
+    /* 重置性能统计 */
+    g_perf.total_decode_cycles = 0;
+    g_perf.max_decode_cycles = 0;
+    g_perf.min_decode_cycles = 0;
+    g_perf.frame_count = 0;
+    g_perf.error_count = 0;
+
+    ffmpeg_config_t cfg = {0};
+    cfg.src = e_src_localfile;
+    cfg.audio_enable = 1;
+    cfg.video_enable = 0;  /* 纯音频 */
+    cfg.is_loop = 0;
+    cfg.file_path = file_path;
+    cfg.notify = ffmpeg_notify_callback;
+    cfg.mem_malloc = ffmpeg_mem_malloc;
+    cfg.mem_free = ffmpeg_mem_free;
+
+    int ret = ffmpeg_open(&g_ffmpeg_handle, &cfg, 0);
+    if (ret == 0)
     {
-        err = rt_mq_recv(g_mp3_proc_mq, &msg, sizeof(msg), RT_WAITING_FOREVER);
-        RT_ASSERT(err == RT_EOK);
-        rt_kprintf("[LOCAL MUSIC]RECV msg: cmd %d\n", msg.cmd);
-        switch (msg.cmd)
-        {
-        case CMD_MP3_PALY:
-            if (g_mp3_handle)
-            {
-                /* Close fistly if mp3 is playing. */
-                mp3ctrl_close(g_mp3_handle);
-            }
-            g_mp3_handle = mp3ctrl_open(AUDIO_TYPE_LOCAL_MUSIC,  /* audio type, see enum audio_type_t. */
-                                        msg.param.filename,  /* file path */
-                                        play_callback_func,  /* play callback function. */
-                                        NULL);
-            RT_ASSERT(g_mp3_handle);
-            /* Set loop times. */
-            mp3ctrl_ioctl(g_mp3_handle,   /* handle returned by mp3ctrl_open. */
-                          0,              /* cmd = 0, set loop times. */
-                          msg.loop);      /* loop times. */
-            /* To play. */
-            mp3ctrl_play(g_mp3_handle);
-            break;
-
-        case CMD_MP3_STOP:
-            mp3ctrl_close(g_mp3_handle);
-            g_mp3_handle = NULL;
-            break;
-
-        case CMD_MP3_PAUSE:
-            mp3ctrl_pause(g_mp3_handle);
-            break;
-
-        case CMD_MP3_RESUME:
-            mp3ctrl_resume(g_mp3_handle);
-            break;
-
-        default:
-            break;
-        }
-        rt_kprintf("[LOCAL MUSIC]RECV END.\n");
+        rt_kprintf("[FFMPEG] Open success, start playing\n");
+    }
+    else
+    {
+        rt_kprintf("[FFMPEG] Open failed: %d\n", ret);
     }
 }
 
-
 /**
- * @brief Common initialization.
+ * @brief 停止 FFmpeg 播放
  */
-static rt_err_t comm_init(void)
+static void ffmpeg_play_stop(void)
 {
-    g_mp3_proc_mq = rt_mq_create("mp3_proc_mq", sizeof(mp3_ctrl_info_t), 60, RT_IPC_FLAG_FIFO);
-    RT_ASSERT(g_mp3_proc_mq);
-    g_mp3_proc_thread = rt_thread_create("mp3_proc", mp3_proc_thread_entry, NULL, 2048, RT_THREAD_PRIORITY_MIDDLE, RT_THREAD_TICK_DEFAULT);
-    RT_ASSERT(g_mp3_proc_thread);
-    rt_err_t err = rt_thread_startup(g_mp3_proc_thread);
-    RT_ASSERT(RT_EOK == err);
-
-    rt_kprintf("[LOCAL MUSIC]%s\n", __func__);
-
-    return RT_EOK;
+    if (g_ffmpeg_handle)
+    {
+        rt_kprintf("[FFMPEG] Stopping\n");
+        ffmpeg_close(g_ffmpeg_handle);
+        g_ffmpeg_handle = NULL;
+    }
 }
 
-
 /**
-  * @brief  Main program
-  * @param  None
-  * @retval 0 if success, otherwise failure number
-  */
+ * @brief Main program - AAC/MP3 Performance Test
+ */
 int main(void)
 {
-    rt_kprintf("\n[LOCAL MUSIC]Local music Example.\n");
+    rt_kprintf("\n========================================\n");
+    rt_kprintf("  AAC/MP3 Decode Performance Test\n");
+    rt_kprintf("  Using FFmpeg Decoder\n");
+    rt_kprintf("========================================\n\n");
 
-    /* ls files in root. */
+    /* Initialize DWT for performance monitoring */
+    perf_init();
+
+    /* List files in root */
     extern void ls(const char *name);
     ls("/");
 
-    /* mp3 process thread and message queue initialization. */
-    comm_init();
+    /* Start playing with FFmpeg */
+    ffmpeg_play_file(MUSIC_FILE_PATH);
 
-    /* Play /16k.wav */
-    play_file(MUSIC_FILE_PATH,
-              0    /* 0 : play one time. 1 ~ n : play 2 ~ n+1 times. */
-             );
-
-    /* Infinite loop */
+    /* Main loop - print performance stats periodically */
     while (1)
     {
-        rt_thread_mdelay(10000);
+        rt_thread_mdelay(5000);
+        if (g_perf.frame_count > 0)
+        {
+            perf_report();
+        }
     }
 
     return 0;
 }
-
