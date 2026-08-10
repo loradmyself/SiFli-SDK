@@ -21,6 +21,7 @@ h263_src = []
 h264_src = []
 audio_src = []
 aac_encoder_src = []
+# Note: kbdwin.c and aactab.c already in aac_decoder_src, don't add here
 flac_decoder_src = []
 ogg_decoder_src = []
 # get current directory
@@ -232,12 +233,12 @@ if (CONFIG_AUDIO_USING_FIXED == 1):
 
 
 if (CONFIG_AAC_ENCODER == 1):
-    aac_encoder_src += ['./libavcodec/kbdwin.c']
+    #aac_encoder_src += ['./libavcodec/kbdwin.c']  # already in decoder
     aac_encoder_src += ['./libavcodec/aacenc.c']
     aac_encoder_src += ['./libavcodec/aaccoder.c']
     aac_encoder_src += ['./libavcodec/aacenctab.c']
     aac_encoder_src += ['./libavcodec/aacpsy.c']
-    aac_encoder_src += ['./libavcodec/aactab.c']
+    #aac_encoder_src += ['./libavcodec/aactab.c']  # already in decoder
     aac_encoder_src += ['./libavcodec/aacenc_is.c']
     aac_encoder_src += ['./libavcodec/aacenc_tns.c']
     aac_encoder_src += ['./libavcodec/aacenc_ltp.c']
@@ -250,7 +251,7 @@ if (CONFIG_AAC_ENCODER == 1):
     aac_encoder_src += ['./libavcodec/opus_silk.c']
     aac_encoder_src += ['./libavcodec/opus_celt.c']
     aac_encoder_src += ['./libavcodec/opusdec.c']
-    aac_encoder_src += ['./libavcodec/vorbis_data.c']
+    #aac_encoder_src += ['./libavcodec/vorbis_data.c']  # already in ogg_decoder_src
 
 
 ogg_decoder_src += ['./libavcodec/vorbis.c']
@@ -291,6 +292,9 @@ demux_src += ['./libavformat/allformats.c']
 demux_src += ['./libavformat/file.c']
 demux_src += ['./libavformat/aviobuf.c']
 demux_src += ['./libavformat/utils_avformat.c']
+demux_src += ['./libavformat/mux.c']
+demux_src += ['./libavformat/adtsenc.c']
+demux_src += ['./libavformat/id3v2enc.c']
 demux_src += ['./libavformat/flacdec_avformat.c']
 demux_src += ['./libavformat/rawdec.c']
 demux_src += ['./libavformat/flac_picture.c']
@@ -351,13 +355,13 @@ if not GetDepend('BSP_USING_PC_SIMULATOR'):
     LOCAL_CCFLAGS += ' -Wno-incompatible-pointer-types'
     LOCAL_CCFLAGS += ' -Wno-deprecated-declarations'
     LOCAL_CCFLAGS += ' -Wno-int-conversion'
+LOCAL_CCFLAGS += ' -DCONFIG_AAC_ENCODER=1'
 
 src += common_src + h264_src + audio_src
 src += ogg_decoder_src
 
 #src += resample_src
-#src += aac_encoder_src  # Disabled - only need decoder
-#CPPDEFINES += ['CONFIG_AAC_ENCODER']
+src += aac_encoder_src
 #src += flac_decoder_src
 #src += scale_src
 if (CONFIG_H263_DECODER_SUPPORT == 1):

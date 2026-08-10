@@ -16,6 +16,7 @@
     #include "dfs_file.h"
     #include "dfs_posix.h"
     #include <fcntl.h>
+    #include <sys/stat.h>
 #endif
 
 #include "drv_flash.h"
@@ -294,6 +295,11 @@ static int cmd_play(int argc, char *argv[])
         return -1;
     }
 
+    /* Open PCM file for saving */
+    int pcm_fd = open("/decoded.pcm", O_WRONLY | O_CREAT | O_TRUNC);
+    if (pcm_fd < 0)
+        rt_kprintf("[FFMPEG] open /decoded.pcm failed, skip save\n");
+
     perf_reset();
     g_perf.start_tick = dwt_get_cycles();
 
@@ -383,6 +389,10 @@ static int cmd_play(int argc, char *argv[])
                 }
                 g_perf.total_pcm_bytes += bytes_needed;
             }
+
+            /* Save PCM to file */
+            if (pcm_fd >= 0)
+                write(pcm_fd, pcm_buf, bytes_needed);
         }
 
         av_packet_unref(pkt);
@@ -427,6 +437,8 @@ static int cmd_play(int argc, char *argv[])
                         }
                         g_perf.total_pcm_bytes += bytes_needed;
                     }
+                    if (pcm_fd >= 0)
+                        write(pcm_fd, pcm_buf, bytes_needed);
                 }
             }
         } while (got_frame);
@@ -443,6 +455,13 @@ static int cmd_play(int argc, char *argv[])
         rt_thread_mdelay(remaining_ms + 200);  /* +200ms margin */
     }
 
+    /* Close PCM file */
+    if (pcm_fd >= 0)
+    {
+        close(pcm_fd);
+        rt_kprintf("[FFMPEG] PCM saved to /decoded.pcm\n");
+    }
+
     /* Cleanup */
     rt_free(pcm_buf);
     av_packet_free(&pkt);
@@ -456,6 +475,333 @@ static int cmd_play(int argc, char *argv[])
     return 0;
 }
 MSH_CMD_EXPORT_ALIAS(cmd_play, play, Decode and play audio file);
+
+/* Forward declaration */
+static int cmd_encode_real(int argc, char *argv[]);
+
+/**
+ * @brief encode thread entry (FFmpeg needs large stack, can't run in tshell)
+ */
+static void encode_thread_entry(void *param)
+{
+    char *args[3] = { "encode", NULL, NULL };
+    int argc = 1;
+
+    if (param)
+    {
+        static char path_buf[128];
+        strncpy(path_buf, (const char *)param, sizeof(path_buf) - 1);
+        /* Parse "pcm aac" from the param string */
+        char *space = strchr(path_buf, ' ');
+        if (space)
+        {
+            *space = '\0';
+            args[1] = path_buf;
+            args[2] = space + 1;
+            argc = 3;
+        }
+        else
+        {
+            args[1] = path_buf;
+            argc = 2;
+        }
+    }
+
+    /* Call the actual encode logic */
+    cmd_encode_real(argc, args);
+
+    rt_free(param);
+}
+
+/**
+ * @brief encode [pcm_file] [output_file]
+ *   Encode PCM to AAC (default: iphone.pcm -> encoder.aac)
+ */
+static int cmd_encode_real(int argc, char *argv[])
+{
+    const char *pcm_path = (argc > 1) ? argv[1] : "/iphone.pcm";
+    const char *aac_path = (argc > 2) ? argv[2] : "/encoder.aac";
+    int ret;
+
+    rt_kprintf("[ENCODE] %s -> %s\n", pcm_path, aac_path);
+
+    /* PCM params (match the AAC decode output) */
+    int sample_rate = 24000;
+    int channels = 2;
+    int bits_per_sample = 16;
+
+    /* Open PCM file */
+    int fd = open(pcm_path, O_RDONLY);
+    if (fd < 0)
+    {
+        rt_kprintf("[ENCODE] open %s failed\n", pcm_path);
+        return -1;
+    }
+
+    /* Get file size */
+    int pcm_data_size = lseek(fd, 0, SEEK_END);
+    lseek(fd, 0, SEEK_SET);
+    rt_kprintf("[ENCODE] PCM file size: %d bytes\n", pcm_data_size);
+
+    /* Read entire PCM file into memory */
+    uint8_t *pcm_data = (uint8_t *)ffmpeg_alloc(pcm_data_size);
+    if (!pcm_data)
+    {
+        rt_kprintf("[ENCODE] malloc %d bytes failed\n", pcm_data_size);
+        close(fd);
+        return -1;
+    }
+    int read_len = read(fd, pcm_data, pcm_data_size);
+    close(fd);
+    if (read_len != pcm_data_size)
+    {
+        rt_kprintf("[ENCODE] read incomplete: %d/%d\n", read_len, pcm_data_size);
+        ffmpeg_free(pcm_data);
+        return -1;
+    }
+    rt_kprintf("[ENCODE] PCM loaded: %d bytes\n", pcm_data_size);
+
+    /* Find AAC encoder */
+    AVCodec *codec = avcodec_find_encoder(AV_CODEC_ID_AAC);
+    if (!codec)
+    {
+        rt_kprintf("[ENCODE] AAC encoder not found\n");
+        ffmpeg_free(pcm_data);
+        return -1;
+    }
+    rt_kprintf("[ENCODE] encoder: %s\n", codec->name);
+
+    /* Allocate encoder context */
+    AVCodecContext *enc_ctx = avcodec_alloc_context3(codec);
+    if (!enc_ctx)
+    {
+        rt_kprintf("[ENCODE] alloc encoder context failed\n");
+        ffmpeg_free(pcm_data);
+        return -1;
+    }
+
+    /* Set encoder params */
+    enc_ctx->sample_rate = sample_rate;
+    enc_ctx->channels = channels;
+    enc_ctx->channel_layout = av_get_default_channel_layout(channels);
+    enc_ctx->sample_fmt = AV_SAMPLE_FMT_FLTP;  /* AAC requires float planar */
+    enc_ctx->bit_rate = 128000;  /* 128kbps */
+    enc_ctx->time_base = (AVRational){1, sample_rate};
+
+    /* Open encoder */
+    ret = avcodec_open2(enc_ctx, codec, NULL);
+    if (ret < 0)
+    {
+        char errbuf[64];
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        rt_kprintf("[ENCODE] avcodec_open2 failed: %d (%s)\n", ret, errbuf);
+        avcodec_free_context(&enc_ctx);
+        ffmpeg_free(pcm_data);
+        return -1;
+    }
+
+    /* Allocate output format context */
+    AVFormatContext *fmt_ctx = NULL;
+    ret = avformat_alloc_output_context2(&fmt_ctx, NULL, NULL, aac_path);
+    if (ret < 0 || !fmt_ctx)
+    {
+        rt_kprintf("[ENCODE] alloc output context failed\n");
+        avcodec_free_context(&enc_ctx);
+        ffmpeg_free(pcm_data);
+        return -1;
+    }
+
+    /* Add audio stream */
+    AVStream *stream = avformat_new_stream(fmt_ctx, NULL);
+    if (!stream)
+    {
+        rt_kprintf("[ENCODE] new stream failed\n");
+        avformat_free_context(fmt_ctx);
+        avcodec_free_context(&enc_ctx);
+        ffmpeg_free(pcm_data);
+        return -1;
+    }
+    stream->id = fmt_ctx->nb_streams - 1;
+    avcodec_copy_context(stream->codec, enc_ctx);
+    stream->time_base = enc_ctx->time_base;
+
+    /* Open output file */
+    ret = avio_open(&fmt_ctx->pb, aac_path, AVIO_FLAG_WRITE);
+    if (ret < 0)
+    {
+        char errbuf[64];
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        rt_kprintf("[ENCODE] avio_open failed: %d (%s)\n", ret, errbuf);
+        avformat_free_context(fmt_ctx);
+        avcodec_free_context(&enc_ctx);
+        ffmpeg_free(pcm_data);
+        return -1;
+    }
+
+    /* Write header */
+    ret = avformat_write_header(fmt_ctx, NULL);
+    if (ret < 0)
+    {
+        char errbuf[64];
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        rt_kprintf("[ENCODE] write header failed: %d (%s)\n", ret, errbuf);
+        avio_closep(&fmt_ctx->pb);
+        avformat_free_context(fmt_ctx);
+        avcodec_free_context(&enc_ctx);
+        ffmpeg_free(pcm_data);
+        return -1;
+    }
+
+    /* Allocate frame and packet */
+    AVFrame *frame = av_frame_alloc();
+    AVPacket *pkt = av_packet_alloc();
+    frame->nb_samples = enc_ctx->frame_size > 0 ? enc_ctx->frame_size : 1024;
+    frame->format = enc_ctx->sample_fmt;
+    frame->channel_layout = enc_ctx->channel_layout;
+    av_frame_get_buffer(frame, 0);
+
+    /* Encode loop */
+    int frame_size_bytes = frame->nb_samples * channels * 2;  /* 16-bit PCM */
+    int pcm_offset = 0;
+    int pkt_count = 0;
+
+    perf_reset();
+    g_perf.start_tick = dwt_get_cycles();
+
+    while (pcm_offset + frame_size_bytes <= pcm_data_size)
+    {
+        /* Make frame writable */
+        av_frame_make_writable(frame);
+
+        /* Convert int16 PCM -> float planar (required by AAC encoder) */
+        int16_t *src = (int16_t *)(pcm_data + pcm_offset);
+        for (int s = 0; s < frame->nb_samples; s++)
+        {
+            for (int c = 0; c < channels; c++)
+            {
+                float val = (float)src[s * channels + c] / 32768.0f;
+                ((float *)frame->data[c])[s] = val;
+            }
+        }
+
+        frame->pts = pcm_offset / frame_size_bytes;
+
+        /* Encode with timing */
+        uint32_t t0 = dwt_get_cycles();
+        int got_output = 0;
+        ret = avcodec_encode_audio2(enc_ctx, pkt, frame, &got_output);
+        uint32_t t1 = dwt_get_cycles();
+
+        if (ret < 0)
+        {
+            char errbuf[64];
+            av_strerror(ret, errbuf, sizeof(errbuf));
+            rt_kprintf("[ENCODE] encode error: %d (%s)\n", ret, errbuf);
+            g_perf.error_count++;
+            break;
+        }
+
+        uint32_t cycles = t1 - t0;
+        g_perf.total_decode_cycles += cycles;  /* reuse stats */
+        g_perf.frame_count++;
+        if (cycles > g_perf.max_decode_cycles)
+            g_perf.max_decode_cycles = cycles;
+        if (g_perf.min_decode_cycles == 0 || cycles < g_perf.min_decode_cycles)
+            g_perf.min_decode_cycles = cycles;
+
+        if (got_output)
+        {
+            pkt->stream_index = stream->id;
+            av_packet_rescale_ts(pkt, enc_ctx->time_base, stream->time_base);
+            ret = av_interleaved_write_frame(fmt_ctx, pkt);
+            if (ret < 0)
+            {
+                rt_kprintf("[ENCODE] write frame error: %d\n", ret);
+            }
+            else
+            {
+                pkt_count++;
+            }
+            av_packet_unref(pkt);
+        }
+
+        pcm_offset += frame_size_bytes;
+    }
+
+    /* Flush encoder */
+    {
+        int got_output = 0;
+        do {
+            got_output = 0;
+            ret = avcodec_encode_audio2(enc_ctx, pkt, NULL, &got_output);
+            if (ret < 0 || !got_output)
+                break;
+
+            pkt->stream_index = stream->id;
+            av_packet_rescale_ts(pkt, enc_ctx->time_base, stream->time_base);
+            av_interleaved_write_frame(fmt_ctx, pkt);
+            av_packet_unref(pkt);
+            pkt_count++;
+        } while (got_output);
+    }
+
+    g_perf.end_tick = dwt_get_cycles();
+
+    /* Write trailer */
+    av_write_trailer(fmt_ctx);
+
+    /* Get output file size */
+    int aac_size = 0;
+    {
+        struct stat st;
+        if (stat(aac_path, &st) == 0)
+            aac_size = st.st_size;
+    }
+
+    perf_report();
+    rt_kprintf("[ENCODE] Output: %s, %d packets, %d bytes\n", aac_path, pkt_count, aac_size);
+
+    /* Cleanup */
+    av_frame_free(&frame);
+    av_packet_free(&pkt);
+    avio_closep(&fmt_ctx->pb);
+    avformat_free_context(fmt_ctx);
+    avcodec_free_context(&enc_ctx);
+    ffmpeg_free(pcm_data);
+
+    rt_kprintf("[ENCODE] Done\n");
+    return 0;
+}
+
+static int cmd_encode(int argc, char *argv[])
+{
+    /* Build arg string for thread */
+    char *param = NULL;
+    if (argc > 1)
+    {
+        int len = 0;
+        for (int i = 1; i < argc; i++)
+            len += strlen(argv[i]) + 1;
+        param = rt_malloc(len);
+        if (!param) return -1;
+        param[0] = '\0';
+        for (int i = 1; i < argc; i++)
+        {
+            if (i > 1) strcat(param, " ");
+            strcat(param, argv[i]);
+        }
+    }
+
+    rt_thread_t tid = rt_thread_create("encode", encode_thread_entry, param,
+                                        32768, 20, 10);
+    if (tid)
+        rt_thread_startup(tid);
+    else
+        rt_kprintf("[ENCODE] create thread failed\n");
+
+    return 0;
+}
+MSH_CMD_EXPORT_ALIAS(cmd_encode, encode, Encode PCM to AAC file);
 
 static int cmd_stop(int argc, char *argv[])
 {
@@ -473,13 +819,29 @@ int main(void)
     dwt_init();
     av_register_all();
 
+    /* Manually register AAC encoder (CONFIG_AAC_ENCODER macro not propagating) */
+    {
+        extern AVCodec ff_aac_encoder;
+        avcodec_register(&ff_aac_encoder);
+        rt_kprintf("[FFMPEG] Manually registered AAC encoder\n");
+    }
+
+    /* Manually register ADTS muxer (inside #if 0 in allformats.c) */
+    {
+        extern AVOutputFormat ff_adts_muxer;
+        av_register_output_format(&ff_adts_muxer);
+        rt_kprintf("[FFMPEG] Manually registered ADTS muxer\n");
+    }
+
     rt_kprintf("\n========================================\n");
     rt_kprintf("  FFmpeg Audio Decode Performance Test\n");
     rt_kprintf("  Streaming decode + play\n");
     rt_kprintf("========================================\n");
     rt_kprintf("Commands:\n");
-    rt_kprintf("  play [file]  - decode and play (default: /iphone.aac)\n");
-    rt_kprintf("  stop         - stop playback\n");
+    rt_kprintf("  play [file]          - decode and play (default: /iphone.aac)\n");
+    rt_kprintf("  encode [pcm] [aac]   - encode PCM to AAC\n");
+    rt_kprintf("                        default: /iphone.pcm -> /encoder.aac\n");
+    rt_kprintf("  stop                 - stop playback\n");
     rt_kprintf("========================================\n\n");
 
     while (1)
