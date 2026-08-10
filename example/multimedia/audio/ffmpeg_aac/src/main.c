@@ -40,7 +40,7 @@
 
 /* File paths */
 #define MIC_PCM_FILE            "/mic_record.pcm"
-#define AAC_FILE                "/test.aac"
+#define AAC_FILE                "/wws.mp3"
 
 /* Audio parameters */
 #define DEFAULT_SAMPLE_RATE     16000
