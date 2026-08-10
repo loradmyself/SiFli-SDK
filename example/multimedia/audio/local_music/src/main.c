@@ -65,13 +65,14 @@ struct perf_stats
 };
 
 static struct perf_stats g_perf;
+static struct perf_stats g_encode_perf;
 
-static void perf_reset(void)
+static void perf_reset(struct perf_stats *p)
 {
-    memset(&g_perf, 0, sizeof(g_perf));
+    memset(p, 0, sizeof(*p));
 }
 
-static void perf_report(void)
+static void perf_report_decode(void)
 {
     rt_kprintf("\n========== Decode Performance ==========\n");
     if (g_perf.frame_count == 0)
@@ -100,6 +101,37 @@ static void perf_report(void)
     rt_kprintf("CPU usage:      %.1f%%\n", cpu_usage);
     rt_kprintf("PCM output:     %d bytes\n", g_perf.total_pcm_bytes);
     rt_kprintf("Errors:         %d\n", g_perf.error_count);
+    rt_kprintf("========================================\n\n");
+}
+
+static void perf_report_encode(void)
+{
+    rt_kprintf("\n========== Encode Performance ==========\n");
+    if (g_encode_perf.frame_count == 0)
+    {
+        rt_kprintf("No frames encoded\n");
+        return;
+    }
+
+    uint32_t avg = g_encode_perf.total_decode_cycles / g_encode_perf.frame_count;
+    float avg_ms = (float)avg / (CPU_FREQ_HZ / 1000);
+    float total_encode_ms = (float)g_encode_perf.total_decode_cycles / (CPU_FREQ_HZ / 1000);
+    uint32_t elapsed_cycles = g_encode_perf.end_tick - g_encode_perf.start_tick;
+    float total_elapsed_ms = (float)elapsed_cycles / (CPU_FREQ_HZ / 1000);
+    float cpu_usage = 0;
+    if (elapsed_cycles > 0)
+        cpu_usage = (float)g_encode_perf.total_decode_cycles * 100.0f / elapsed_cycles;
+
+    rt_kprintf("Frames:         %d\n", g_encode_perf.frame_count);
+    rt_kprintf("Avg encode:     %d cycles (%.2f ms)\n", avg, avg_ms);
+    rt_kprintf("Max encode:     %d cycles (%.2f ms)\n", g_encode_perf.max_decode_cycles,
+               (float)g_encode_perf.max_decode_cycles / (CPU_FREQ_HZ / 1000));
+    rt_kprintf("Min encode:     %d cycles (%.2f ms)\n", g_encode_perf.min_decode_cycles,
+               (float)g_encode_perf.min_decode_cycles / (CPU_FREQ_HZ / 1000));
+    rt_kprintf("Total encode:   %.2f ms\n", total_encode_ms);
+    rt_kprintf("Total elapsed:  %.2f ms\n", total_elapsed_ms);
+    rt_kprintf("CPU usage:      %.1f%%\n", cpu_usage);
+    rt_kprintf("Errors:         %d\n", g_encode_perf.error_count);
     rt_kprintf("========================================\n\n");
 }
 
@@ -300,7 +332,7 @@ static int cmd_play(int argc, char *argv[])
     if (pcm_fd < 0)
         rt_kprintf("[FFMPEG] open /decoded.pcm failed, skip save\n");
 
-    perf_reset();
+    perf_reset(&g_perf);
     g_perf.start_tick = dwt_get_cycles();
 
     rt_kprintf("[FFMPEG] Streaming decode+play...\n");
@@ -470,7 +502,7 @@ static int cmd_play(int argc, char *argv[])
     avcodec_close(dec_ctx);
     avformat_close_input(&fmt_ctx);
 
-    perf_report();
+    perf_report_decode();
     rt_kprintf("[FFMPEG] Done\n");
     return 0;
 }
@@ -639,6 +671,8 @@ static int cmd_encode_real(int argc, char *argv[])
     }
 
     /* Write header */
+    perf_reset(&g_encode_perf);
+    g_encode_perf.start_tick = dwt_get_cycles();
     ret = avformat_write_header(fmt_ctx, NULL);
     if (ret < 0)
     {
@@ -664,9 +698,6 @@ static int cmd_encode_real(int argc, char *argv[])
     int frame_size_bytes = frame->nb_samples * channels * 2;  /* 16-bit PCM */
     int pcm_offset = 0;
     int pkt_count = 0;
-
-    perf_reset();
-    g_perf.start_tick = dwt_get_cycles();
 
     while (pcm_offset + frame_size_bytes <= pcm_data_size)
     {
@@ -697,17 +728,17 @@ static int cmd_encode_real(int argc, char *argv[])
             char errbuf[64];
             av_strerror(ret, errbuf, sizeof(errbuf));
             rt_kprintf("[ENCODE] encode error: %d (%s)\n", ret, errbuf);
-            g_perf.error_count++;
+            g_encode_perf.error_count++;
             break;
         }
 
         uint32_t cycles = t1 - t0;
-        g_perf.total_decode_cycles += cycles;  /* reuse stats */
-        g_perf.frame_count++;
-        if (cycles > g_perf.max_decode_cycles)
-            g_perf.max_decode_cycles = cycles;
-        if (g_perf.min_decode_cycles == 0 || cycles < g_perf.min_decode_cycles)
-            g_perf.min_decode_cycles = cycles;
+        g_encode_perf.total_decode_cycles += cycles;
+        g_encode_perf.frame_count++;
+        if (cycles > g_encode_perf.max_decode_cycles)
+            g_encode_perf.max_decode_cycles = cycles;
+        if (g_encode_perf.min_decode_cycles == 0 || cycles < g_encode_perf.min_decode_cycles)
+            g_encode_perf.min_decode_cycles = cycles;
 
         if (got_output)
         {
@@ -745,10 +776,10 @@ static int cmd_encode_real(int argc, char *argv[])
         } while (got_output);
     }
 
-    g_perf.end_tick = dwt_get_cycles();
-
     /* Write trailer */
     av_write_trailer(fmt_ctx);
+
+    g_encode_perf.end_tick = dwt_get_cycles();
 
     /* Get output file size */
     int aac_size = 0;
@@ -758,7 +789,7 @@ static int cmd_encode_real(int argc, char *argv[])
             aac_size = st.st_size;
     }
 
-    perf_report();
+    perf_report_encode();
     rt_kprintf("[ENCODE] Output: %s, %d packets, %d bytes\n", aac_path, pkt_count, aac_size);
 
     /* Cleanup */
