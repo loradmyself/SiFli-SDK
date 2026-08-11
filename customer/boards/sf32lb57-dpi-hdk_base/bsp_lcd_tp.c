@@ -129,7 +129,7 @@ void BSP_LCD_PowerUp(void)
 
     HAL_PIN_Set(PAD_PA25, LCDC1_TCON_GDSP,   PIN_NOPULL, 1);
     HAL_PIN_Set(PAD_PA27, LCDC1_TCON_GDCLK,  PIN_NOPULL, 1);
-
+    // Set the pin driver strength to 2mA?
     HAL_PIN_Set_DS0(PAD_PA27, 1, 0);
     HAL_PIN_Set_DS1(PAD_PA27, 1, 0);
     HAL_PIN_Set(PAD_PA28, LCDC1_TCON_SDCLK,  PIN_NOPULL, 1);

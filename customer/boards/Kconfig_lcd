@@ -399,6 +399,20 @@ if BSP_USING_BUILTIN_LCD
             select LCD_USING_EPD_OPM060DA
             select BSP_LCDC_USING_DIRECT_EPD
 
+        if LCD_USING_EPD_8BIT_OPM060DA
+            config EPD_WAVEFORM_USE_BIN
+                bool "Use binary waveform table"
+                default n
+                help
+                    Use pre-compiled binary waveform table (epd_waveform.bin) instead of
+                    source code waveform. This requires the binary file to be flashed to
+                    the wave_table partition.
+        endif
+        
+        config LCD_USING_EPD_16BIT_E0470A01
+            bool "4.7inch EPD E0470A01 16bit"
+            select LCD_USING_EPD_E0470A01
+            select BSP_LCDC_USING_DIRECT_EPD
         
 
 
@@ -408,7 +422,8 @@ if BSP_USING_BUILTIN_LCD
             select TSC_USING_FT6336 if BSP_USING_TOUCHD
             select BSP_LCDC_USING_DBI
             select LCD_USING_PWM_AS_BACKLIGHT
-        
+
+
 #       config AM196Q410502LK_196_410x502
 #           bool "YUYING AM196Q410502LK_196_410x502"
 #           select LCD_USING_CO5300
@@ -505,15 +520,6 @@ if BSP_USING_BUILTIN_LCD
 #                    def_bool y
 #            endif
 
-        config LCD_USING_EPD_8BIT_OPM060DA
-            bool "6inch EPD OPM060DA 8bit"
-            select LCD_USING_EPD_OPM060DA
-            select BSP_LCDC_USING_DIRECT_EPD
-
-        config LCD_USING_EPD_16BIT_E0470A01
-            bool "4.7inch EPD E0470A01 16bit"
-            select LCD_USING_EPD_E0470A01
-            select BSP_LCDC_USING_DIRECT_EPD
 
     endchoice
 
@@ -568,7 +574,7 @@ if BSP_USING_BUILTIN_LCD
         default 460 if AM200Q460460LK_200_460x460
         default 410 if H0198S005AMT005_V0_195_410x502
         default 128 if LCD_USING_GC9107_128x128_SPI
-        default 1032 if LCD_USING_EPD_8BIT_OPM060DA
+        default 1024 if LCD_USING_EPD_8BIT_OPM060DA
         default 320 if LCD_USING_YX40018ACT
 
 
