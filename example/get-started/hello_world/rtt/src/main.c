@@ -13,6 +13,7 @@
  * 2. 每字节周期数 (Cycles/Byte)
  * 3. 延迟 (Latency) - 微秒
  * 4. 内存占用 (Memory Usage)
+ * 5. AES-128-CTR 对比测试
  */
 
 #include "rtthread.h"
@@ -27,6 +28,7 @@
 #include <mbedtls/chacha20.h>
 #include <mbedtls/chachapoly.h>
 #include <mbedtls/poly1305.h>
+#include <mbedtls/aes.h>
 
 /*===========================================================================
  * 性能测量工具
@@ -116,7 +118,7 @@ static void test_chacha20_throughput(void)
     rt_kprintf("\n========================================\n");
     rt_kprintf("  ChaCha20 Throughput Test\n");
     rt_kprintf("========================================\n");
-    rt_kprintf("%-10s %-12s %-12s %-12s\n", "Size(B)", "MB/s", "Cycles/B", "Time(ms)");
+    rt_kprintf("%-10s %-12s %-12s %-12s\n", "Size(B)", "MB/s", "Cycles/B", "Time(us)");
     rt_kprintf("----------------------------------------\n");
 
     for (int i = 0; i < NUM_TEST_SIZES; i++) {
@@ -169,12 +171,11 @@ static void test_chacha20_throughput(void)
         /* 每字节周期数 */
         uint32_t cycles_per_byte = (uint32_t)(elapsed_cycles / total_bytes);
 
-        /* 平均延迟 (微秒) */
+        /* 总耗时 (微秒) */
         uint32_t elapsed_us = elapsed_cycles / (SYS_CLOCK_HZ / 1000000);
-        uint32_t latency_us = elapsed_us / iterations;
 
         rt_kprintf("%-10d %-12d %-12d %-12d\n",
-                   size, throughput_mbps, cycles_per_byte, latency_us);
+                   size, throughput_mbps, cycles_per_byte, elapsed_us);
 
         rt_free(input);
         rt_free(output);
@@ -250,10 +251,11 @@ static void test_chacha20_latency(void)
  */
 static void test_chachapoly_throughput(void)
 {
+    dwt_init();  /* 初始化 DWT 周期计数器 */
     rt_kprintf("\n========================================\n");
     rt_kprintf("  ChaCha20-Poly1305 AEAD Throughput Test\n");
     rt_kprintf("========================================\n");
-    rt_kprintf("%-10s %-12s %-12s %-12s\n", "Size(B)", "MB/s", "Cycles/B", "Time(ms)");
+    rt_kprintf("%-10s %-12s %-12s %-12s\n", "Size(B)", "MB/s", "Cycles/B", "Time(us)");
     rt_kprintf("----------------------------------------\n");
 
     for (int i = 0; i < NUM_TEST_SIZES; i++) {
@@ -311,15 +313,106 @@ static void test_chachapoly_throughput(void)
         uint32_t cycles_per_byte = (uint32_t)(elapsed_cycles / total_bytes);
 
         uint32_t elapsed_us = elapsed_cycles / (SYS_CLOCK_HZ / 1000000);
-        uint32_t latency_us = elapsed_us / iterations;
 
         rt_kprintf("%-10d %-12d %-12d %-12d\n",
-                   size, throughput_mbps, cycles_per_byte, latency_us);
+                   size, throughput_mbps, cycles_per_byte, elapsed_us);
 
         rt_free(input);
         rt_free(output);
     }
 }
+
+/*===========================================================================
+ * AES-128-CTR 对比测试
+ *===========================================================================*/
+
+/**
+ * @brief 测试 AES-128-CTR 吞吐量 (与 ChaCha20 对比)
+ */
+static void test_aes_throughput(void)
+{
+    dwt_init();
+    rt_kprintf("\n========================================\n");
+    rt_kprintf("  AES-128-CTR Throughput Test\n");
+    rt_kprintf("========================================\n");
+    rt_kprintf("%-10s %-12s %-12s %-12s\n", "Size(B)", "MB/s", "Cycles/B", "Time(us)");
+    rt_kprintf("----------------------------------------\n");
+
+    /* AES-128 密钥 */
+    const uint8_t aes_key[16] = {
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f
+    };
+
+    for (int i = 0; i < NUM_TEST_SIZES; i++) {
+        size_t size = test_sizes[i];
+        int iterations;
+        if (size <= 1024) {
+            iterations = TEST_ITERATIONS;
+        } else if (size <= 65536) {
+            iterations = LARGE_ITERATIONS;
+        } else {
+            iterations = 20;
+        }
+
+        uint8_t *input = rt_malloc(size);
+        uint8_t *output = rt_malloc(size);
+        if (input == NULL || output == NULL) {
+            if (input) rt_free(input);
+            if (output) rt_free(output);
+            continue;
+        }
+
+        /* 填充测试数据 */
+        for (size_t j = 0; j < size; j++) {
+            input[j] = j & 0xFF;
+        }
+
+        mbedtls_aes_context aes_ctx;
+        uint8_t nonce_counter[16] = {0};  /* IV + Counter */
+        uint8_t stream_block[16] = {0};
+
+        /* 预热 */
+        mbedtls_aes_init(&aes_ctx);
+        mbedtls_aes_setkey_enc(&aes_ctx, aes_key, 128);
+        for (int j = 0; j < 10; j++) {
+            size_t nc_off = 0;
+            memcpy(nonce_counter, aes_key, 16);
+            mbedtls_aes_crypt_ctr(&aes_ctx, size, &nc_off,
+                                  nonce_counter, stream_block, input, output);
+        }
+        mbedtls_aes_free(&aes_ctx);
+
+        /* 性能测试 */
+        uint32_t start_cycles = dwt_get_cycles();
+
+        for (int iter = 0; iter < iterations; iter++) {
+            mbedtls_aes_init(&aes_ctx);
+            mbedtls_aes_setkey_enc(&aes_ctx, aes_key, 128);
+            size_t nc_off = 0;
+            memcpy(nonce_counter, aes_key, 16);
+            mbedtls_aes_crypt_ctr(&aes_ctx, size, &nc_off,
+                                  nonce_counter, stream_block, input, output);
+            mbedtls_aes_free(&aes_ctx);
+        }
+
+        uint32_t end_cycles = dwt_get_cycles();
+        uint32_t elapsed_cycles = end_cycles - start_cycles;
+
+        uint64_t total_bytes = (uint64_t)size * iterations;
+        uint64_t bytes_per_sec = (uint64_t)total_bytes * SYS_CLOCK_HZ / elapsed_cycles;
+        uint32_t throughput_mbps = (uint32_t)(bytes_per_sec / (1024 * 1024));
+        uint32_t cycles_per_byte = (uint32_t)(elapsed_cycles / total_bytes);
+        uint32_t elapsed_us = elapsed_cycles / (SYS_CLOCK_HZ / 1000000);
+
+        rt_kprintf("%-10d %-12d %-12d %-12d\n",
+                   size, throughput_mbps, cycles_per_byte, elapsed_us);
+
+        rt_free(input);
+        rt_free(output);
+    }
+    }
+
 
 /*===========================================================================
  * 内存使用测试
@@ -486,6 +579,7 @@ static void print_menu(void)
     rt_kprintf("  4. ChaCha20-Poly1305 AEAD Test\n");
     rt_kprintf("  5. Memory Usage Test\n");
     rt_kprintf("  6. Run All Tests\n");
+    rt_kprintf("  7. AES-128-CTR Throughput (Comparison)\n");
     rt_kprintf("==========================================\n");
 }
 
@@ -524,6 +618,9 @@ static int chacha20_perf(int argc, char **argv)
         test_chachapoly_throughput();
         test_chacha20_memory();
         break;
+    case 7:
+        test_aes_throughput();
+        break;
     default:
         print_menu();
         break;
@@ -545,6 +642,9 @@ int main(void)
     rt_kprintf("System Clock: %d Hz\n", SystemCoreClock);
     rt_kprintf("RT-Thread Tick: %d Hz\n", RT_TICK_PER_SECOND);
     rt_kprintf("\nType 'chacha20_perf' to run tests\n");
+    rt_kprintf("  1-5: Individual tests\n");
+    rt_kprintf("  6:   All ChaCha20 tests\n");
+    rt_kprintf("  7:   AES-128-CTR comparison\n");
 
     while (1) {
         rt_thread_mdelay(1000);
