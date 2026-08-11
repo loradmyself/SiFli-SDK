@@ -399,6 +399,9 @@ if BSP_USING_BUILTIN_LCD
             select LCD_USING_EPD_OPM060DA
             select BSP_LCDC_USING_DIRECT_EPD
 
+        
+
+
         config LCD_USING_YX40018ACT
             bool "3.92 rect DBI-16bit 320x320 TFT (YX40018ACT)"
             select LCD_USING_ST7796U
@@ -502,6 +505,15 @@ if BSP_USING_BUILTIN_LCD
 #                    def_bool y
 #            endif
 
+        config LCD_USING_EPD_8BIT_OPM060DA
+            bool "6inch EPD OPM060DA 8bit"
+            select LCD_USING_EPD_OPM060DA
+            select BSP_LCDC_USING_DIRECT_EPD
+
+        config LCD_USING_EPD_16BIT_E0470A01
+            bool "4.7inch EPD E0470A01 16bit"
+            select LCD_USING_EPD_E0470A01
+            select BSP_LCDC_USING_DIRECT_EPD
 
     endchoice
 
@@ -545,6 +557,8 @@ if BSP_USING_BUILTIN_LCD
         default 240 if  LCD_USING_TFT_GC9A01A
         default 720 if LCD_USING_TFT_NV3052C
         default 390 if LCD_USING_TFT_CO5300
+        default 1032 if LCD_USING_EPD_8BIT_OPM060DA
+        default 684 if LCD_USING_EPD_16BIT_E0470A01
         default 780 if LCD_USING_TFT_CO5300_DUAL
         default 410 if AM196Q410502LK_196_410x502
         default 368 if AM178Q368448LK_178_368x448
@@ -609,6 +623,7 @@ if BSP_USING_BUILTIN_LCD
         default 502 if H0198S005AMT005_V0_195_410x502
         default 128 if LCD_USING_GC9107_128x128_SPI
         default 758 if LCD_USING_EPD_8BIT_OPM060DA
+        default 1216 if LCD_USING_EPD_16BIT_E0470A01
         default 320 if LCD_USING_YX40018ACT
 
 
