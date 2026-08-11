@@ -411,8 +411,86 @@ static void test_aes_throughput(void)
         rt_free(input);
         rt_free(output);
     }
-    }
+}
 
+/*===========================================================================
+ * AES-128-CTR 延迟测试
+ *===========================================================================*/
+
+/**
+ * @brief 测试 AES-128-CTR 小数据块延迟
+ */
+static void test_aes_latency(void)
+{
+    dwt_init();
+    rt_kprintf("\n========================================\n");
+    rt_kprintf("  AES-128-CTR Latency Test (Small Blocks)\n");
+    rt_kprintf("========================================\n");
+    rt_kprintf("%-10s %-12s %-12s\n", "Size(B)", "Latency(us)", "Cycles");
+    rt_kprintf("----------------------------------------\n");
+
+    const uint8_t aes_key[16] = {
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f
+    };
+
+    const size_t small_sizes[] = {1, 8, 16, 32, 64};
+    const int small_iterations = 10000;
+
+    for (int i = 0; i < 5; i++) {
+        size_t size = small_sizes[i];
+
+        uint8_t *input = rt_malloc(size);
+        uint8_t *output = rt_malloc(size);
+        if (input == NULL || output == NULL) {
+            if (input) rt_free(input);
+            if (output) rt_free(output);
+            continue;
+        }
+
+        memset(input, 0x5A, size);
+
+        mbedtls_aes_context aes_ctx;
+        uint8_t nonce_counter[16] = {0};
+        uint8_t stream_block[16] = {0};
+
+        /* 预热 */
+        for (int j = 0; j < 100; j++) {
+            mbedtls_aes_init(&aes_ctx);
+            mbedtls_aes_setkey_enc(&aes_ctx, aes_key, 128);
+            size_t nc_off = 0;
+            memcpy(nonce_counter, aes_key, 16);
+            mbedtls_aes_crypt_ctr(&aes_ctx, size, &nc_off,
+                                  nonce_counter, stream_block, input, output);
+            mbedtls_aes_free(&aes_ctx);
+        }
+
+        /* 延迟测试 */
+        uint32_t start_cycles = dwt_get_cycles();
+
+        for (int iter = 0; iter < small_iterations; iter++) {
+            mbedtls_aes_init(&aes_ctx);
+            mbedtls_aes_setkey_enc(&aes_ctx, aes_key, 128);
+            size_t nc_off = 0;
+            memcpy(nonce_counter, aes_key, 16);
+            mbedtls_aes_crypt_ctr(&aes_ctx, size, &nc_off,
+                                  nonce_counter, stream_block, input, output);
+            mbedtls_aes_free(&aes_ctx);
+        }
+
+        uint32_t end_cycles = dwt_get_cycles();
+        uint32_t elapsed_cycles = end_cycles - start_cycles;
+
+        uint32_t elapsed_us = elapsed_cycles / (SYS_CLOCK_HZ / 1000000);
+        uint32_t latency_us = elapsed_us / small_iterations;
+        uint32_t cycles_per_op = elapsed_cycles / small_iterations;
+
+        rt_kprintf("%-10d %-12d %-12d\n", size, latency_us, cycles_per_op);
+
+        rt_free(input);
+        rt_free(output);
+    }
+}
 
 /*===========================================================================
  * 内存使用测试
@@ -580,6 +658,7 @@ static void print_menu(void)
     rt_kprintf("  5. Memory Usage Test\n");
     rt_kprintf("  6. Run All Tests\n");
     rt_kprintf("  7. AES-128-CTR Throughput (Comparison)\n");
+    rt_kprintf("  8. AES-128-CTR Latency (Comparison)\n");
     rt_kprintf("==========================================\n");
 }
 
@@ -621,6 +700,9 @@ static int chacha20_perf(int argc, char **argv)
     case 7:
         test_aes_throughput();
         break;
+    case 8:
+        test_aes_latency();
+        break;
     default:
         print_menu();
         break;
@@ -644,7 +726,8 @@ int main(void)
     rt_kprintf("\nType 'chacha20_perf' to run tests\n");
     rt_kprintf("  1-5: Individual tests\n");
     rt_kprintf("  6:   All ChaCha20 tests\n");
-    rt_kprintf("  7:   AES-128-CTR comparison\n");
+    rt_kprintf("  7:   AES-128-CTR Throughput\n");
+    rt_kprintf("  8:   AES-128-CTR Latency\n");
 
     while (1) {
         rt_thread_mdelay(1000);
