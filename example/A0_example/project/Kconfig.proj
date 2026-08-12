@@ -1,5 +1,18 @@
 #APP specific configuration.
 config CUSTOM_MEM_MAP
-    bool 
+    bool
 	select custom_mem_map
 	default y if !SOC_SIMULATOR
+
+# ChaCha20 库选择
+menu "ChaCha20 Library Selection"
+
+    config CHACHA20_USE_MBEDTLS_420
+        bool "Use MbedTLS 4.2.0"
+        default y
+
+    config CHACHA20_USE_OBERON
+        bool "Use Oberon PSA Crypto"
+        default n
+
+endmenu

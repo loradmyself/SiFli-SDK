@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(scons --board=sf32lb52-lchspi-ulp_hcpu -j8)",
+      "Bash(SIFLI_SDK=\"F:/SiFli/SDK/SiFli-SDK/main\" scons --board=sf32lb52-lchspi-ulp_hcpu -j8)"
+    ]
+  }
+}

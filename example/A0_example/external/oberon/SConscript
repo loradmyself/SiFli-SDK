@@ -1,0 +1,19 @@
+from building import *
+import rtconfig
+import os
+
+cwd = GetCurrentDir()
+
+# 只编译 Oberon 的 ChaCha20 独立实现
+src = []
+src.append(os.path.join(cwd, 'oberon_chacha20.c'))
+
+# 包含路径
+inc = [cwd]
+
+# 宏定义
+defines = []
+
+group = DefineGroup('oberon-chacha20', src, depend = [''], CPPPATH = inc, CPPDEFINES = defines)
+
+Return('group')

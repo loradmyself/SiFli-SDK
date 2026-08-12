@@ -1,8 +1,47 @@
 import os
 from building import *
 
-# Add source code
+cwd = GetCurrentDir()
+
+# Add source code from current directory
 src = Glob('*.c')
-group = DefineGroup('Applications', src, depend = [''])
+
+# Add demos subdirectory source files
+demos_dir = os.path.join(cwd, 'demos')
+inc = [cwd]
+if os.path.exists(demos_dir):
+    inc.append(demos_dir)
+    for root, dirs, files in os.walk(demos_dir):
+        for f in files:
+            if f.endswith('.c'):
+                # Use relative path from cwd
+                rel_path = os.path.relpath(os.path.join(root, f), cwd)
+                # 根据配置选择性包含测试文件
+                if 'ChaCha20_oberon.c' in f:
+                    # 只有选择 Oberon 时才编译
+                    if GetDepend('CHACHA20_USE_OBERON'):
+                        src.append(rel_path)
+                elif 'ChaCha20_test.c' in f:
+                    # 只有选择 MbedTLS 时才编译
+                    if GetDepend('CHACHA20_USE_MBEDTLS_420'):
+                        src.append(rel_path)
+                else:
+                    src.append(rel_path)
+            elif f.endswith('.h'):
+                inc.append(root)
+
+# Add MbedTLS 4.2.0 include paths for test files
+mbedtls_root = os.path.join(cwd, '..', 'external', 'mbedtls-4.2.0')
+if os.path.exists(mbedtls_root):
+    inc.append(os.path.join(mbedtls_root, 'tf-psa-crypto'))
+    inc.append(os.path.join(mbedtls_root, 'tf-psa-crypto', 'drivers', 'builtin', 'include'))
+    inc.append(os.path.join(mbedtls_root, 'tf-psa-crypto', 'core'))
+
+# Add Oberon include path for test files
+oberon_root = os.path.join(cwd, '..', 'external', 'oberon')
+if os.path.exists(oberon_root):
+    inc.append(oberon_root)
+
+group = DefineGroup('Applications', src, depend = [''], CPPPATH = inc)
 
 Return('group')

@@ -1,0 +1,896 @@
+# Oberon PSA Crypto change log
+
+## Oberon PSA Crypto 2.1.0
+<https://github.com/oberon-microsystems/oberon-psa-crypto-nrf/releases/tag/v2.1.0>
+2026-06-03 (e075c12)
+
+Some Oberon crypto software drivers require _ocrypto_ version 4.0.0 or later.
+
+### Compatibility
+- [PSA Certified Crypto API 1.4.1](https://arm-software.github.io/psa-api/crypto/1.4/IHI0086-PSA_Certified_Crypto_API-1.4.1.pdf)
+- [PSA Crypto API 1.4 Final 1 PQC Extension](https://arm-software.github.io/psa-api/crypto/1.4/ext-pqc/AES0119-PSA_Certified_Crypto_API-1.4_PQC_Extension.1.pdf)
+- [PSA Crypto Driver Interface 1.0 alpha 1](https://arm-software.github.io/psa-api/crypto-driver/1.0/111106-PSA_Certified_Crypto_Driver_Interface-1.0-alp.1.pdf)
+  - Compatible to this version of the new draft standard.
+    For KDF, PAKE and RNG this repo is ahead.
+- [PSA API Test Suite v1.9](https://github.com/ARM-software/psa-arch-tests/releases/tag/v25.08_API1.9_ADAC_1.0.2)
+
+For information on the actually implemented cryptographic features in this release, see
+[Appendix A: Supported Crypto Features](docs/Appendix_A_Supported_Crypto_Features.md).
+
+### New Features
+- Support for the new Oberon sandbox, e.g., Acme example drivers
+  (see <https://github.com/ARM-software/psa-api/tree/sandbox/oberon)>).
+
+### Improvements
+- Align former content of directory `oberon` with a more generic directory structure.
+  - Move directories and rename files:
+    - `oberon/docs` —> `docs`
+    - `oberon/drivers` —> `drivers/oberon`
+    - `oberon/platforms` —> `targets/acme`
+    - inside `targets/acme` —> `demo`:
+      - `example_config` —> `config_examples`
+      - `library` —> `dispatch`
+      - `include/psa` —> `dispatch/psa`
+  - Add migration notes in file `docs/Appendix_H_Directory_Structure_Migration.md`.
+  - Move Oberon PSA Crypto version numbers to new `oberon-psa-crypto/build_info.h`.
+- Implement Oberon's proposed changes to the PSA Crypto Driver Interface for KDF.
+  This enables driver selection for KDF, including both transparent and opaque
+  drivers. It affects implementation of the PSA Core, the dispatch logic
+  examples, and the Oberon drivers.
+  - Add `attributes` parameter to `psa_driver_wrapper_key_derivation_setup()`.
+  - Add buffering of KDF parameters before key to Oberon PSA Crypto core.
+  - Add functions needed for opaque drivers, e.g., `destroy_key`,
+  - Extend opaque driver example with key store and KDF.
+  - Extend Mbed TLS KDF tests for opaque KDF drivers.
+  - Add opaque-only KDF functions to driver wrapper header file.
+  - Add `driver_wrapper_destroy_key()`.
+  - Call `psa_driver_wrapper_get_key_buffer_size()` for opaque drivers to get
+    key slot space.
+  - Improve key size (`attributes.bits`) calculation for opaque drivers.
+  - Add a new `bits` out-parameter in `driver_unwrap_key()`.
+  - Add a fallback helper for keys that are in another driver.
+  - Extend the demo opaque driver.
+  - Add tests for opaque drivers.
+
+--------------------------------------------------------------------------------
+
+## Oberon PSA Crypto 2.0.0
+<https://github.com/oberon-microsystems/oberon-psa-crypto-nrf/releases/tag/v2.0.0>
+2026-05-07 (cc55401)
+
+Some Oberon crypto software drivers require _ocrypto_ version 4.0.0 or later.
+
+### API Compatibility
+- [PSA Certified Crypto API 1.4.1](https://arm-software.github.io/psa-api/crypto/1.4/IHI0086-PSA_Certified_Crypto_API-1.4.1.pdf)
+- [PSA Crypto API 1.4 Final 1 PQC Extension](https://arm-software.github.io/psa-api/crypto/1.4/ext-pqc/AES0119-PSA_Certified_Crypto_API-1.4_PQC_Extension.1.pdf)
+- [SRP-6/6a PAKE protocol](https://github.com/ARM-software/psa-api/issues/179).
+  - Experimental PAKE extension for SRP.
+- [PSA Crypto Driver Interface 1.0 alpha 1](https://arm-software.github.io/psa-api/crypto-driver/1.0/111106-PSA_Certified_Crypto_Driver_Interface-1.0-alp.1.pdf)
+  - Largely compatible to this version of the new standard draft, except for
+    KDF, PAKE and RNG for which it is ahead.
+- [PSA API Test Suite v1.9](https://github.com/ARM-software/psa-arch-tests/releases/tag/v25.08_API1.9_ADAC_1.0.2)
+  - This test suite primarily tests API compatibility.
+- [Mbed TLS 4.1.0](https://github.com/Mbed-TLS/mbedtls/releases/tag/mbedtls-4.1.0).
+
+For information on the actually implemented cryptographic features in this release, see
+[Appendix A: Supported Crypto Features](oberon/docs/Appendix_A_Supported_Crypto_Features.md).
+
+### New Features
+- Add RNG reseed functionality.
+
+### Improvements
+- Align directory structure with `TF-PSA-Crypto 1.1.0`.
+- Align with `Mbed TLS 4.1.0` and update SSL PoC to show feasibility of TLS.
+- Add `REQUIRED_OCRYPTO_VERSION` checks to all crypto drivers.
+- Add driver version to each driver.
+- Add PSA Driver Interface version to each high-level driver.
+- Improve AES-CCM error handling.
+- Adjust max info size for HKDF.
+- Align static key slot buffer size calculation with TF-PSA-Crypto 1.1.
+- Add new TF-PSA-Crypto test suites.
+- Adapt TF-PSA-Crypto test suites for Oberon PSA Crypto.
+- Update documentation.
+- Make ML-KEM and ML-DSA Oberon drivers compatible to all ocrypto versions since 3.9.5.
+
+--------------------------------------------------------------------------------
+
+## Oberon PSA Crypto 1.6.0
+<https://github.com/oberon-microsystems/oberon-psa-crypto-nrf/releases/tag/v1.6.0>
+2026-03-05 (c790c90)
+
+Warning: we keep compatibility between this Oberon PSA Crypto 1.6.0 and the previous ocrypto 3.9.5 to avoid the need for upgrading ocrypto. The new ocrypto 4.0.0 already contains a breaking change that will be required by future versions of Oberon PSA Crypto that feature XOF driver chaining for ML-DSA and ML-KEM.
+
+### API Compatibility
+- [PSA Certified Crypto API 1.4](https://arm-software.github.io/psa-api/crypto/1.4/IHI0086-PSA_Certified_Crypto_API-1.4.0.pdf)
+- [PSA Crypto API 1.4 PQC Extension](https://arm-software.github.io/psa-api/crypto/1.4/ext-pqc/AES0119-PSA_Certified_Crypto_API-1.4_PQC_Extension.0.pdf)
+- [SRP-6/6a PAKE protocol](https://github.com/ARM-software/psa-api/issues/179).
+  - Experimental PAKE extension for SRP.
+- [PSA Crypto Driver Interface 1.0 alpha 1](https://arm-software.github.io/psa-api/crypto-driver/1.0/111106-PSA_Certified_Crypto_Driver_Interface-1.0-alp.1.pdf)
+  - Largely compatible to this version of the new standard, except for KDF, PAKE and RNG.
+- [PSA API Test Suite v1.9](https://github.com/ARM-software/psa-arch-tests/releases/tag/v25.08_API1.9_ADAC_1.0.2)
+  - This test suite primarily tests API compatibility.
+- [Mbed TLS 3.6.5](https://github.com/Mbed-TLS/mbedtls/releases/tag/mbedtls-3.6.5).
+  - Compatible regarding _PSA Crypto_ support, not regarding legacy _Mbed TLS_ APIs.
+For information on the actually implemented cryptographic features in this release, see
+[Appendix A: Supported Crypto Features](oberon/docs/Appendix_A_Supported_Crypto_Features.md).
+
+### Improvements
+- Update documentation of overlap rules, see `Appendix A: Supported Crypto Features`.
+- Use `_Static_assert` where applicable.
+- Add more checks in `oberon_check_unsupported.h`.
+- Use secret key size for Ed448 `PSA_VENDOR_ECC_MAX_CURVE_BITS`.
+- Allow for in place cipher encrypt operations for single call API, when a non-empty IV is provided.
+
+### Bug Fixes
+- Bug 20: Wrong AES key-wrap driver error behavior.
+
+--------------------------------------------------------------------------------
+
+## Oberon PSA Crypto 1.5.4
+<https://github.com/oberon-microsystems/oberon-psa-crypto-nrf/releases/tag/v1.5.4>
+2025-12-05 (8c154d5)
+
+Oberon crypto software drivers require _ocrypto_ version 3.9.5 or later.
+
+### API Compatibility
+- [PSA Certified Crypto API 1.4](https://arm-software.github.io/psa-api/crypto/1.4/IHI0086-PSA_Certified_Crypto_API-1.4.0.pdf)
+- [PSA Crypto API 1.4 PQC Extension](https://arm-software.github.io/psa-api/crypto/1.4/ext-pqc/AES0119-PSA_Certified_Crypto_API-1.4_PQC_Extension.0.pdf)
+- [SRP-6/6a PAKE protocol](https://github.com/ARM-software/psa-api/issues/179).
+  - Experimental PAKE extension for SRP.
+- [PSA Crypto Driver Interface 1.0 alpha 1](https://arm-software.github.io/psa-api/crypto-driver/1.0/111106-PSA_Certified_Crypto_Driver_Interface-1.0-alp.1.pdf)
+  - Largely compatible to this version of the new standard, except for KDF, PAKE and RNG.
+- [PSA API Test Suite v1.9](https://github.com/ARM-software/psa-arch-tests/releases/tag/v25.08_API1.9_ADAC_1.0.2)
+  - This test suite primarily tests API compatibility.
+- [Mbed TLS 3.6.5](https://github.com/Mbed-TLS/mbedtls/releases/tag/mbedtls-3.6.5).
+  - Compatible regarding _PSA Crypto_ support, not legacy _Mbed TLS_ APIs.
+For information on the actually implemented cryptographic features in this release, see
+[Appendix A: Supported Crypto Features](oberon/docs/Appendix_A_Supported_Crypto_Features.md).
+
+### Improvements
+- Align with final PSA Crypto 1.4 specification.
+  - Relax verify key policy check for ECDSA & ML-DSA.
+  - Update `psa_export_key_internal` for ML-KEM & ML-DSA.
+  - Add `psa_xof_set_context()`.
+    - Implement them in _Crypto Core_ and _driver wrappers_, and in Ascon-CXOF128.
+  - Add context parameters in signature functions.
+    - Implement them for ML-DSA.
+  - Align the following macros: `PSA_ALG_IS_SIGN_HASH()`, `PSA_ALG_IS_SIGN_MESSAGE()`, `PSA_ALG_SIGN_GET_HASH()`.
+  - Align compatibility rules for ML-DSA random vs. deterministic variants.
+  - Align naming.
+    - `psa_key_encapsulate` -> `psa_encapsulate`
+    - `psa_key_decapsulate` -> `psa_decapsulate`
+- Split WANTs for ML-DSA algorithms.
+- Clean up ML-DSA implementation.
+- Add Ascon-XOF128 and Ascon-CXOF128 support.
+- Document `Implementation Restrictions` in `Appendix A: Supported Crypto Features`.
+- Fix key size handling for `psa_encapsulate()`, `psa_decapsulate()`, `psa_pake_get_shared_key()`, `psa_unwrap_key()`.
+- Check “minimum required ocrypto version” constraint for ML-DSA and ML-KEM.
+
+### Bug Fixes
+- Bug 19: Wrong size conversion for ECDSA P-521.
+
+### Contributions
+Part of the changes are based on the following patches contributed by Nordic:
+- Fix for Bug 19.
+
+--------------------------------------------------------------------------------
+
+## Oberon PSA Crypto 1.5.3
+<https://github.com/oberon-microsystems/oberon-psa-crypto-nrf/releases/tag/v1.5.3>
+2025-11-06 (372db7b)
+
+Oberon crypto software drivers require _ocrypto_ version 3.9.4 or later.
+
+### Compatibility
+- [PSA Certified Crypto API 1.3.2](https://arm-software.github.io/psa-api/crypto/1.3/IHI0086-PSA_Certified_Crypto_API-1.3.2.pdf)
+  - Includes the former PAKE extensions for EC-JPAKE and SPAKE2+.
+- Experimental extensions for PSA Crypto API 1.4
+  - WPA3 PAKE according to
+    [WPA3](https://github.com/ARM-software/psa-api/pull/293).
+  - SRP PAKE extension according to
+    [SRP-6/6a PAKE protocol](https://github.com/ARM-software/psa-api/issues/179).
+  - AES Key Wrap according to
+    [AES Key Wrap](https://github.com/ARM-software/psa-api/pull/224).
+  - XOF according to
+    [XOF](https://github.com/ARM-software/psa-api/pull/253).
+  - Ascon according to
+    [Ascon](https://github.com/ARM-software/psa-api/issues/60).
+- [PSA Crypto API 1.3 PQC Extension Beta 3](https://arm-software.github.io/psa-api/crypto/1.3/ext-pqc/AES0119-PSA_Certified_Crypto_API-1.3_PQC_Extension-bet.3.pdf)
+  - LMS and HSS.
+  - XMSS and XMSS^MT.
+  - ML-KEM and ML-DSA.
+- [PSA Crypto Driver Interface 1.0.0 alpha 1](https://arm-software.github.io/psa-api/crypto-driver/1.0/111106-PSA_Certified_Crypto_Driver_Interface-1.0-alp.1.pdf)
+  - Largely compatible to this version of the new standard, except for KDF and RNG.
+- [PSA API Test Suite v1.9](https://github.com/ARM-software/psa-arch-tests/releases/tag/v25.08_API1.9_ADAC_1.0.2)
+- [Mbed TLS 3.6.5](https://github.com/Mbed-TLS/mbedtls/releases/tag/mbedtls-3.6.5).
+
+### New Features
+- Add XOF support.
+- Add Ascon support.
+
+### Improvements
+- Update AES Key Wrap to latest specification proposal.
+- Update WPA3 to latest specification proposal.
+- Update to PSA API Test Suite v1.9.
+- Update configuration for Mbed TLS `ssl_client2` and `ssl_server2` to Mbed TLS 3.6.5.
+- Remove Mbed TLS file copies previously required for SSL integration.
+  - `md.c`, `pk.c`, `psa_util.c` in `programs/ssl/library`.
+- Add ocrypto dependency check for WPA3 driver.
+
+--------------------------------------------------------------------------------
+
+## Oberon PSA Crypto 1.5.2
+<https://github.com/oberon-microsystems/oberon-psa-crypto-nrf/releases/tag/v1.5.2>
+2025-09-19 (8219b7f)
+
+Oberon crypto software drivers require _ocrypto_ version 3.9.2 or later.
+
+### Compatibility
+- PSA Certified Crypto API specifications
+  - Core specification: 1.3.1 including former PAKE extensions for EC-JPAKE and SPAKE2+
+    [IHI0086-PSA_Certified_Crypto_API-1.3.1.pdf](https://arm-software.github.io/psa-api/crypto/1.3/IHI0086-PSA_Certified_Crypto_API-1.3.1.pdf).
+  - SRP PAKE extension according to
+    [Add support for the SRP-6/6a PAKE protocol](https://github.com/ARM-software/psa-api/issues/179).
+  - WPA3 PAKE extension according to
+    [Dragonfly PAKE for WPA3 use cases](https://github.com/ARM-software/psa-api/issues/203).
+  - LMS/HSS/XMSS/XMSS^MT/ML-KEM/ML-DSA PQC extensions according to
+    PSA Crypto API 1.3 PQC Extension beta 1
+    [AES0119-PSA_Certified_Crypto_API-1.3_PQC_Extension-bet.1.pdf](https://arm-software.github.io/psa-api/crypto/1.3/ext-pqc/AES0119-PSA_Certified_Crypto_API-1.3_PQC_Extension-bet.1.pdf).
+- PSA Certified APIs Architecture Test Suite v1.8.
+- Mbed TLS 3.6.4 or later.
+
+### New Features
+- Add `PSA_KEY_LOCATION_VENDOR_FLAG` build option that allows volatile-to-vendor key copying.
+
+### Improvements
+- Improve filtering in ECDSA driver.
+- Avoid warning in LMS.
+- Update Mbed TLS version string in SSL tests.
+- Avoid key leaks in LMS tests.
+- Fix unused function warning for `ecdsa_sign_hash`.
+
+### Bug Fixes
+- Bug 17: Violation of PSA spec in AES-CBC buffer handling.
+- Bug 18: Fix cleanup for SRP password hashing.
+
+### Security Fixes
+- CVE-2025-7383: Timing side-channel vulnerability in AES-CBC decryption with PKCS#7 padding.
+- CVE-2025-9071: Insecure RSA-OAEP implementation with all-zero seed for padding in Oberon PSA Crypto.
+
+--------------------------------------------------------------------------------
+
+## Oberon PSA Crypto 1.5.1
+<https://github.com/oberon-microsystems/oberon-psa-crypto-nrf/releases/tag/v1.5.1>
+3-Jul-2025 (70a22df)
+
+Oberon crypto software drivers require _ocrypto_ version 3.9.2 or later.
+
+### Compatibility
+- PSA Certified Crypto API specifications
+  - Core specification: 1.3.1 including former PAKE extensions for EC-JPAKE and SPAKE2+
+    [IHI0086-PSA_Certified_Crypto_API-1.3.1.pdf](https://arm-software.github.io/psa-api/crypto/1.3/IHI0086-PSA_Certified_Crypto_API-1.3.1.pdf).
+  - SRP PAKE extension according to
+    [Add support for the SRP-6/6a PAKE protocol](https://github.com/ARM-software/psa-api/issues/179).
+  - WPA3 PAKE extension according to
+    [Dragonfly PAKE for WPA3 use cases](https://github.com/ARM-software/psa-api/issues/203).
+  - LMS/HSS/XMSS/XMSS^MT/ML-KEM/ML-DSA PQC extensions according to
+    PSA Crypto API 1.3 PQC Extension beta 1
+    [AES0119-PSA_Certified_Crypto_API-1.3_PQC_Extension-bet.1.pdf](https://arm-software.github.io/psa-api/crypto/1.3/ext-pqc/AES0119-PSA_Certified_Crypto_API-1.3_PQC_Extension-bet.1.pdf).
+- PSA Certified APIs Architecture Test Suite v1.8.
+- Mbed TLS 3.6.4 or later.
+
+### Improvements
+- Align with Mbed TLS 3.6.4.
+
+--------------------------------------------------------------------------------
+
+## Oberon PSA Crypto 1.5.0
+<https://github.com/oberon-microsystems/oberon-psa-crypto-nrf/releases/tag/v1.5.0>
+24-Jun-2025 (cac3da0)
+
+Oberon crypto software drivers require _ocrypto_ version 3.9.1 or later.
+
+### Compatibility
+- PSA Certified Crypto API specifications
+  - Core specification: 1.3.0 including former PAKE extensions for EC-JPAKE and SPAKE2+
+    [IHI0086-PSA_Certified_Crypto_API-1.3.0.pdf](https://arm-software.github.io/psa-api/crypto/1.3/IHI0086-PSA_Certified_Crypto_API-1.3.0.pdf).
+  - SRP PAKE extension according to
+    [Add support for the SRP-6/6a PAKE protocol](https://github.com/ARM-software/psa-api/issues/179).
+  - WPA3 PAKE extension according to
+    [Dragonfly PAKE for WPA3 use cases](https://github.com/ARM-software/psa-api/issues/203).
+  - LMS/HSS/XMSS/XMSS^MT/ML-KEM/ML-DSA PQC extensions according to
+    PSA Crypto API 1.3 PQC Extension beta 0
+    [AES0119-PSA_Certified_Crypto_API-1.3_PQC_Extension-bet.0.pdf](https://arm-software.github.io/psa-api/crypto/1.3/ext-pqc/AES0119-PSA_Certified_Crypto_API-1.3_PQC_Extension-bet.0.pdf).
+- PSA Certified APIs Architecture Test Suite v1.8.
+- Mbed TLS 3.6.1 or later.
+
+### New Features
+- Add support for ML-KEM (aka Kyber, PQC key encapsulation mechanism).
+  - Based on [FIPS - Module-Lattice-Based Key-Encapsulation Mechanism Standard](https://csrc.nist.gov/pubs/fips/203/final).
+  - With support for security levels ML-KEM-512, ML-KEM-768, ML-KEM-1024.
+  - This is a pure software implementation (no driver chaining, thus no hardware-accelerated hashing).
+- Add support for ML-DSA (aka Dilithium, PQC digital signature algorithm).
+  - Based on [FIPS - Module-Lattice-Based Digital Signature Standard](https://csrc.nist.gov/pubs/fips/204/final).
+  - With support for security levels ML-DSA-44, ML-DSA-65, ML-DSA-87.
+  - This is a pure software implementation (no driver chaining, thus no hardware-accelerated hashing).
+
+### Improvements
+- Let PSA Crypto Core perform necessary initializations of inputs to drivers
+  (and thereby compatibility to GCC 15).
+- Improve opaque key support with regard to `psa_get_and_lock_transparent_key_slot_with_policy`
+  and `psa_get_and_lock_key_slot_with_policy`.
+- Remove platform configuration files from root directory.
+- Improve configuration-based code elimination for unused software crypto driver code.
+- Clean up cycle tests.
+
+--------------------------------------------------------------------------------
+
+## Oberon PSA Crypto 1.4.0
+<https://github.com/oberon-microsystems/oberon-psa-crypto-nrf/releases/tag/v1.4.0>
+3-Apr-2025 (2df55af)
+
+Oberon crypto software drivers require _ocrypto_ version 3.8.x.
+
+### Compatibility
+- PSA Certified Crypto API specifications
+  - Core specification: 1.3.0 including former PAKE extensions for EC-JPAKE and SPAKE2+
+    [IHI0086-PSA_Certified_Crypto_API-1.3.0.pdf](https://arm-software.github.io/psa-api/crypto/1.3/IHI0086-PSA_Certified_Crypto_API-1.3.0.pdf).
+  - SRP PAKE extension according to
+    [Add support for the SRP-6/6a PAKE protocol](https://github.com/ARM-software/psa-api/issues/179).
+  - WPA3 PAKE extension according to
+    [Dragonfly PAKE for WPA3 use cases](https://github.com/ARM-software/psa-api/issues/203).
+  - LMS/HSS/XMSS/XMSS^MT PQC extension according to PSA Crypto API 1.3 PQC Extension beta 0
+    [AES0119-PSA_Certified_Crypto_API-1.3_PQC_Extension-bet.0.pdf](https://arm-software.github.io/psa-api/crypto/1.3/ext-pqc/AES0119-PSA_Certified_Crypto_API-1.3_PQC_Extension-bet.0.pdf).
+- PSA Certified APIs Architecture Test Suite v1.8.
+- Aligned with PSA Crypto core from Mbed TLS 3.6.3.
+
+### New Features
+- Add support for LMS verify, HSS verify, XMSS verify and XMSS^MT verify
+  (PQC signature algorithms) with support for SHA256 and SHAKE256 hashing.
+  Based on [NIST SP 800-208](https://csrc.nist.gov/pubs/sp/800/208/final).
+- Add `psa_key_agreement()` function.
+- Add `PSA_ALG_CCM_STAR_ANY_TAG` wildcard.
+- Add support for Koblitz curve secp256k1.
+- Add XChaCha20 and XChaCha20Poly1305.
+
+### Improvements
+- Add SHA3 to cycle tests.
+- Improve zero checking in SPAKE2+ driver.
+- Update WPA3 SAE to latest PAKE specification draft.
+- Add static asserts to check PSA_CRYPTO_MAX_STORAGE_SIZE configuration.
+- Extend union initialization to comply with GCC 1.5 requirements.
+- Replaced `psa_key_id_t` with `mbedtls_svc_key_id_t` at various places
+  to improve TF-M compatibility.
+- Align heapless configuration with Mbed TLS 3.6.3.
+- Update PSA Certified APIs Architecture Test Suite.
+
+### Bug Fixes
+- Bug 14: Key compatibility checking in key derivation incomplete for
+  PSA_ALG_SP800_108_COUNTER_CMAC and PSA_ALG_SP800_108_COUNTER_HMAC.
+- Bug 15: Wrong handling of ED25519 and ED448 with pre-hashing when used
+  with `psa_sign_message()` or `psa_verify_message()`.
+- Bug 16: Wrong buffer size calculation for Ed488.
+--------------------------------------------------------------------------------
+
+## Oberon PSA Crypto 1.3.4
+<https://github.com/oberon-microsystems/oberon-psa-crypto-nrf/releases/tag/v1.3.4>
+17-Dec-2024 (74d1408)
+
+Oberon crypto software drivers require _ocrypto_ version 3.6.x.
+
+### Compatibility
+- PSA Certified Crypto API 1.2.1 and PAKE extension 1.2 Final 1.
+- PSA Certified APIs Architecture Test Suite v1.7.
+- Aligned with PSA Crypto core from Mbed TLS 3.6.1 and 3.6.2.
+
+### New Features
+- Add heapless configuration option to PSA Crypto core.
+  - The heapless implementation is based on Mbed TLS' mbedtls-3.6 development
+    branch from November 2024. 
+  - In order to be aligned with the PSA Crypto core from Mbed TLS, the
+    heapless feature is configured by defining `MBEDTLS_PSA_STATIC_KEY_SLOTS`
+    in configuration file _mbedtls_config.h_. 
+  - The buffer size that will be statically allocated for key slots is
+    configured with `MBEDTLS_PSA_STATIC_KEY_SLOT_BUFFER_SIZE` in configuration
+    file _psa/crypto_config.h_.
+  - Default configuration is heapless, i.e., `MBEDTLS_PSA_STATIC_KEY_SLOTS` is
+    defined.
+
+### Breaking Changes
+- Align experimental AES key wrapping with
+  [PR #224](https://github.com/ARM-software/psa-api/pull/224).
+- Change experimental AES key wrapping to use oberon prefix,
+  because Arm deprectated their proposal.
+
+### Improvements
+- Move to PSA Certified APIs Architecture Test Suite v1.7.
+
+--------------------------------------------------------------------------------
+
+## Oberon PSA Crypto 1.3.3
+<https://github.com/oberon-microsystems/oberon-psa-crypto-nrf/releases/tag/v1.3.3>
+24-Oct-2024 (d36ed1d)
+
+Oberon crypto software drivers require _ocrypto_ version 3.6.x.
+
+### Compatibility
+- PSA Certified Crypto API 1.2.1 and PAKE extension 1.2 Final 1.
+- PSA Certified APIs Architecture Test Suite v1.6.
+- Aligned with PSA Crypto core from Mbed TLS 3.6.0.
+
+### New Features
+- Add support for WPA3-SAE based on IEEE standard specification 
+  [P802.11-REVme/D7.0, Part 11, Aug 2024](https://ieeexplore.ieee.org/document/10638490)
+  - WPA3-SAE (original)
+  - WPA3-SAE with H2E
+  - Warning: this is an _experimental feature_ - the API is not yet final, and the
+    implementation may be changed or removed entirely anytime.
+
+### Breaking Changes
+- Change AES key wrapping, to align with revision of Arm proposal:
+  [PSA API Issue 50](https://github.com/ARM-software/psa-api/issues/50#issuecomment-2401779444)
+  - Remove arguments `format` and `options`.
+  - Warning: this is an _experimental feature_ - the API is not yet final, and the
+    implementation may be changed or removed entirely anytime.
+
+--------------------------------------------------------------------------------
+
+## Oberon PSA Crypto 1.3.2
+<https://github.com/oberon-microsystems/oberon-psa-crypto-nrf/releases/tag/v1.3.2>
+26-Sep-2024 (27422de)
+
+Oberon crypto software drivers require _ocrypto_ version 3.5.x.
+
+### Compatibility
+- PSA Certified Crypto API 1.2.1 and PAKE extension 1.2 Final 1.
+- PSA Certified APIs Architecture Test Suite v1.6.
+- Aligned with PSA Crypto core from Mbed TLS 3.6.0.
+
+### New Features
+- Add support for AES key wrapping, according to proposal
+  [PSA API Issue 50](https://github.com/ARM-software/psa-api/issues/50#issuecomment-1772551575).
+  - Currently, only `PSA_KEY_FORMAT_DEFAULT` and only `PSA_ALG_AES_KW` and
+    `PSA_ALG_AES_KWP` are supported.
+  - Warning: this is an _experimental feature_ - the API is not yet final, and the
+    implementation may be changed or removed entirely anytime.
+
+--------------------------------------------------------------------------------
+
+## Oberon PSA Crypto 1.3.1
+<https://github.com/oberon-microsystems/oberon-psa-crypto-nrf/releases/tag/v1.3.1>
+17-Sep-2024 (a23ae97)
+
+Oberon crypto software drivers require _ocrypto_ version 3.5.x.
+
+### Compatibility
+- PSA Certified Crypto API 1.2.1 and PAKE extension 1.2 Final 1.
+- PSA Certified APIs Architecture Test Suite v1.6.
+- Aligned with PSA Crypto core from Mbed TLS 3.6.0.
+
+### Improvements
+- EC-JPAKE: when setting a role other than PSA_PAKE_ROLE_NONE, the error
+  PSA_ERROR_INVALID_ARGUMENT will be returned.
+- SPAKE2+: implemented specification additions in the cases if no context is
+  set, and if a zero-length context is set, according to
+  [PR214](https://github.com/ARM-software/psa-api/pull/214)
+- Updated PSA API tests to PSA Certified APIs Architecture Test Suite v1.6.
+
+### Bug Fixes
+- Bug 13: MAC setup function not enabled in Oberon drivers
+  if PSA_ALG_IS_TLS12_PSK_TO_MS or PSA_ALG_IS_TLS12_PRF.
+
+### Contributions
+Part of the changes are based on the following patches contributed by Nordic:
+- Bug 13: enabled MAC setup function in Oberon drivers if PSA_ALG_IS_TLS12_PSK_TO_MS
+  or PSA_ALG_IS_TLS12_PRF based on PR16.
+
+--------------------------------------------------------------------------------
+
+## Oberon PSA Crypto 1.3.0
+<https://github.com/oberon-microsystems/oberon-psa-crypto-nrf/releases/tag/v1.3.0>
+8-May-2024 (c18f101)
+
+Oberon crypto software drivers require _ocrypto_ version 3.5.x
+
+### New Features
+- Align with Mbed TLS 3.6.0.
+- Unify `crypto.h` for API usage with or without isolation boundary
+  (adopted from Mbed TLS 3.6).
+- Add optional thread safety to Oberon PSA core by reusing Mbed TLS mutex
+  abstraction (software drivers are already thread-safe). Multi-threading
+  support can be enabled via define `MBEDTLS_THREADING_C`
+  (adopted from Mbed TLS 3.6).
+- Add CMake option to run tests on host with multi-threading option.
+
+### Improvements
+- Cleanup PSA key attributes
+  (adopted from Mbed TLS 3.6).
+- Add new Mbed TLS PSA tests and align with Mbed TLS test updates
+  (adopted from Mbed TLS 3.6).
+- Align Mbed TLS error return codes in drivers
+  (adopted from Mbed TLS 3.6).
+- Limit key derivation capacity for 64-bit ISA.
+- Adjust test support for TLS/SSL protocol test suite.
+- Improve key import parameter checks.
+
+--------------------------------------------------------------------------------
+
+## Oberon PSA Crypto 1.2.3
+<https://github.com/oberon-microsystems/oberon-psa-crypto-nrf/releases/tag/v1.2.3>
+26-Mar-2024 (79d5e26)
+
+Oberon crypto software drivers require _ocrypto_ version 3.5.x.
+
+### Improvements
+- Add ability to identify Oberon PSA Crypto implementation during build.
+- Use MBEDTLS_SVC_KEY_ID_INIT instead of 0 for key initialization.
+- Update PSA Crypto API version to 1.2.
+
+--------------------------------------------------------------------------------
+
+## Oberon PSA Crypto 1.2.2
+<https://github.com/oberon-microsystems/oberon-psa-crypto-nrf/releases/tag/v1.2.2>
+5-Mar-2024 (75c7949)
+
+Oberon crypto software drivers require _ocrypto_ version 3.5.x.
+
+### Breaking Changes
+- Implement new PAKE extension version 1.2 of PSA Certified Crypto API.
+- Implement PAKE PSA driver API according to new PAKE extension.
+- Implement SRP-6 according to new PSA Certified Crypto 1.2 PAKE extension.
+  - Warning: this is an _experimental feature_ - the API is not yet final, and the
+    implementation may be changed anytime.
+- Implement PSA Certified Crypto API 1.2 policy changes for key derivation verify
+  functions:
+  - Changed policy for psa_key_derivation_verify_bytes() and
+    psa_key_derivation_verify_key(), so that these functions are also permitted when
+    an input key has the PSA_KEY_USAGE_DERIVE usage flag.
+  - Removed special treatment of PSA_ERROR_INVALID_SIGNATURE for key derivation
+    operations. A verification failure in psa_key_derivation_verify_bytes() and
+    psa_key_derivation_verify_key() now puts the operation into an error state.
+
+### Improvements
+- Add tests for new PAKE extension version 1.2 of PSA Certified Crypto API.
+- Add random injection option in driver wrapper for PAKE tests to enable 
+  provided test vectors.
+- Use Mbed TLS alias for psa_key_id_t to prevent naming conflicts in TF-M.
+- Add redundant local variable initializations in Oberon drivers to avoid 
+  compiler warnings.
+- Update Copyright year in license.
+
+--------------------------------------------------------------------------------
+
+## Oberon PSA Crypto 1.2.1
+<https://github.com/oberon-microsystems/oberon-psa-crypto-nrf/releases/tag/v1.2.1
+25-Jan-2024 (7462663)
+
+Oberon crypto software drivers require _ocrypto_ version 3.5.x.
+
+### New Features
+- Add counter-mode KDF variants for HMAC and CMAC (NIST SP 800-108r1).
+  - Add software crypto driver implementation.
+  - Add test vectors from mbedtls/examples.
+- Add functions `psa_key_derivation_verify_bytes()` and `psa_key_derivation_verify_key()`.
+
+### Improvements
+- Optimize macros `PSA_EXPORT_PUBLIC_KEY_OUTPUT_SIZE` and `PSA_EXPORT_KEY_OUTPUT_SIZE`
+  for non NIST key types.
+- Refine configuration for crypto primitives currently not supported in software.
+
+### Bug Fixes
+- Bug 11: RSA sign falsely requires setting `PSA_WANT_KEY_TYPE_ECC_KEY_PAIR_BASIC`.
+- Bug 12: Wrong Spake2+ TT hash calculation in get key share step.
+
+--------------------------------------------------------------------------------
+
+## Oberon PSA Crypto 1.2.0
+<https://github.com/oberon-microsystems/oberon-psa-crypto-nrf/releases/tag/v1.2.0>
+2-Nov-2023 (9ba9ec6)
+
+Oberon crypto software drivers require _ocrypto_ version 3.5.x.
+
+### New Features
+- Add software drivers:
+  - Twisted Edwards curve Ed448, Ed448ph (EdDSA).
+  - Montgomery curve X448 (ECDH).
+  - P-521 aka secp521r1 (ECDSA and ECDH).
+  - Ed25519ph, i.e., Ed25519 with prehashing.
+  - SHA-3 family of cryptographic hash functions
+    - SHA-3 for hash sizes: 224, 256, 384, 512 (FIPS-PUB-202).
+    - SHAKE256-512 (FIPS-PUB-202).
+- Update SSL-test PoC for Mbed TLS 3.5.0.
+- Add newly introduced PSA_WANT configuration options for dead
+  code elimination of key pairs, i.e., break down `PSA_WANT_KEY_TYPE_*`
+  into BASIC, IMPORT, EXPORT, GENERATE, and DERIVE.
+- Add Security Vulnerability Table to Bug Tracking document.
+
+### Breaking Changes
+- Align with Mbed TLS 3.5.0.
+- Require ocrypto 3.5.x.
+- Avoid the need for dynamic memory allocation in the PAKE drivers by
+  deviating from the Mbed TLS PSA Driver specification draft API for PAKE:
+  The setup function `psa_driver_wrapper_pake_setup` is used to provide all
+  buffered PAKE parameters in one go.
+
+### Improvements
+- Correct build time warning if `PSA_WANT_ECC_SECP_K1_192` set and
+  `PSA_ACCEL_ECC_SECP_K1_224` not set.
+- Correct experimental feature `SPAKE2P_USE_VERSION_04` to support SPAKE2+
+  draft used in Matter.
+- Make build time dependency to demo platform conditional.
+- Adapt driver wrapper according to new functionality.
+- Improve dead code elimination in driver wrapper and drivers.
+- Update LICENSING text.
+
+### Bug Fixes
+- Bug 9: Dynamic memory not freed in `psa_key_derivation_output_key` when
+  called with invalid ECC key size.
+- Bug 10: `Macros PSA_*_MAX_SIZE` return wrong values for RSA key size greater than 4096:
+  - `PSA_SIGNATURE_MAX_SIZE`
+  - `PSA_ASYMMETRIC_ENCRYPT_OUTPUT_MAX_SIZE`
+  - `PSA_ASYMMETRIC_DECRYPT_OUTPUT_MAX_SIZE`
+  - `PSA_EXPORT_KEY_PAIR_MAX_SIZE`
+  - `PSA_EXPORT_PUBLIC_KEY_MAX_SIZE`
+
+--------------------------------------------------------------------------------
+
+## Oberon PSA Crypto 1.1.1
+<https://github.com/oberon-microsystems/oberon-psa-crypto-nrf/releases/tag/v1.1.1>
+26-Sep-2023 (d3c90ec)
+
+Oberon crypto software drivers require _ocrypto_ version 3.4.x.
+
+### Improvements
+- Clarify licensing.
+
+### Bug Fixes
+- Bug 6: Fix elliptic curve key generation in case `psa_generate_random` 
+  returned zero.
+
+- Bug 7: Avoid EC-JPAKE output step failure in case `psa_generate_random` 
+  returned zero or a value greater or equal to the curve's group order. 
+
+- Bug 8: Fix CBC PKCS padding verification during encryption for (invalid) 
+  paddings that have a zero as the last value. Fixed by updating ocrypto 
+  dependency to version 3.4.0.
+
+--------------------------------------------------------------------------------
+
+## Oberon PSA Crypto 1.1.0
+<https://github.com/oberon-microsystems/oberon-psa-crypto-nrf/releases/tag/v1.1.0>
+3-Aug-2023 (33b95ee)
+
+_Oberon drivers_ require _ocrypto_ version 3.3.x.
+
+### Improvements
+- Rename PSA_USE/NEED/ACCEL to make the names more regular and consistent with PSA names.
+- Add docu Appendix B with PSA_WANT/USE/NEED/ACCEL directives.
+- Clean up markdown formatting (markdownlint).
+- Allow empty user id and peer id in experimental SPAKE2P implementation, for Matter compatibility.
+- Prevent more than one DRBG driver to be used at the same time.
+
+--------------------------------------------------------------------------------
+
+## Oberon PSA Crypto 1.0.8
+<https://github.com/oberon-microsystems/oberon-psa-crypto-nrf/releases/tag/v1.0.8>
+20-Jul-2023 (c8ad02f)
+
+Oberon crypto software drivers require _ocrypto_ version 3.3.x.
+
+### Improvements
+- Refactor the product's terminology and update the documentation accordingly.
+- Update PSA architecture tests to V1.5.
+
+--------------------------------------------------------------------------------
+
+## Oberon PSA Crypto 1.0.7
+4-Jul-2023 (14c40c8)
+
+Oberon crypto software drivers require _ocrypto_ version 3.3.x.
+
+### New Features
+- Add optional SPAKE2+ context input.
+
+### Improvements
+- Add PBKDF2 tests.
+- Add PAKE tests.
+- Refactor CMake build.
+- Clean up docu and licensing.
+- Fix memory management in opaque demo driver.
+
+### Bug Fixes
+- Bug 5: Fix handling of KEY_TYPE_PEPPER and INPUT_PASSWORD in PBKDF2.
+
+--------------------------------------------------------------------------------
+
+## Oberon PSA Crypto 1.0.6
+11-May-2023 (c3cfd8b)
+
+Oberon crypto software drivers require _ocrypto_ version 3.3.x.
+
+### Improvements
+- Align error code in `psa_key_derivation_setup` with Mbed TLS.
+- Align documentation with _PSA Certified_ naming rules.
+
+### Bug Fixes
+- Bug 2: Add overflow checks in drivers for KDF.
+- Bug 3: Add overflow checks in drivers for AEAD.
+- Bug 4: Handle empty salt for HKDF.
+
+### Contributions
+Part of the changes are based on the following reports contributed by Nordic:
+- Bug 2: Out of memory error in `oberon_key_derivation_input_bytes` when key 
+  derivation called with `PSA_KEY_DERIVATION_INPUT_LABEL`, `data_length 0xffffffff`.
+- Bug 4: Calling `oberon_key_derivation_input_bytes` in HKDF with empty salt leads to 
+  a failure calling setup of the MAC operation twice.
+- Align with Mbed TLS: return `PSA_ERROR_NOT_SUPPORTED` if `psa_key_derivation_setup`
+  is called with wrong hash algorithm.
+
+---------------------------------------------------------------------------------
+
+## Oberon PSA Crypto 1.0.5
+9-May-2023 (e89c91a)
+
+Oberon crypto software drivers require _ocrypto_ version 3.3.x.
+
+### Improvements
+- More robust context initialization in Oberon drivers.
+- More robust `mac_abort` handling in Oberon drivers.
+- Align PSA_WANT superset for all `crypto_config.h`.
+- Avoid warnings.
+
+---------------------------------------------------------------------------------
+
+## Oberon PSA Crypto 1.0.4
+27-Apr-2023 (9684ba0)
+
+Oberon crypto software drivers require _ocrypto_ version 3.3.x.
+
+### Improvements
+- Remove blank lines at end of files.
+- Add space as workaround for Doxygen issue.
+
+---------------------------------------------------------------------------------
+
+## Oberon PSA Crypto 1.0.3
+25-Apr-2023 (d39d0ef)
+
+Oberon crypto software drivers require _ocrypto_ version 3.3.x.
+
+### Improvements
+- Cleanup to avoid warnings.
+- Fix error message of algorithms.
+- Add TF-M builtin key driver. This matches changes done to mbedtls in the TF-M.
+  out-of-tree patch: 0004-Add-TF-M-builtin-key-driver.patch.
+
+### Contributions
+Part of the changes are based on the following patches contributed by Nordic:
+- oberon-config-error-messages.diff (49556e2)
+- psa-core-tfm-builtin-key-loader.diff (29434b4)
+
+---------------------------------------------------------------------------------
+
+## Oberon PSA Crypto 1.0.2
+30-Mar-2023 (fa92be9)
+
+Oberon crypto software drivers require _ocrypto_ 3.3.x.
+
+### Improvements
+- Add Mbed TLS header files `memory_buffer_alloc.h` and `sha256.h` required by 
+  some configurations in `mbedtls_config.h`.
+- Add documentation for cycle tests: _README-CYCLES.md_.
+
+---------------------------------------------------------------------------------
+
+## Oberon PSA Crypto 1.0.1
+21-Mar-2023 (eaaf9b7)
+
+Oberon crypto software drivers require _ocrypto_ 3.3.x.
+
+### Improvements
+- Update _PSA Certified APIs Architecture Test Suite_ to commit hash 36268a9 of 
+  https://github.com/ARM-software/psa-arch-tests/tree/main/api-tests/dev_apis
+- Cleanup syntax for initializers used for operation structs.
+- Add parentheses to avoid compiler warnings in boolean expressions.
+- Remove path to wrapper in Oberon driver includes.
+
+### Bug Fixes
+- Bug 1: Fixed out of memory error in `psa_key_derivation_output_bytes` when using
+  key derivation to generate a key pair and supplying wrong key attributes.
+
+--------------------------------------------------------------------------------
+
+## Oberon PSA Crypto 1.0.0
+23-Feb-2023
+
+Oberon crypto software drivers require _ocrypto_ 3.3.0.
+
+### Features
+- PSA API crypto functionality
+  - Implements PSA Certified Crypto API 1.1.1 and PAKE extension 1.1 Beta 1
+  - Implements PSA Crypto Driver API
+  - Aligned with Mbed TLS 3.3 while maintaining Mbed TLS 3.2.1 compatibility
+- PSA Key management
+  - Uses PSA Certified Secure Storage API 1.0
+  - Redistributes _Mbed TLS_ default implementations for 
+    _Internal Trusted Storage API (ITS)_ and _Protected Storage API (PS)_
+- PSA Crypto Driver implementations that target Oberon's _ocrypto_ software library
+  - Message digest (hashes)
+    - SHA1, SHA224, SHA256, SHA384, SHA512
+  - Message authentication codes (MAC)
+    - HMAC, AES-CMAC
+  - Unauthenticated ciphers
+    - AES CTR, CCM*, CBC, ECB
+  - Authenticated encryption with associated data (AEAD)
+    - AES CCM, GCM
+    - AEAD-ChaCha20-Poly1305
+  - Key derivation
+    - HKDF
+    - PKDF2-HMAC
+    - PKDF2-AES-CMAC-PRF128
+    - TLS-1.2 PRF
+    - TLS-1.2 PSK-to-Mastersecret
+    - TLS-1.2 ECJPAKE-to-PMS KDF
+  - Asymmetric signature/encryption
+    - RSA with 1024, 1536, 2048, 4096, 6144, and 8192 bit keys
+    - RSAES PKCS-v1.5 / OAEP
+    - RSASSA PKCS-v1.5 / PSS
+    - ECDSA P224, P256, P384
+    - Ed25519
+  - Key agreement
+    - ECDH P224, P256, P384
+    - X25519
+  - Password-authenticated key exchange (PAKE)
+    - EC-JPAKE P256
+    - SPAKE2+ P256 HMAC
+    - SRP-6 3072 bit
+  - Random number generation
+    - CTR-DRBG
+    - HMAC-DRBG
+- Driver chaining for optimizing the mix of software and hardware crypto drivers
+  - Signature → Hash
+  - Deterministic signature → HMAC
+  - HKDF → HMAC
+  - HMAC → Hash
+  - CMAC → AES
+  - HMAC-DRBG → HMAC
+  - CTR-DRBG → AES-ECB, AES-CMAC
+  - DRBG → Entropy
+  - RSA → HASH
+- Dead code elimination
+  - Eliminate code for non-configured algorithms and key types
+  - Eliminate code for non-configured key sizes
+- Tests
+  - PSA Certified APIs Architecture Test Suite
+  - Mbed TLS 3.3 PSA test suite
+    - With minor test adaptations and corrections
+  - Mbed TLS 3.3 SSL test suite
+    - Use Mbed TLS 3.3 for TLS protocol
+    - Use Oberon PSA Crypto for cryptographic functions
+- Cycle count benchmarks
+  - Keil project for M0
+  - Keil project for M4F
+- Documentation
+  - README for overview, build and test
+  - Application developer documentation
+  - Driver developer documentation
+  - Bug Tracking
+  - Migration notes from Mbed TLS to Oberon PSA Crypto
+- Platform examples
+  - Demo platform
+    - Configuration examples
+    - Driver examples (not for use in production)
+      - Entropy Driver
+      - Opaque Driver
+      - Hardware Driver (HASH, AES)
+    - Driver Wrapper example
+  - Nordic_nrf platform
+    - Configuration examples
+    - CryptoCell Driver Interface template for Nordic platform
+    - Driver Wrapper example
+- Miscellaneous
+  - Allow for renaming of `psa_generate_random` function, to avoid symbol collision
+    in some build systems
+  - Support for non-standard RSA public key format used in Mbed TLS ssl test suite
+  - CMake file to build Mbed TLS 3.3 ssl programs _ssl_client2_ and _ssl_server2_ using 
+    Mbed TLS 3.3 for TLS protocol and Oberon PSA Crypto for cryptographic functions

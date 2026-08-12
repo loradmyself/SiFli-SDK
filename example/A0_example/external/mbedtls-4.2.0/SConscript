@@ -1,0 +1,50 @@
+from building import *
+import rtconfig
+import os
+
+cwd = GetCurrentDir()
+
+# 源文件目录
+src_dir = os.path.join(cwd, 'tf-psa-crypto/drivers/builtin/src')
+builtin_dir = os.path.join(cwd, 'tf-psa-crypto/drivers/builtin')
+core_dir = os.path.join(cwd, 'tf-psa-crypto/core')
+include_dir = os.path.join(cwd, 'tf-psa-crypto/drivers/builtin/include')
+include_dir2 = os.path.join(cwd, 'include')
+
+# 检查是否启用 MbedTLS 4.2.0
+# 通过检查编译定义来判断
+src = []
+inc = []
+defines = []
+
+# 只有在没有定义 USE_OBERON 时才编译 MbedTLS
+# 这个检查在 SConscript 层面通过 proj.conf 或 menuconfig 控制
+src.append(os.path.join(src_dir, 'chacha20.c'))
+src.append(os.path.join(src_dir, 'poly1305.c'))
+src.append(os.path.join(src_dir, 'chachapoly.c'))
+src.append(os.path.join(src_dir, 'aes.c'))
+src.append(os.path.join(src_dir, 'platform_util.c'))
+
+# 包含路径
+inc.append(include_dir)
+inc.append(builtin_dir)
+inc.append(core_dir)
+inc.append(include_dir2)
+inc.append(cwd)
+
+# 定义宏
+defines.append('MBEDTLS_CHACHA20_C')
+defines.append('MBEDTLS_POLY1305_C')
+defines.append('MBEDTLS_CHACHAPOLY_C')
+defines.append('MBEDTLS_AES_C')
+defines.append('MBEDTLS_AES_ROM_TABLES')
+defines.append('MBEDTLS_CIPHER_MODE_CTR')
+defines.append('MBEDTLS_DECLARE_PRIVATE_IDENTIFIERS')
+defines.append('MBEDTLS_CONFIG_ISMBEDTLS')
+defines.append('MBEDTLS_PSA_CRYPTO_C')
+defines.append('MBEDTLS_NO_PLATFORM_ENTROPY')
+defines.append('MBEDTLS_ENTROPY_HARDWARE_ALT')
+
+group = DefineGroup('mbedtls-4.2.0', src, depend = [''], CPPPATH = inc, CPPDEFINES = defines)
+
+Return('group')

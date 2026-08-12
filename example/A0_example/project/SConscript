@@ -9,6 +9,20 @@ list = os.listdir(cwd)
 Import('SIFLI_SDK')
 objs.extend(SConscript(os.path.join(SIFLI_SDK, 'SConscript'), variant_dir="sifli_sdk", duplicate=0))
 
+# 检查配置选择哪个 ChaCha20 库
+use_oberon = GetDepend('CHACHA20_USE_OBERON')
+
+if use_oberon:
+    # Add Oberon ChaCha20 library
+    oberon_dir = os.path.join(cwd, '..', 'external', 'oberon')
+    if os.path.exists(os.path.join(oberon_dir, 'SConscript')):
+        objs.extend(SConscript(os.path.join(oberon_dir, 'SConscript'), variant_dir="oberon", duplicate=0))
+else:
+    # Add MbedTLS 4.2.0 library (default)
+    mbedtls_dir = os.path.join(cwd, '..', 'external', 'mbedtls-4.2.0')
+    if os.path.exists(os.path.join(mbedtls_dir, 'SConscript')):
+        objs.extend(SConscript(os.path.join(mbedtls_dir, 'SConscript'), variant_dir="mbedtls_420", duplicate=0))
+
 # Add application source code
 objs.extend(SConscript(cwd+'/../src/SConscript', variant_dir="src", duplicate=0))
 
