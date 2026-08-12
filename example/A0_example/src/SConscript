@@ -41,6 +41,10 @@ if os.path.exists(mbedtls_root):
 oberon_root = os.path.join(cwd, '..', 'external', 'oberon')
 if os.path.exists(oberon_root):
     inc.append(oberon_root)
+    # 添加 nrf_oberon 头文件路径
+    nrf_oberon_inc = os.path.join(oberon_root, 'nrf_oberon', 'include')
+    if os.path.exists(nrf_oberon_inc):
+        inc.append(nrf_oberon_inc)
 
 group = DefineGroup('Applications', src, depend = [''], CPPPATH = inc)
 

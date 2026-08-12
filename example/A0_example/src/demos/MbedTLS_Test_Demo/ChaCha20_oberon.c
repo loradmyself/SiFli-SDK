@@ -16,8 +16,8 @@
 #include <stdlib.h>
 #include "core_cm33.h"
 
-/* Oberon ChaCha20 头文件（oberon_ 前缀） */
-#include "oberon_chacha20.h"
+/* Oberon ChaCha20 头文件（ocrypto 库） */
+#include "ocrypto_chacha20.h"
 
 /*===========================================================================
  * 性能测量工具 (DWT Cycle Counter)
@@ -106,14 +106,10 @@ static int verify_chacha20_oberon_correctness(void)
     };
 
     uint8_t output[64];
-    int ret;
+    uint8_t decrypted[64];
 
     /* 测试加密 */
-    ret = oberon_chacha20_crypt(key, nonce, 0, 64, plaintext, output);
-    if (ret != 0) {
-        rt_kprintf("❌ Oberon ChaCha20 encryption failed: %d\n", ret);
-        return -1;
-    }
+    ocrypto_chacha20_encode(output, plaintext, 64, nonce, 12, key, 0);
 
     if (memcmp(output, expected, 64) != 0) {
         rt_kprintf("❌ Oberon ChaCha20 encryption output mismatch!\n");
@@ -123,12 +119,7 @@ static int verify_chacha20_oberon_correctness(void)
     rt_kprintf("✅ Oberon ChaCha20 encryption: PASS\n");
 
     /* 测试解密（流密码，加密解密是同一操作） */
-    uint8_t decrypted[64];
-    ret = oberon_chacha20_crypt(key, nonce, 0, 64, output, decrypted);
-    if (ret != 0) {
-        rt_kprintf("❌ Oberon ChaCha20 decryption failed: %d\n", ret);
-        return -1;
-    }
+    ocrypto_chacha20_encode(decrypted, output, 64, nonce, 12, key, 0);
 
     if (memcmp(decrypted, plaintext, 64) != 0) {
         rt_kprintf("❌ Oberon ChaCha20 decryption output mismatch!\n");
@@ -180,14 +171,14 @@ static void test_chacha20_oberon_throughput(void)
 
         /* 预热 */
         for (int j = 0; j < 10; j++) {
-            oberon_chacha20_crypt(test_key, test_nonce, 0, size, input, output);
+            ocrypto_chacha20_encode(output, input, size, test_nonce, 12, test_key, 0);
         }
 
         /* 性能测试 */
         uint32_t start_cycles = dwt_get_cycles();
 
         for (int iter = 0; iter < iterations; iter++) {
-            oberon_chacha20_crypt(test_key, test_nonce, 0, size, input, output);
+            ocrypto_chacha20_encode(output, input, size, test_nonce, 12, test_key, 0);
         }
 
         uint32_t end_cycles = dwt_get_cycles();
@@ -227,12 +218,12 @@ static void test_chacha20_oberon_latency(void)
 
     /* 预热 */
     for (int i = 0; i < 100; i++) {
-        oberon_chacha20_crypt(test_key, test_nonce, 0, latency_size, input, output);
+        ocrypto_chacha20_encode(output, input, latency_size, test_nonce, 12, test_key, 0);
     }
 
     /* 测量单次加密延迟 */
     uint32_t start_cycles = dwt_get_cycles();
-    oberon_chacha20_crypt(test_key, test_nonce, 0, latency_size, input, output);
+    ocrypto_chacha20_encode(output, input, latency_size, test_nonce, 12, test_key, 0);
     uint32_t end_cycles = dwt_get_cycles();
 
     uint32_t elapsed_cycles = end_cycles - start_cycles;

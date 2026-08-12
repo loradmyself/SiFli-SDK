@@ -4,16 +4,21 @@ import os
 
 cwd = GetCurrentDir()
 
-# 只编译 Oberon 的 ChaCha20 独立实现
+# 不需要编译源代码，使用预编译的库
 src = []
-src.append(os.path.join(cwd, 'oberon_chacha20.c'))
 
-# 包含路径
-inc = [cwd]
+# 包含路径 - nrf_oberon 头文件
+inc = []
+inc.append(os.path.join(cwd, 'nrf_oberon', 'include'))
+
+# 预编译库路径和名称
+lib_path = os.path.join(cwd, 'nrf_oberon', 'lib', 'cortex-m33', 'hard-float')
+# 库名称（不带 lib 前缀和 .a 后缀）
+lib_name = 'oberon_3.0.20'
 
 # 宏定义
 defines = []
 
-group = DefineGroup('oberon-chacha20', src, depend = [''], CPPPATH = inc, CPPDEFINES = defines)
+group = DefineGroup('oberon-chacha20', src, depend = [''], CPPPATH = inc, CPPDEFINES = defines, LIBS = [lib_name], LIBPATH = [lib_path])
 
 Return('group')
