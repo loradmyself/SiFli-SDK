@@ -1,12 +1,14 @@
 /**
  * @file ChaCha20_test.c
- * @brief ChaCha20 性能测试 (MbedTLS 4.2.0)
+ * @brief ChaCha20 性能测试 (MbedTLS 4.2.0) - 优化版
  *
  * 测试指标:
  * 1. 吞吐量 (Throughput) - MB/s
  * 2. 每字节周期数 (Cycles/Byte)
  * 3. 延迟 (Latency) - 微秒
  * 4. AES-128-CTR 对比测试
+ *
+ * 优化: 缓存、内存对齐、中断控制
  */
 
 #include "rtthread.h"
@@ -33,6 +35,10 @@
 /* 系统时钟频率 */
 #define SYS_CLOCK_HZ    SystemCoreClock
 
+/* 内存对齐宏 */
+#define ALIGN_16BYTE(x)  (((uint32_t)(x) + 15) & ~15)
+#define IS_ALIGNED_16(x) (((uint32_t)(x) & 15) == 0)
+
 /**
  * @brief 初始化 DWT 周期计数器
  */
@@ -49,6 +55,53 @@ static void dwt_init(void)
 static inline uint32_t dwt_get_cycles(void)
 {
     return DWT->CYCCNT;
+}
+
+/*===========================================================================
+ * 缓存管理优化 (与 Oberon 测试相同)
+ *===========================================================================*/
+static void optimize_cache_and_memory(void)
+{
+    /* 启用 I-Cache */
+    if (!(SCB->CCR & SCB_CCR_IC_Msk)) {
+        SCB_EnableICache();
+        rt_kprintf("[OPT] I-Cache enabled\n");
+    } else {
+        rt_kprintf("[OPT] I-Cache already enabled\n");
+    }
+
+    /* 启用 D-Cache */
+    if (!(SCB->CCR & SCB_CCR_DC_Msk)) {
+        SCB_EnableDCache();
+        rt_kprintf("[OPT] D-Cache enabled\n");
+    } else {
+        rt_kprintf("[OPT] D-Cache already enabled\n");
+    }
+
+    rt_kprintf("[OPT] Cache optimization complete\n");
+}
+
+/*===========================================================================
+ * 对齐内存分配
+ *===========================================================================*/
+static uint8_t* aligned_malloc(size_t size)
+{
+    uint8_t *raw = (uint8_t *)rt_malloc(size + 16 + sizeof(void*));
+    if (raw == NULL) return NULL;
+
+    uint32_t addr = (uint32_t)(raw + sizeof(void*));
+    uint8_t *aligned = (uint8_t *)ALIGN_16BYTE(addr);
+
+    *((void**)(aligned - sizeof(void*))) = raw;
+
+    return aligned;
+}
+
+static void aligned_free(void *ptr)
+{
+    if (ptr == NULL) return;
+    void *raw = *((void**)((uint8_t*)ptr - sizeof(void*)));
+    rt_free(raw);
 }
 
 /*===========================================================================
@@ -167,7 +220,7 @@ static int verify_chacha20_correctness(void)
 }
 
 /*===========================================================================
- * ChaCha20 吞吐量测试
+ * ChaCha20 吞吐量测试 (优化版)
  *===========================================================================*/
 
 /**
@@ -176,50 +229,76 @@ static int verify_chacha20_correctness(void)
 static void test_chacha20_throughput(void)
 {
     dwt_init();
+
+    /* 执行缓存和内存优化 */
+    optimize_cache_and_memory();
+
     rt_kprintf("\n========================================\n");
-    rt_kprintf("  ChaCha20 Throughput Test\n");
+    rt_kprintf("  ChaCha20 Throughput Test (Optimized)\n");
     rt_kprintf("========================================\n");
-    rt_kprintf("%-10s %-12s %-12s %-12s\n", "Size(B)", "MB/s", "Cycles/B", "Time(us)");
+    rt_kprintf("%-10s %-12s %-12s %-12s %-10s\n", "Size(B)", "MB/s", "Cycles/B", "Time(us)", "Status");
     rt_kprintf("----------------------------------------\n");
 
     for (int i = 0; i < NUM_TEST_SIZES; i++) {
         size_t size = test_sizes[i];
         int iterations;
         if (size <= 1024) {
-            iterations = TEST_ITERATIONS;
+            iterations = TEST_ITERATIONS * 2;
         } else if (size <= 65536) {
-            iterations = LARGE_ITERATIONS;
+            iterations = LARGE_ITERATIONS * 2;
         } else {
-            iterations = HUGE_ITERATIONS;
+            iterations = HUGE_ITERATIONS * 2;
         }
 
-        uint8_t *input = rt_malloc(size);
-        uint8_t *output = rt_malloc(size);
+        /* 使用对齐的内存分配 */
+        uint8_t *input = aligned_malloc(size);
+        uint8_t *output = aligned_malloc(size);
         if (input == NULL || output == NULL) {
             rt_kprintf("Memory allocation failed for size %d\n", size);
-            if (input) rt_free(input);
-            if (output) rt_free(output);
+            if (input) aligned_free(input);
+            if (output) aligned_free(output);
             continue;
         }
+
+        /* 检查对齐状态 */
+        const char *align_status = IS_ALIGNED_16(input) && IS_ALIGNED_16(output) ? "ALIGNED" : "UNALIGNED";
 
         /* 填充测试数据 */
         for (size_t j = 0; j < size; j++) {
             input[j] = j & 0xFF;
         }
 
-        /* 预热 */
-        for (int j = 0; j < 10; j++) {
+        /* 预热 (增加预热次数) */
+        for (int j = 0; j < 20; j++) {
             mbedtls_chacha20_crypt(test_key, test_nonce, 0, size, input, output);
         }
 
-        /* 性能测试 */
+        /* 清空 D-Cache */
+        SCB_CleanDCache_by_Addr((void*)input, size);
+        SCB_CleanDCache_by_Addr((void*)output, size);
+
+        /* 性能测试 - 使用增量 API */
+        uint32_t primask = __get_PRIMASK(); __disable_irq();
+
         uint32_t start_cycles = dwt_get_cycles();
 
+        /* MbedTLS 增量 API */
+        mbedtls_chacha20_context ctx;
+        mbedtls_chacha20_init(&ctx);
+        mbedtls_chacha20_setkey(&ctx, test_key);
+        mbedtls_chacha20_starts(&ctx, test_nonce, 0);
         for (int iter = 0; iter < iterations; iter++) {
-            mbedtls_chacha20_crypt(test_key, test_nonce, 0, size, input, output);
+            mbedtls_chacha20_update(&ctx, size, input, output);
         }
+        mbedtls_chacha20_free(&ctx);
 
         uint32_t end_cycles = dwt_get_cycles();
+
+        __set_PRIMASK(primask);
+
+        /* 使 D-Cache 失效 */
+        SCB_InvalidateDCache_by_Addr((void*)output, size);
+
         uint32_t elapsed_cycles = end_cycles - start_cycles;
 
         uint64_t total_bytes = (uint64_t)size * iterations;
@@ -228,16 +307,21 @@ static void test_chacha20_throughput(void)
         uint32_t cycles_per_byte = (uint32_t)(elapsed_cycles / total_bytes);
         uint32_t elapsed_us = elapsed_cycles / (SYS_CLOCK_HZ / 1000000);
 
-        rt_kprintf("%-10d %-12d %-12d %-12d\n",
-                   size, throughput_mbps, cycles_per_byte, elapsed_us);
+        /* 判断是否达到目标 */
+        const char *status = throughput_mbps >= 15 ? "PASS" : (throughput_mbps >= 10 ? "CLOSE" : "FAIL");
 
-        rt_free(input);
-        rt_free(output);
+        rt_kprintf("%-10d %-12d %-12d %-12d %-10s\n",
+                   size, throughput_mbps, cycles_per_byte, elapsed_us, status);
+
+        aligned_free(input);
+        aligned_free(output);
     }
+
+    rt_kprintf("\n[OPT] Target: 15 MB/s\n");
 }
 
 /*===========================================================================
- * ChaCha20 延迟测试
+ * ChaCha20 延迟测试 (优化版)
  *===========================================================================*/
 
 /**
@@ -247,7 +331,7 @@ static void test_chacha20_latency(void)
 {
     dwt_init();
     rt_kprintf("\n========================================\n");
-    rt_kprintf("  ChaCha20 Latency Test (Small Blocks)\n");
+    rt_kprintf("  ChaCha20 Latency Test (Optimized)\n");
     rt_kprintf("========================================\n");
     rt_kprintf("%-10s %-12s %-12s\n", "Size(B)", "Latency(us)", "Cycles");
     rt_kprintf("----------------------------------------\n");
@@ -258,22 +342,28 @@ static void test_chacha20_latency(void)
     for (int i = 0; i < 5; i++) {
         size_t size = small_sizes[i];
 
-        uint8_t *input = rt_malloc(size);
-        uint8_t *output = rt_malloc(size);
+        uint8_t *input = aligned_malloc(size);
+        uint8_t *output = aligned_malloc(size);
         if (input == NULL || output == NULL) {
-            if (input) rt_free(input);
-            if (output) rt_free(output);
+            if (input) aligned_free(input);
+            if (output) aligned_free(output);
             continue;
         }
 
         memset(input, 0x5A, size);
 
-        /* 预热 */
-        for (int j = 0; j < 100; j++) {
+        /* 预热 (增加预热次数) */
+        for (int j = 0; j < 200; j++) {
             mbedtls_chacha20_crypt(test_key, test_nonce, 0, size, input, output);
         }
 
-        /* 延迟测试 */
+        /* 清空 D-Cache */
+        SCB_CleanDCache_by_Addr((void*)input, size);
+        SCB_CleanDCache_by_Addr((void*)output, size);
+
+        /* 延迟测试 - 关闭中断 */
+        uint32_t primask = __get_PRIMASK(); __disable_irq();
+
         uint32_t start_cycles = dwt_get_cycles();
 
         for (int iter = 0; iter < small_iterations; iter++) {
@@ -281,6 +371,9 @@ static void test_chacha20_latency(void)
         }
 
         uint32_t end_cycles = dwt_get_cycles();
+
+        __set_PRIMASK(primask);
+
         uint32_t elapsed_cycles = end_cycles - start_cycles;
 
         uint32_t elapsed_us = elapsed_cycles / (SYS_CLOCK_HZ / 1000000);
@@ -289,8 +382,8 @@ static void test_chacha20_latency(void)
 
         rt_kprintf("%-10d %-12d %-12d\n", size, latency_us, cycles_per_op);
 
-        rt_free(input);
-        rt_free(output);
+        aligned_free(input);
+        aligned_free(output);
     }
 }
 

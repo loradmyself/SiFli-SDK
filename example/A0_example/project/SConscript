@@ -11,14 +11,32 @@ objs.extend(SConscript(os.path.join(SIFLI_SDK, 'SConscript'), variant_dir="sifli
 
 # 检查配置选择哪个 ChaCha20 库
 use_oberon = GetDepend('CHACHA20_USE_OBERON')
+use_mbedtls = GetDepend('CHACHA20_USE_MBEDTLS_420')
+use_both = GetDepend('CHACHA20_USE_BOTH')
 
-if use_oberon:
+if use_both:
+    # 同时编译两个库 (用于对比测试)
+    # 注意：两个库使用不同的函数名，不会有链接冲突
+    # MbedTLS: mbedtls_chacha20_crypt
+    # Oberon: ocrypto_chacha20_encode
+
+    # Add MbedTLS 4.2.0 library
+    mbedtls_dir = os.path.join(cwd, '..', 'external', 'mbedtls-4.2.0')
+    if os.path.exists(os.path.join(mbedtls_dir, 'SConscript')):
+        objs.extend(SConscript(os.path.join(mbedtls_dir, 'SConscript'), variant_dir="mbedtls_420", duplicate=0))
+
     # Add Oberon ChaCha20 library
     oberon_dir = os.path.join(cwd, '..', 'external', 'oberon')
     if os.path.exists(os.path.join(oberon_dir, 'SConscript')):
         objs.extend(SConscript(os.path.join(oberon_dir, 'SConscript'), variant_dir="oberon", duplicate=0))
+
+elif use_oberon:
+    # 只编译 Oberon
+    oberon_dir = os.path.join(cwd, '..', 'external', 'oberon')
+    if os.path.exists(os.path.join(oberon_dir, 'SConscript')):
+        objs.extend(SConscript(os.path.join(oberon_dir, 'SConscript'), variant_dir="oberon", duplicate=0))
 else:
-    # Add MbedTLS 4.2.0 library (default)
+    # 只编译 MbedTLS (默认)
     mbedtls_dir = os.path.join(cwd, '..', 'external', 'mbedtls-4.2.0')
     if os.path.exists(os.path.join(mbedtls_dir, 'SConscript')):
         objs.extend(SConscript(os.path.join(mbedtls_dir, 'SConscript'), variant_dir="mbedtls_420", duplicate=0))

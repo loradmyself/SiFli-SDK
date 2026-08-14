@@ -18,12 +18,12 @@ if os.path.exists(demos_dir):
                 rel_path = os.path.relpath(os.path.join(root, f), cwd)
                 # 根据配置选择性包含测试文件
                 if 'ChaCha20_oberon.c' in f:
-                    # 只有选择 Oberon 时才编译
-                    if GetDepend('CHACHA20_USE_OBERON'):
+                    # 选择 Oberon 或 Both 时编译
+                    if GetDepend('CHACHA20_USE_OBERON') or GetDepend('CHACHA20_USE_BOTH'):
                         src.append(rel_path)
                 elif 'ChaCha20_test.c' in f:
-                    # 只有选择 MbedTLS 时才编译
-                    if GetDepend('CHACHA20_USE_MBEDTLS_420'):
+                    # 选择 MbedTLS 或 Both 时编译
+                    if GetDepend('CHACHA20_USE_MBEDTLS_420') or GetDepend('CHACHA20_USE_BOTH'):
                         src.append(rel_path)
                 else:
                     src.append(rel_path)

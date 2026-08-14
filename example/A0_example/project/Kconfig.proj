@@ -15,4 +15,12 @@ menu "ChaCha20 Library Selection"
         bool "Use Oberon PSA Crypto"
         default n
 
+    config CHACHA20_USE_BOTH
+        bool "Enable both libraries for comparison"
+        depends on CHACHA20_USE_MBEDTLS_420 && CHACHA20_USE_OBERON
+        default n
+        help
+            Enable both MbedTLS and Oberon libraries simultaneously
+            for performance comparison testing.
+
 endmenu
