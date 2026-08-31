@@ -2483,6 +2483,8 @@ __ROM_USED void sifli_timer_start(struct rt_pm *pm, rt_uint32_t timeout)
     SCB->ICSR = SCB_ICSR_PENDSTCLR_Msk;
 #endif
 #ifndef PM_LP_TIMER_DISABLE
+    rt_kprintf("[pm]timer_start timeout=%d ticks (%d ms)\n", timeout, timeout * 1000 / RT_TICK_PER_SECOND);
+
     t.sec = timeout / RT_TICK_PER_SECOND;
     t.usec = timeout % RT_TICK_PER_SECOND;
     t.usec *= (1000000 / RT_TICK_PER_SECOND);

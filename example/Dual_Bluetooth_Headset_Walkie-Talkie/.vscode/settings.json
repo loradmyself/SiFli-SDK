@@ -1,0 +1,27 @@
+{
+    "clangd.arguments": [
+        "--enable-config",
+        "--background-index",
+        "--pch-storage=disk",
+        "--query-driver=C:/Users/xiebo/.sifli/tools/arm-none-eabi-gcc/14.2.1/bin/arm-none-eabi-*",
+        "--compile-commands-dir=${workspaceFolder}/project/build_sf32lb52-core_n4_hcpu"
+    ],
+    "MicroPython.executeButton": [
+        {
+            "text": "▶",
+            "tooltip": "运行",
+            "alignment": "left",
+            "command": "extension.executeFile",
+            "priority": 3.5
+        }
+    ],
+    "MicroPython.syncButton": [
+        {
+            "text": "$(sync)",
+            "tooltip": "同步",
+            "alignment": "left",
+            "command": "extension.execute",
+            "priority": 4
+        }
+    ]
+}

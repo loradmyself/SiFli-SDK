@@ -33,7 +33,7 @@ static void QSPI_PIN_Set(int pad, pin_function func, int flags, int hcpu)
 #else
     // Set the pin driver strength to 8mA
     HAL_PIN_Set_DS0(pad, 1, 1);
-    HAL_PIN_Set_DS1(pad, 1, 0);
+    HAL_PIN_Set_DS1(pad, 1, 1);
 #endif /* BSP_LCDC_USING_DDR_QADSPI */
 }
 void BSP_LCD_PowerUp(void)

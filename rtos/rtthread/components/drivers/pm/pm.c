@@ -430,6 +430,10 @@ static uint8_t _pm_enter_sleep(struct rt_pm *pm)
     if (RT_TICK_MAX != timeout_tick)
     {
         timeout_tick = timeout_tick - rt_tick_get();
+                struct rt_timer *next_t = rt_timer_next_timer();
+        rt_kprintf("[pm]next_timer delta=%d ms name=%s\n",
+                   timeout_tick * 1000 / RT_TICK_PER_SECOND,
+                   next_t ? next_t->parent.name : "???");
     }
     mode = _pm_select_sleep_mode(pm, timeout_tick);
     pm->sleep_mode = mode;
