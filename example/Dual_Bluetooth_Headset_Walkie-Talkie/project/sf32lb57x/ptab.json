@@ -1,8 +1,8 @@
 [
     {"version": "2"},
     {
-        "mem": "flash2", 
-        "base": "0x12000000", 
+        "mem": "flash3", 
+        "base": "0x14000000", 
         "regions": [
             {
                 "offset": "0x00020000", 
@@ -74,9 +74,22 @@
         "regions": [
             {
                 "offset": "0x00000000", 
-                "max_size": "0x01000000", 
+                "max_size": "0x00400000", 
                 "tags": [
                     "PSRAM_DATA"
+                ]
+            }
+        ]
+    }, 
+    {
+        "mem": "psram2", 
+        "base": "0x62000000", 
+        "regions": [
+            {
+                "offset": "0x00000000", 
+                "max_size": "0x00400000", 
+                "tags": [
+                    "PSRAM_DATA2"
                 ]
             }
         ]

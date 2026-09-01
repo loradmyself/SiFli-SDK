@@ -201,10 +201,14 @@ int app_source_init(void)
 {
     int error;
 
-    HAL_PIN_Set(PAD_PA24, I2S1_MCLK, PIN_NOPULL, 1);
-    HAL_PIN_Set(PAD_PA25, I2S1_SDO, PIN_NOPULL, 1);
-    HAL_PIN_Set(PAD_PA29, I2S1_BCK, PIN_NOPULL, 1);
-    HAL_PIN_Set(PAD_PA30, I2S1_LRCK, PIN_NOPULL, 1);
+    HAL_PIN_Set(PAD_PA24, I2S2_MCLK, PIN_NOPULL, 1);
+    HAL_PIN_Set(PAD_PA21, I2S2_SDO, PIN_NOPULL, 1); 
+    HAL_PIN_Set(PAD_PA23, I2S2_BCK, PIN_NOPULL, 1); //23
+
+    HAL_PIN_Set_DS0(PAD_PA23, 1, 1);
+    HAL_PIN_Set_DS1(PAD_PA23, 1, 1);
+
+    HAL_PIN_Set(PAD_PA25, I2S2_LRCK, PIN_NOPULL, 1);  //25
 
     error = app_source_mount_music();
     if (error != RT_EOK)

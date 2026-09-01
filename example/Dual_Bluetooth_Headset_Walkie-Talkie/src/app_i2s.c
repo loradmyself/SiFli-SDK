@@ -22,7 +22,7 @@
 
 #include "app_i2s.h"
 
-#define APP_I2S_DEVICE_NAME "i2s1"
+#define APP_I2S_DEVICE_NAME "i2s2"
 #define APP_I2S_DRIVER_PIPE_SIZE (APP_I2S_DMA_HALF_SIZE * 2U)
 #define APP_I2S_RX_THREAD_PRIORITY                                         \
     (RT_THREAD_PRIORITY_HIGH + (RT_THREAD_PRIORITY_HIGHER * 2))
@@ -58,7 +58,7 @@ static int app_i2s_apply_slave_double_clock(void)
     I2S_HandleTypeDef handle = {0};
     I2S_CFG_T config = {0};
 
-    handle.Instance = hwp_i2s1;
+    handle.Instance = hwp_i2s2;
     config.bus_dw = 32U;
     config.data_dw = APP_PCM_BITS;
     config.slave_mode = 1U;
@@ -86,10 +86,10 @@ static void app_i2s_config_pins(void)
 {
     HAL_PIN_Set(PAD_PA24, GPIO_A24, PIN_PULLDOWN, 1);
     rt_pin_mode(GET_PIN(1, 24), PIN_MODE_INPUT_PULLDOWN);
-    HAL_PIN_Set(PAD_PA37, GPIO_A37, PIN_PULLDOWN, 1);
-    HAL_PIN_Set(PAD_PA38, I2S1_SDI, PIN_PULLDOWN, 1);
-    HAL_PIN_Set(PAD_PA42, I2S1_BCK, PIN_NOPULL, 1);
-    HAL_PIN_Set(PAD_PA41, I2S1_LRCK, PIN_NOPULL, 1);
+    //HAL_PIN_Set(PAD_PA21, GPIO_A21, PIN_PULLDOWN, 1);
+    HAL_PIN_Set(PAD_PA27, I2S2_SDI, PIN_PULLDOWN, 1);
+    HAL_PIN_Set(PAD_PA23, I2S2_BCK, PIN_NOPULL, 1);
+    HAL_PIN_Set(PAD_PA25, I2S2_LRCK, PIN_NOPULL, 1);
 }
 
 static int app_i2s_configure(void)
