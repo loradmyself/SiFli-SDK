@@ -14,6 +14,7 @@
 #include "app_i2s.h"
 #include "app_source.h"
 #include "app_state.h"
+#include "app_adc.h"
 
 void HAL_MspInit(void)
 {
@@ -27,7 +28,7 @@ int main(void)
 
     role = app_board_init();
     app_state_init(role);
-    rt_kprintf("[intercom] PA39=%s, role=%s\n",
+    rt_kprintf("[intercom] PA20=%s, role=%s\n",
                (role == APP_ROLE_SOURCE) ? "high" : "low",
                app_state_role_name(role));
 
@@ -71,6 +72,7 @@ int main(void)
     }
 
     rt_kprintf("[intercom] command shell ready; run 'intercom status'\n");
+    app_adc_init();
     while (1)
     {
         rt_thread_mdelay(10000);

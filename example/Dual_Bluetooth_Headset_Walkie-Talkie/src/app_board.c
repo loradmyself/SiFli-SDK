@@ -18,7 +18,7 @@
 
 #define APP_LED1_PIN GET_PIN(1, 31)
 #define APP_LED2_PIN GET_PIN(1, 32)
-#define APP_ROLE_PIN GET_PIN(1, 39)
+#define APP_ROLE_PIN GET_PIN(1, 20)
 #define APP_LED_BLINK_MS 500U
 
 static const rt_base_t g_led_pins[APP_HEADSET_COUNT] =
@@ -73,7 +73,7 @@ app_role_t app_board_init(void)
 {
     app_role_t role;
 
-    HAL_PIN_Set(PAD_PA39, GPIO_A39, PIN_PULLDOWN, 1);
+    HAL_PIN_Set(PAD_PA20, GPIO_A20, PIN_PULLDOWN, 1);
     rt_pin_mode(APP_ROLE_PIN, PIN_MODE_INPUT_PULLDOWN);
     rt_thread_mdelay(1U);
     role = (rt_pin_read(APP_ROLE_PIN) == PIN_HIGH) ?
