@@ -123,7 +123,7 @@ def BuildEnv(BSP_ROOT, RTT_ROOT):
         try:
             import rtconfig
             SIFLI_SDK=os.getenv('SIFLI_SDK')
-            RTT_ROOT = SIFLI_SDK + 'rtos/rtthread'
+            RTT_ROOT = SIFLI_SDK + '/rtos/rtthread'
         except Exception as e:
             print('Import rtconfig.py in BSP(board support package) failed.')
             print(e)
