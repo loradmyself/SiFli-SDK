@@ -16,5 +16,6 @@
             "command": "extension.execute",
             "priority": 4
         }
-    ]
+    ],
+    "cmake.sourceDirectory": "F:/SiFli/SDK/SiFli-SDK/main/tools/flash"
 }
