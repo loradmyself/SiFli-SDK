@@ -1451,14 +1451,14 @@ static void SPIx_IRQHandler(uint32_t index)
 
     HAL_SPI_IRQHandler(handle);
 
-#ifndef DMA_SUPPORT_DYN_CHANNEL_ALLOC
+#if !defined( DMA_SUPPORT_DYN_CHANNEL_ALLOC) && !defined(BSP_USING_SPI_CAMERA) && !defined(BSP_USING_SPI_DMA_CIRCULAR)
     /* used by LCPU which doesn't enable DMA_SUPPORT_DYN_CHANNEL_ALLOC */
     if ((HAL_SPI_STATE_BUSY != handle->State) && (HAL_SPI_STATE_BUSY_TX != handle->State)
             && (HAL_SPI_STATE_BUSY_RX != handle->State) && (HAL_SPI_STATE_BUSY_TX_RX != handle->State))
     {
         rt_sem_release(spi_bus_obj[index].spi_sema);
     }
-#endif /* !DMA_SUPPORT_DYN_CHANNEL_ALLOC */
+#endif /* !DMA_SUPPORT_DYN_CHANNEL_ALLOC && !BSP_USING_SPI_CAMERA && !BSP_USING_SPI_DMA_CIRCULAR */
 
     /* leave interrupt */
     rt_interrupt_leave();
@@ -1470,7 +1470,33 @@ enum
     SPI_DMA_RX
 };
 
-#ifdef DMA_SUPPORT_DYN_CHANNEL_ALLOC
+/* BSP_USING_SPI_CAMERA and BSP_USING_SPI_DMA_CIRCULAR cannot be enabled by 55x LCPU side due to duplicate HAL_SPI_RxCpltCallback definition */
+#if defined(DMA_SUPPORT_DYN_CHANNEL_ALLOC) || defined(BSP_USING_SPI_CAMERA) || defined(BSP_USING_SPI_DMA_CIRCULAR)
+
+/* Default implementations of the I2S slave Rx hooks (see drv_spi.h).
+ * They are overridden by drv_spi_i2s_slave_rx.c when that driver is built.
+ */
+__weak rt_bool_t bsp_i2s_slave_rx_owns(SPI_HandleTypeDef *hspi)
+{
+    UNUSED(hspi);
+    return RT_FALSE;
+}
+
+__weak void bsp_i2s_slave_rx_cplt(SPI_HandleTypeDef *hspi)
+{
+    UNUSED(hspi);
+}
+
+__weak void bsp_i2s_slave_rx_half_cplt(SPI_HandleTypeDef *hspi)
+{
+    UNUSED(hspi);
+}
+
+__weak void bsp_i2s_slave_rx_err(SPI_HandleTypeDef *hspi)
+{
+    UNUSED(hspi);
+}
+
 void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
 {
     struct sifli_spi *spi_drv =  rt_container_of(hspi, struct sifli_spi, handle);
@@ -1498,7 +1524,15 @@ void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
 
 void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi)
 {
-    struct sifli_spi *spi_drv =  rt_container_of(hspi, struct sifli_spi, handle);
+    struct sifli_spi *spi_drv;
+
+    if (bsp_i2s_slave_rx_owns(hspi))
+    {
+        bsp_i2s_slave_rx_cplt(hspi);
+        return;
+    }
+
+    spi_drv = rt_container_of(hspi, struct sifli_spi, handle);
 
 #if defined(BSP_USING_SPI_CAMERA)
     if (spi_is_camera_active(spi_drv))
@@ -1576,7 +1610,15 @@ void HAL_SPI_TxHalfCpltCallback(SPI_HandleTypeDef *hspi)
 
 void HAL_SPI_RxHalfCpltCallback(SPI_HandleTypeDef *hspi)
 {
-    struct sifli_spi *spi_drv =  rt_container_of(hspi, struct sifli_spi, handle);
+    struct sifli_spi *spi_drv;
+
+    if (bsp_i2s_slave_rx_owns(hspi))
+    {
+        bsp_i2s_slave_rx_half_cplt(hspi);
+        return;
+    }
+
+    spi_drv = rt_container_of(hspi, struct sifli_spi, handle);
 
 #if defined(BSP_USING_SPI_CAMERA)
     if (spi_is_camera_active(spi_drv))
@@ -1629,7 +1671,15 @@ void HAL_SPI_TxRxHalfCpltCallback(SPI_HandleTypeDef *hspi)
 
 void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
 {
-    struct sifli_spi *spi_drv =  rt_container_of(hspi, struct sifli_spi, handle);
+    struct sifli_spi *spi_drv;
+
+    if (bsp_i2s_slave_rx_owns(hspi))
+    {
+        bsp_i2s_slave_rx_err(hspi);
+        return;
+    }
+
+    spi_drv = rt_container_of(hspi, struct sifli_spi, handle);
 
 #if defined(BSP_USING_SPI_CAMERA)
     if (spi_is_camera_active(spi_drv))
@@ -1651,7 +1701,7 @@ void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
     rt_sem_release(spi_drv->spi_sema);
 }
 
-#endif /* DMA_SUPPORT_DYN_CHANNEL_ALLOC */
+#endif /* DMA_SUPPORT_DYN_CHANNEL_ALLOC || BSP_USING_SPI_CAMERA) || BSP_USING_SPI_DMA_CIRCULAR */
 
 #ifndef DMA_SUPPORT_DYN_CHANNEL_ALLOC
 static void SPIx_DMA_IRQHandler(uint32_t index, uint32_t trx)
@@ -1672,6 +1722,7 @@ static void SPIx_DMA_IRQHandler(uint32_t index, uint32_t trx)
         HAL_DMA_IRQHandler(handle->hdmarx);
     }
 
+#if !defined(BSP_USING_SPI_CAMERA) && !defined(BSP_USING_SPI_DMA_CIRCULAR)
     /* used by LCPU which doesn't enable DMA_SUPPORT_DYN_CHANNEL_ALLOC */
     if ((HAL_SPI_STATE_BUSY != handle->State) && (HAL_SPI_STATE_BUSY_TX != handle->State)
             && (HAL_SPI_STATE_BUSY_RX != handle->State) && (HAL_SPI_STATE_BUSY_TX_RX != handle->State))
@@ -1682,13 +1733,14 @@ static void SPIx_DMA_IRQHandler(uint32_t index, uint32_t trx)
             rt_sem_release(spi_bus_obj[index].spi_sema);
         }
     }
+#endif /* !BSP_USING_SPI_CAMERA && !BSP_USING_SPI_DMA_CIRCULAR */
 
     /* leave interrupt */
     rt_interrupt_leave();
 }
 #endif /* DMA_SUPPORT_DYN_CHANNEL_ALLOC */
 
-#endif
+#endif /* BSP_USING_SPI */
 
 #if defined(BSP_USING_SPI1)
 /**
@@ -1960,7 +2012,7 @@ void camera_stop_dma(SPI_HandleTypeDef *hspi)
 
     HAL_SPI_DMAStop(hspi);
     __HAL_UNLOCK(hspi);
-    if (HAL_SPI_DMASetMode(hspi, DMA_NORMAL, DMA_CIRCULAR) != HAL_OK)
+    if (HAL_SPI_DMASetMode(hspi, DMA_NORMAL, DMA_NORMAL) != HAL_OK)
     {
         LOG_E("camera restore dma mode failed");
     }

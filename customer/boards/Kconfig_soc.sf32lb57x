@@ -1,3 +1,6 @@
+config SOC_SF32LB573UB766
+    bool
+    select SOC_PACKAGE_QFN68
 config SOC_SF32LB573UB7N6
     bool
     select SOC_PACKAGE_QFN68
@@ -13,6 +16,9 @@ config SOC_SF32LB575UC7N6
 config SOC_SF32LB575YBBN6
     bool
     select SOC_PACKAGE_QFN80
+config SOC_SF32LB57EYBBN6    
+    bool
+    select SOC_PACKAGE_QFN80
 config SOC_SF32LB577UDNN6
     bool
     select SOC_PACKAGE_QFN68
@@ -20,6 +26,9 @@ config SOC_SF32LB577VD776
     bool
     select SOC_PACKAGE_BGA112
 config SOC_SF32LB579V6EN6
+    bool
+    select SOC_PACKAGE_BGA112
+config SOC_SF32LB57GVD776
     bool
     select SOC_PACKAGE_BGA112
 config SOC_SF32LB57GYD7N6

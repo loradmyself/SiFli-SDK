@@ -21,11 +21,18 @@
 #endif /*HAL_EPICTL_ENABLED*/
 #ifdef BSP_USING_LCD_FRAMEBUFFER
 
-//#define ENABLE_GP_DMA_COPY //Copy with normal DMA
+#if defined(DMA_SUPPORT_DYN_CHANNEL_ALLOC) && defined(SF32LB57X)
+    /*
+    On 57x, GPDMA channel 1&2 have better performance than other channels when copy SRAM to PSRAM.
+    */
+    #define ENABLE_GP_DMA_COPY //Copy with normal DMA
+    #define GP_DMA_CHANNEL   DMA1_Channel1
+#endif /* SF32LB57X */
+
 #ifdef BSP_USING_HW_AES
     #define ENABLE_AES_COPY   //Use AES as memcpy
 #endif /* BSP_USING_HW_AES */
-//#define DRV_LCD_FB_STATISTICS
+// #define DRV_LCD_FB_STATISTICS
 
 #define  DBG_LEVEL            DBG_INFO  //DBG_LOG //
 
@@ -36,12 +43,6 @@
 #define FB_FLUSH_EXP_MS   (5000)
 #define AreaString "x0y0x1y1=[%d,%d,%d,%d]"
 #define AreaParams(area) (area)->x0,(area)->y0,(area)->x1,(area)->y1
-#ifdef ENABLE_GP_DMA_COPY
-    //#define GP_DMA_CHANNEL   DMA1_Channel3
-    //#define GP_DMA_IRQn      DMAC1_CH3_IRQn
-    //#define GP_DMA_IRQHandler DMAC1_CH3_IRQHandler
-    #error "Need to allocate DMA channel automatically!"
-#endif /* ENABLE_GP_DMA_COPY */
 
 #ifdef ENABLE_AES_COPY
     #include "drv_aes.h"
@@ -64,6 +65,9 @@ typedef struct
 {
     lcd_fb_desc_t  fb;     /*Framebuffer description*/
     LCD_AreaDef fb_clip;    /*LCD recieve area, origin is LCD's TL*/
+    /* 1 = submitted to LCDC and reading by LCDC
+       0 = not submitted to LCDC and not reading by LCDC
+    */
     uint8_t  fb_flushing_lcd;
     uint8_t  ready;   /*The FB is ready to flush LCD*/
     int32_t fb_valid_y1; /*Writeable lines are [0 ~ fb_height-1], and -1 means no writeable line.*/
@@ -97,8 +101,8 @@ typedef struct
     uint32_t write_end_tick;         /*Last aysnc write framebuffer end tick*/
 
 #ifdef DRV_LCD_FB_STATISTICS
-    uint32_t write_ticks_sum;
-    uint32_t write_bytes_sum;
+    uint32_t write_ticks_sum;        /*Total write time in us*/
+    uint32_t write_bytes_sum;        /*Total write bytes*/
 
     uint32_t epic_copy_cnt;
     uint32_t gpdma_copy_cnt;
@@ -114,18 +118,14 @@ typedef struct
     uint8_t dma_faster_than_lcdc;
 
 #ifdef ENABLE_GP_DMA_COPY
-    DMA_HandleTypeDef testdma;
-    uint32_t src;
-    uint32_t dst;
-    uint32_t left_counts;
-    dma_write_cbk  dma_cb;
+    DMA_HandleTypeDef gpdma;
 #endif /* ENABLE_GP_DMA_COPY */
 
-#ifdef ENABLE_AES_COPY
+#if defined(ENABLE_AES_COPY) || defined(ENABLE_GP_DMA_COPY)
     uint32_t src;
     uint32_t dst;
     dma_write_cbk  dma_cb;
-#endif /* ENABLE_AES_COPY */
+#endif /* ENABLE_AES_COPY || ENABLE_GP_DMA_COPY */
 
 } DRV_LCD_FBTypeDef;
 
@@ -140,6 +140,16 @@ static const LCD_AreaDef  invalid_area = {-1, -1, -2, -2};
 
 
 static rt_err_t fb_flush_start(void);
+
+#ifdef DRV_LCD_FB_STATISTICS
+    static void print_statistics(void);
+    static uint32_t GetElapsedUs(uint32_t prev_tick, uint32_t cur_tick);
+#endif /*DRV_LCD_FB_STATISTICS*/
+
+
+//////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////
+
 
 static bool area_intersect(LCD_AreaDef *res_p, const LCD_AreaDef *a0_p, const LCD_AreaDef *a1_p)
 {
@@ -287,7 +297,7 @@ static void SystemView_mark_stop(uint32_t id)
 
 static rt_err_t fb_flush_done(rt_device_t dev, void *buffer)
 {
-    rt_err_t err;
+    rt_err_t err = RT_EOK;
 
     drv_lcd_fb.dbg_flush_rsp++;
 
@@ -302,13 +312,45 @@ static rt_err_t fb_flush_done(rt_device_t dev, void *buffer)
     DRV_LCD_FB_ASSERT(1 == p_fb->ready);
     DRV_LCD_FB_ASSERT(1 == p_fb->fb_flushing_lcd);
     p_fb->ready = 0;
-    p_fb->fb_flushing_lcd = 0;
     p_fb->fb_flush_start_y = INT32_MIN;
-    set_valid_y(p_fb->fb.area.y1 - p_fb->fb.area.y0);
     Enable_LineCpltCbk = 0;
+
+#ifdef BSP_USING_RAMLESS_LCD
+    /*
+     * For RAMLESS LCD, the current fb 'drv_lcd_fb.flush_fb_idx' is always the one
+     * being read by the LCDC/PTM.
+     * So, release the other buffer now.
+     */
+    {
+        int16_t other_idx = (int16_t)drv_lcd_fb.flush_fb_idx ^ 1;
+
+        if ((other_idx < (int16_t)drv_lcd_fb.fb_total) &&
+                drv_lcd_fb.fbs[other_idx].fb_flushing_lcd)
+        {
+            LCD_FBTypeDef *p_release_fb = &drv_lcd_fb.fbs[other_idx];
+
+            p_release_fb->fb_flushing_lcd = 0;
+            p_release_fb->fb_valid_y1 = p_release_fb->fb.area.y1
+                                        - p_release_fb->fb.area.y0;
+
+            uint32_t line_event  = (0 == other_idx)
+                                   ? EVENT_FB0_LINE_VALID
+                                   : EVENT_FB1_LINE_VALID;
+            uint32_t flush_event = (0 == other_idx)
+                                   ? EVENT_FB0_FLUSH_DONE
+                                   : EVENT_FB1_FLUSH_DONE;
+
+            err = rt_event_send(&drv_lcd_fb.event, line_event | flush_event);
+            DRV_LCD_FB_ASSERT(RT_EOK == err);
+        }
+    }
+#else
+    p_fb->fb_flushing_lcd = 0;
+    set_valid_y(p_fb->fb.area.y1 - p_fb->fb.area.y0);
 
     err = rt_event_send(&drv_lcd_fb.event,
                         (0 == drv_lcd_fb.flush_fb_idx) ? EVENT_FB0_FLUSH_DONE : EVENT_FB1_FLUSH_DONE);
+#endif /* BSP_USING_RAMLESS_LCD */
 
     rt_hw_interrupt_enable(level);
 
@@ -339,6 +381,7 @@ static rt_err_t fb_flush_start(void)
     }
 
     //Find the valid framebuffer
+    uint16_t start_idx = drv_lcd_fb.flush_fb_idx;
     LCD_FBTypeDef *p_fb = &drv_lcd_fb.fbs[drv_lcd_fb.flush_fb_idx];
     if (0 == p_fb->ready)
     {
@@ -348,6 +391,11 @@ static rt_err_t fb_flush_start(void)
 
         if (0 == p_fb->ready)
         {
+            /* Neither FB is ready. flush_fb_idx was tentatively advanced above;
+             * restore it so it never points at a buffer that was NOT actually
+             * submitted to the LCDC (otherwise flush_fb_idx would lie about the
+             * in-flight FB). The next call re-scans from the real position. */
+            drv_lcd_fb.flush_fb_idx = start_idx;
             rt_hw_interrupt_enable(level);
             LOG_D("Both framebuffers are not ready");
             return RT_EEMPTY;
@@ -403,10 +451,10 @@ static rt_err_t fb_flush_start(void)
 
 static void write_fb_cb1(void)
 {
-    drv_lcd_fb.write_end_tick = rt_tick_get();
+    drv_lcd_fb.write_end_tick = HAL_DBG_DWT_GetCycles();
     drv_lcd_fb.dbg_write_rsp++;
 #ifdef DRV_LCD_FB_STATISTICS
-    drv_lcd_fb.write_ticks_sum += drv_lcd_fb.write_end_tick - drv_lcd_fb.write_start_tick;
+    drv_lcd_fb.write_ticks_sum += GetElapsedUs(drv_lcd_fb.write_start_tick, drv_lcd_fb.write_end_tick);
 #endif /* DRV_LCD_FB_STATISTICS */
 
 #ifdef CHECK_FB_WRITE_OVERFLOW
@@ -471,63 +519,22 @@ static void write_fb_cb_done_send(void)
 }
 
 
-
+#ifdef HAL_EXTDMA_MODULE_ENABLED
 static void write_fb_err_cb(void)
 {
     LOG_E("write_fb_err_cb extdma error(%x).", EXT_DMA_GetError());
-
     //RT_ASSERT(0);
 }
+#endif /* HAL_EXTDMA_MODULE_ENABLED */
 
 #ifdef ENABLE_GP_DMA_COPY
-static void DMA_reload(void)
+static void gpdma_write_fb_err_cb(DMA_HandleTypeDef *gpdma_handle)
 {
-    LOG_D("DMA_reload=0x%x", drv_lcd_fb.left_counts);
-
-#define  max_counts  0xFFFFU
-    if (drv_lcd_fb.left_counts > max_counts)
-    {
-        uint32_t src_addr = drv_lcd_fb.src;
-        uint32_t dst_addr = drv_lcd_fb.dst;
-        uint32_t offset;
-
-        if (DMA_MDATAALIGN_WORD == drv_lcd_fb.testdma.Init.MemDataAlignment)
-            offset = max_counts << 2;
-        else if (DMA_MDATAALIGN_HALFWORD == drv_lcd_fb.testdma.Init.MemDataAlignment)
-            offset = max_counts << 1;
-        else if (DMA_MDATAALIGN_BYTE == drv_lcd_fb.testdma.Init.MemDataAlignment)
-            offset = max_counts;
-
-        drv_lcd_fb.left_counts -= max_counts;
-        drv_lcd_fb.src = src_addr + offset;
-        drv_lcd_fb.dst = dst_addr + offset;
-
-        HAL_DMA_RegisterCallback(&drv_lcd_fb.testdma, HAL_DMA_XFER_CPLT_CB_ID, (void (*)(struct __DMA_HandleTypeDef *))DMA_reload);
-        HAL_DMA_Start_IT(&drv_lcd_fb.testdma, src_addr, dst_addr, max_counts);
-
-    }
-    else
-    {
-        uint32_t counts = drv_lcd_fb.left_counts;
-        drv_lcd_fb.left_counts = 0;
-        HAL_DMA_RegisterCallback(&drv_lcd_fb.testdma, HAL_DMA_XFER_CPLT_CB_ID, (void (*)(struct __DMA_HandleTypeDef *))drv_lcd_fb.dma_cb);
-        HAL_DMA_Start_IT(&drv_lcd_fb.testdma, drv_lcd_fb.src, drv_lcd_fb.dst, counts);
-    }
-}
-
-void GP_DMA_IRQHandler(void)
-{
-    /* enter interrupt */
-    rt_interrupt_enter();
-
-    LOG_D("GP_DMA_IRQHandler=0x%x, cb=%p, cb2=%p", drv_lcd_fb.left_counts, drv_lcd_fb.dma_cb, drv_lcd_fb.testdma.XferCpltCallback);
-
-    HAL_DMA_IRQHandler(&drv_lcd_fb.testdma);
-
-    /* leave interrupt */
-    rt_interrupt_leave();
+    LOG_E("write_fb_err_cb gpdma error(%x).", HAL_DMA_GetError(gpdma_handle));
 }
 #endif /* ENABLE_GP_DMA_COPY */
+
+
 
 #ifdef ENABLE_AES_COPY
 void AES_CopyCb(void)
@@ -547,7 +554,7 @@ void AES_CopyCb(void)
 #ifdef DRV_LCD_FB_STATISTICS
 static void print_statistics(void)
 {
-    uint32_t cost_ms = drv_lcd_fb.write_ticks_sum * (1000u / RT_TICK_PER_SECOND);
+    uint32_t cost_ms = drv_lcd_fb.write_ticks_sum / 1000u;
 
     LOG_I("avg %dKB/s. epic:%d,gpdma:%d,extdma:%d,aes:%d", drv_lcd_fb.write_bytes_sum / cost_ms,
           drv_lcd_fb.epic_copy_cnt,
@@ -563,6 +570,18 @@ static void print_statistics(void)
     drv_lcd_fb.extdma_copy_cnt = 0;
     drv_lcd_fb.aes_copy_cnt = 0;
 }
+
+static uint32_t GetElapsedUs(uint32_t prev_tick, uint32_t cur_tick)
+{
+    static uint32_t hclk_freq_Mhz = 0;
+    if (0 == hclk_freq_Mhz)
+    {
+        hclk_freq_Mhz = HAL_RCC_GetHCLKFreq(CORE_ID_CURRENT) / 1000000;
+    }
+
+    return (HAL_GetElapsedTick(prev_tick, cur_tick) + (hclk_freq_Mhz >> 1)) / hclk_freq_Mhz;
+}
+
 #endif /* DRV_LCD_FB_STATISTICS */
 /**
  * @brief Copy part of src to current FB(drv_lcd_fb.fb)
@@ -660,10 +679,10 @@ static rt_err_t write_fb_async(LCD_AreaDef *clip_area, LCD_AreaDef *src_area, co
 
 
 #ifdef DRV_LCD_FB_STATISTICS
-    if (drv_lcd_fb.write_ticks_sum > 2000) print_statistics();
+    if (drv_lcd_fb.write_ticks_sum > 2000000) print_statistics();
     drv_lcd_fb.write_bytes_sum += len;
 #endif /* DRV_LCD_FB_STATISTICS */
-    drv_lcd_fb.write_start_tick = rt_tick_get();
+    drv_lcd_fb.write_start_tick = HAL_DBG_DWT_GetCycles();
     drv_lcd_fb.dbg_write_req++;
 
 #ifdef CHECK_FB_WRITE_OVERFLOW
@@ -697,48 +716,48 @@ static rt_err_t write_fb_async(LCD_AreaDef *clip_area, LCD_AreaDef *src_area, co
     {
         uint32_t counts;
 
-        drv_lcd_fb.testdma.Instance = GP_DMA_CHANNEL;
-        drv_lcd_fb.testdma.Init.Request = 0; //DMA_REQUEST_MEM2MEM;
-        drv_lcd_fb.testdma.Init.Direction = DMA_MEMORY_TO_MEMORY;
-        drv_lcd_fb.testdma.Init.PeriphInc = DMA_PINC_ENABLE;
-        drv_lcd_fb.testdma.Init.MemInc = DMA_MINC_ENABLE;
-        drv_lcd_fb.testdma.Init.Mode               = DMA_NORMAL;
-        drv_lcd_fb.testdma.Init.Priority           = DMA_PRIORITY_HIGH;
-        drv_lcd_fb.testdma.Init.PeriphInc = DMA_PINC_ENABLE; //src
-        drv_lcd_fb.testdma.Init.MemInc = DMA_MINC_ENABLE;    //dst
+        drv_lcd_fb.gpdma.Instance = GP_DMA_CHANNEL;
+        drv_lcd_fb.gpdma.Init.Request = 0; //DMA_REQUEST_MEM2MEM;
+        drv_lcd_fb.gpdma.Init.Direction = DMA_MEMORY_TO_MEMORY;
+        drv_lcd_fb.gpdma.Init.Mode               = DMA_NORMAL;
+        drv_lcd_fb.gpdma.Init.Priority           = DMA_PRIORITY_HIGH;
+        drv_lcd_fb.gpdma.Init.PeriphInc = DMA_PINC_ENABLE; //src
+        drv_lcd_fb.gpdma.Init.MemInc = DMA_MINC_ENABLE;    //dst
 
         if (0 == ((src_line_addr | dst_line_addr | len) & 3)) //Word aligned
         {
-            drv_lcd_fb.testdma.Init.PeriphDataAlignment = DMA_PDATAALIGN_WORD;
-            drv_lcd_fb.testdma.Init.MemDataAlignment   = DMA_MDATAALIGN_WORD;
+            drv_lcd_fb.gpdma.Init.PeriphDataAlignment = DMA_PDATAALIGN_WORD;
+            drv_lcd_fb.gpdma.Init.MemDataAlignment   = DMA_MDATAALIGN_WORD;
             counts = len >> 2;
         }
         else if (0 == ((src_line_addr | dst_line_addr | len) & 1)) //Half word aligned
         {
-            drv_lcd_fb.testdma.Init.PeriphDataAlignment = DMA_PDATAALIGN_HALFWORD;
-            drv_lcd_fb.testdma.Init.MemDataAlignment   = DMA_MDATAALIGN_HALFWORD;
+            drv_lcd_fb.gpdma.Init.PeriphDataAlignment = DMA_PDATAALIGN_HALFWORD;
+            drv_lcd_fb.gpdma.Init.MemDataAlignment   = DMA_MDATAALIGN_HALFWORD;
             counts = len >> 1;
         }
         else
         {
-            drv_lcd_fb.testdma.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
-            drv_lcd_fb.testdma.Init.MemDataAlignment   = DMA_MDATAALIGN_BYTE;
+            drv_lcd_fb.gpdma.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
+            drv_lcd_fb.gpdma.Init.MemDataAlignment   = DMA_MDATAALIGN_BYTE;
             counts = len;
         }
 
-        HAL_DMA_Init(&drv_lcd_fb.testdma);
-
-        /* NVIC configuration for DMA transfer complete interrupt */
-        HAL_NVIC_SetPriority(GP_DMA_IRQn, 0, 0);
-        HAL_NVIC_EnableIRQ(GP_DMA_IRQn);
-
-        HAL_DMA_RegisterCallback(&drv_lcd_fb.testdma, HAL_DMA_XFER_ERROR_CB_ID, (void (*)(struct __DMA_HandleTypeDef *))write_fb_err_cb);
+        HAL_DMA_Init(&drv_lcd_fb.gpdma);
+        HAL_DMA_RegisterCallback(&drv_lcd_fb.gpdma, HAL_DMA_XFER_ERROR_CB_ID, gpdma_write_fb_err_cb);
 
         drv_lcd_fb.src = src_line_addr;
         drv_lcd_fb.dst = dst_line_addr;
-        drv_lcd_fb.left_counts = counts;
         drv_lcd_fb.dma_cb = cb;
-        DMA_reload();
+
+
+        HAL_DMA_RegisterCallback(&drv_lcd_fb.gpdma, HAL_DMA_XFER_CPLT_CB_ID, (void (*)(struct __DMA_HandleTypeDef *))drv_lcd_fb.dma_cb);
+        HAL_DMA_Start_IT(&drv_lcd_fb.gpdma, drv_lcd_fb.src, drv_lcd_fb.dst, counts);
+        if (drv_lcd_fb.gpdma.Instance != DMA1_Channel2 && drv_lcd_fb.gpdma.Instance != DMA1_Channel1)
+        {
+            //Only DMA1_Channel2 and DMA1_Channel1 have good performance on PSRAM read
+            LOG_W("Can't allocate DMA1_Channel2 or DMA1_Channel1. Using channel %d(base 1).", (drv_lcd_fb.gpdma.ChannelIndex >> 2) + 1);
+        }
 
 #ifdef DRV_LCD_FB_STATISTICS
         drv_lcd_fb.gpdma_copy_cnt++;
@@ -1086,20 +1105,6 @@ rt_err_t drv_lcd_fb_wait_all_done(uint8_t *p_data, int32_t wait_ms)
                 //Overwrite anyway
                 LOG_W("Wait fb=%x evt=%x, timeout", p_data, events1);
             }
-
-#ifdef BSP_USING_RAMLESS_LCD
-            //Make sure the RAMLESS LCD read from another buffer
-            RT_ASSERT(2 == drv_lcd_fb.fb_total);
-            err = rt_event_recv(&drv_lcd_fb.event, events2,
-                                RT_EVENT_FLAG_OR,
-                                rt_tick_from_millisecond(wait_ms), NULL);
-
-            if (RT_EOK != err)
-            {
-                //Overwrite anyway
-                LOG_W("Wait fb=%x evt=%x, timeout", p_data, events2);
-            }
-#endif /*BSP_USING_RAMLESS_LCD*/
 
             return RT_EOK;
         }

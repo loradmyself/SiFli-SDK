@@ -76,7 +76,7 @@ CONFIG_IPC_OWN_DEVICE_NAME="uart2"
 
 The relationship between the DUT, the tester, and the PC control host:
 
-```{figure} assert/bt_signaling_test.png
+```{figure} assets/bt_signaling_test.png
 :align: center
 
 BT signaling test topology
@@ -152,7 +152,7 @@ case BTS2MU_GAP_ENB_DUT_MODE_CFM:
 
 Non-signaling testing establishes no Bluetooth link with the DUT; the PC controls the DUT by sending HCI commands over UART, while controlling the tester over UART or GPIB:
 
-```{figure} assert/non_signaling_test.png
+```{figure} assets/non_signaling_test.png
 :align: center
 
 Non-signaling test topology
@@ -310,7 +310,7 @@ LOG_I("err_bit=%d total_bit=%d err_pkt=%d total_pkt=%d rssi=%d",
 
 All BLE RF testing is done by passing three HCI commands (`LE_Transmitter_Test` / `LE_Receiver_Test` / `LE_Test_End`) over the UART between the DUT and the tester. On the firmware side there is only this one path: switching the UART to HCI passthrough:
 
-```{figure} assert/ble_signaling_test.png
+```{figure} assets/ble_signaling_test.png
 :align: center
 
 BLE DTM test topology
@@ -509,6 +509,7 @@ Default RF debug UART and pin mapping for each chip (default baud rate **1000000
 | SF32LB567 | RF debug UART | PA34, PA30 | UART1: TX(PA34) / RX(PA30) | |
 | SF32LB52x | RF debug UART | PA19, PA18 | UART1: TX(PA19) / RX(PA18) | Shares pins with the firmware download port |
 | SF32LB58x | RF debug UART | PA31, PA32 | UART1: TX(PA31) / RX(PA32) | |
+| SF32LB57x | RF debug UART | PA19, PA18 | UART1: TX(PA19) / RX(PA18) | |
 
 > For historical reasons, on the SF32LB55X series the **single-carrier test** must use UART3. On all other chips, all RF testing uses UART1.
 
@@ -539,7 +540,7 @@ The power levels the chip PA can output stably (other dBm values are internally 
 (Top) → SiFli SDK configuration → Board Config → Select BT RF TX power
 ```
 
-The Kconfig fields are all **`int` type — enter the dBm value directly as an integer** (see [customer/boards/Kconfig:103+](D:/OpenSiFli/SiFli-SDK/customer/boards/Kconfig#L103)). On the newer platforms (52X/56X/58X) the range is 0–13 dBm; on the older platforms, BLE ranges from -10 to 10 dBm.
+The Kconfig fields are all **`int` type — enter the dBm value directly as an integer** (see [customer/boards/Kconfig:103+](D:/OpenSiFli/SiFli-SDK/customer/boards/Kconfig#L103)). On the newer platforms (52X/56X/58X/57X) the range is 0–13 dBm; on the older platforms, BLE ranges from -10 to 10 dBm.
 
 | Option | Meaning |
 |---|---|
@@ -555,7 +556,7 @@ The `pwr_lvl` field of the non-signaling TX command has the same semantics as th
 
 A quick reference of the HCI commands commonly used for BT/BLE RF testing:
 
-```{figure} assert/hci_cmd.png
+```{figure} assets/hci_cmd.png
 :align: center
 
 HCI command set

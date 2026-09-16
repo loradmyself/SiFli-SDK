@@ -245,6 +245,15 @@ menu "On-chip Peripherals"
         bool "EPIC"
         select RT_USING_EPIC
         default n
+
+        config DRV_EPIC_DEBUG_LOG
+            bool "Enable EPIC driver debug logs"
+            depends on BSP_USING_EPIC
+            default n
+            help
+                Enable LOG_D output in the EPIC driver.
+                The global ULOG output level must also allow Debug logs.
+
         if BSP_USING_EPIC && !SOC_SF32LB55X
             config DRV_EPIC_NEW_API
             bool "Using epic render list API"
@@ -473,6 +482,10 @@ menu "On-chip Peripherals"
         select BSP_USING_DMA
         default n
         if BSP_USING_I2S
+            config BSP_ENABLE_I2S1
+                bool "Enable I2S1"
+                depends on SOC_SF32LB57X
+                default n
             config BSP_ENABLE_I2S_MIC
                 bool "Enable I2S1 for Mic"
                 depends on SOC_SF32LB58X || SOC_SF32LB55X
@@ -481,12 +494,42 @@ menu "On-chip Peripherals"
                 bool "Enable I2S2 for Codec"
                 default n
             config BSP_ENABLE_I2S3
-                depends on SOC_SF32LB58X || SOC_SF32LB56X	    
+                depends on SOC_SF32LB58X || SOC_SF32LB56X
                 bool "Enable I2S3 for Codec"
                 default n
             config BSP_I2S_CLK_XTAL 
                 depends on !SOC_SF32LB55X
                 bool "i2s source xtal clock"
+                default n
+        endif
+
+    menuconfig BSP_USING_INPUT_CAPTURE
+        bool "Input Capture"
+        default n
+        select RT_USING_INPUT_CAPTURE
+        if BSP_USING_INPUT_CAPTURE
+            config BSP_USING_INPUT_CAPTURE_GPTIM1
+                bool "Enable input capture on GPTIM1 (CH1~CH4)"
+                select RT_USING_RINGBUFFER
+                default n
+            config BSP_USING_INPUT_CAPTURE_GPTIM2
+                bool "Enable input capture on GPTIM2 (CH1~CH4)"
+                select RT_USING_RINGBUFFER
+                default n
+            config BSP_USING_INPUT_CAPTURE_GPTIM3
+                bool "Enable input capture on GPTIM3 (CH1~CH4)"
+                depends on SOC_SF32LB55X || SOC_SF32LB56X || SOC_SF32LB58X
+                select RT_USING_RINGBUFFER
+                default n
+            config BSP_USING_INPUT_CAPTURE_GPTIM4
+                bool "Enable input capture on GPTIM4 (CH1~CH4)"
+                depends on SOC_SF32LB55X || SOC_SF32LB56X || SOC_SF32LB58X
+                select RT_USING_RINGBUFFER
+                default n
+            config BSP_USING_INPUT_CAPTURE_GPTIM5
+                bool "Enable input capture on GPTIM5 (CH1~CH4)"
+                depends on SOC_SF32LB55X || SOC_SF32LB56X || SOC_SF32LB58X
+                select RT_USING_RINGBUFFER
                 default n
         endif
 
@@ -528,10 +571,10 @@ menu "On-chip Peripherals"
             menuconfig BSP_ENABLE_MPI1
                 bool "MPI Controller 1 Enable"
                 depends on BF0_HCPU && !BF0_ACPU
-                default y if SOC_SF32LB573UB7N6 || SOC_SF32LB573UB776 || SOC_SF32LB575YBBN6
+                default y if SOC_SF32LB573UB766 || SOC_SF32LB573UB7N6 || SOC_SF32LB573UB776 || SOC_SF32LB575YBBN6 || SOC_SF32LB57EYBBN6
                 default y if SOC_SF32LB575UCNN6 || SOC_SF32LB575UC7N6
                 default y if SOC_SF32LB577VD776 || SOC_SF32LB579V6EN6 || SOC_SF32LB577UDNN6
-                default y if SOC_SF32LB57GYD7N6
+                default y if SOC_SF32LB57GYD7N6 || SOC_SF32LB57GVD776
                 default n
                 if BSP_ENABLE_MPI1
                     config BSP_ENABLE_QSPI1
@@ -541,9 +584,9 @@ menu "On-chip Peripherals"
                         prompt "MPI Mode"
                         # Must select a PSRAM MPI mode for PSRAM, the exact PSRAM MPI mode is then 
                         # decided by BSP_PSRAM1_PKG_TYPEx_MPI_MODE in Kconfig_soc.sf32lb57x.common
-                        default BSP_MPI1_MODE_5 if SOC_SF32LB573UB7N6 || SOC_SF32LB573UB776 || SOC_SF32LB575YBBN6
+                        default BSP_MPI1_MODE_5 if SOC_SF32LB573UB766 || SOC_SF32LB573UB7N6 || SOC_SF32LB573UB776 || SOC_SF32LB575YBBN6 || SOC_SF32LB57EYBBN6
                         default BSP_MPI1_MODE_3 if SOC_SF32LB577VD776 || SOC_SF32LB575UCNN6 || SOC_SF32LB575UC7N6
-                        default BSP_MPI1_MODE_3 if SOC_SF32LB57GYD7N6 || SOC_SF32LB577UDNN6
+                        default BSP_MPI1_MODE_3 if SOC_SF32LB57GYD7N6 || SOC_SF32LB577UDNN6 || SOC_SF32LB57GVD776
                         default BSP_MPI1_MODE_0 if SOC_SF32LB579V6EN6
                         default BSP_MPI1_MODE_0
 
@@ -624,8 +667,8 @@ menu "On-chip Peripherals"
                     endif
                     config BSP_QSPI1_MEM_SIZE
                         int "MPI1 Mem Size (MB)"
-                        default 4  if SOC_SF32LB573UB7N6 || SOC_SF32LB573UB776 || SOC_SF32LB575YBBN6
-                        default 16 if SOC_SF32LB577VD776 || SOC_SF32LB57GYD7N6 || SOC_SF32LB577UDNN6
+                        default 4  if SOC_SF32LB573UB766 || SOC_SF32LB573UB7N6 || SOC_SF32LB573UB776 || SOC_SF32LB575YBBN6 || SOC_SF32LB57EYBBN6
+                        default 16 if SOC_SF32LB577VD776 || SOC_SF32LB57GYD7N6 || SOC_SF32LB577UDNN6 || SOC_SF32LB57GVD776
                         default 8  if SOC_SF32LB579V6EN6 || SOC_SF32LB575UCNN6 || SOC_SF32LB575UC7N6
                         default 8
                 endif        
@@ -633,10 +676,10 @@ menu "On-chip Peripherals"
             menuconfig BSP_ENABLE_MPI2
                 bool "MPI Controller 2 Enable"
                 depends on BF0_HCPU && !BF0_ACPU
-                default y if SOC_SF32LB573UB7N6 || SOC_SF32LB573UB776 || SOC_SF32LB575YBBN6
+                default y if SOC_SF32LB573UB766 || SOC_SF32LB573UB7N6 || SOC_SF32LB573UB776 || SOC_SF32LB575YBBN6 || SOC_SF32LB57EYBBN6
                 default y if SOC_SF32LB575UC7N6
                 default y if SOC_SF32LB577VD776 || SOC_SF32LB579V6EN6
-                default y if SOC_SF32LB57GYD7N6
+                default y if SOC_SF32LB57GYD7N6 || SOC_SF32LB57GVD776
                 default y if SOC_SF32LB57BUN3N6
                 default n
                 if BSP_ENABLE_MPI2
@@ -645,9 +688,9 @@ menu "On-chip Peripherals"
                         default y
                     choice
                         prompt "MPI Mode"
-                        default BSP_MPI2_MODE_0 if SOC_SF32LB573UB7N6 || SOC_SF32LB573UB776
-                        default BSP_MPI2_MODE_5 if SOC_SF32LB575YBBN6
-                        default BSP_MPI2_MODE_0 if SOC_SF32LB577VD776 
+                        default BSP_MPI2_MODE_0 if SOC_SF32LB573UB766 || SOC_SF32LB573UB7N6 || SOC_SF32LB573UB776
+                        default BSP_MPI2_MODE_5 if SOC_SF32LB575YBBN6 || SOC_SF32LB57EYBBN6
+                        default BSP_MPI2_MODE_0 if SOC_SF32LB577VD776 || SOC_SF32LB57GVD776
                         default BSP_MPI2_MODE_3 if SOC_SF32LB579V6EN6
                         default BSP_MPI2_MODE_0
 
@@ -743,9 +786,9 @@ menu "On-chip Peripherals"
                     endif
                     config BSP_QSPI2_MEM_SIZE
                         int "MPI2 Mem Size (MB)"
-                        default 16 if SOC_SF32LB573UB7N6 || SOC_SF32LB573UB776 || SOC_SF32LB575UC7N6
-                        default 4  if SOC_SF32LB575YBBN6
-                        default 16 if SOC_SF32LB577VD776 || SOC_SF32LB57GYD7N6 
+                        default 16 if SOC_SF32LB573UB766 || SOC_SF32LB573UB7N6 || SOC_SF32LB573UB776 || SOC_SF32LB575UC7N6
+                        default 4  if SOC_SF32LB575YBBN6 || SOC_SF32LB57EYBBN6
+                        default 16 if SOC_SF32LB577VD776 || SOC_SF32LB57GYD7N6 || SOC_SF32LB57GVD776
                         default 32 if SOC_SF32LB579V6EN6
                         default 1  if SOC_SF32LB57BUN3N6
                         default 32
@@ -754,7 +797,7 @@ menu "On-chip Peripherals"
             menuconfig BSP_ENABLE_MPI3
                 bool "MPI Controller 3 Enable"
                 depends on BF0_HCPU && !BF0_ACPU
-                default y if SOC_SF32LB573UB776 || SOC_SF32LB577VD776
+                default y if SOC_SF32LB573UB766 || SOC_SF32LB573UB776 || SOC_SF32LB577VD776 || SOC_SF32LB57GVD776
                 default n
                 if BSP_ENABLE_MPI3
                     config BSP_ENABLE_QSPI3
@@ -762,7 +805,7 @@ menu "On-chip Peripherals"
                         default y
                     choice
                         prompt "MPI Mode"
-                        default BSP_MPI3_MODE_0 if SOC_SF32LB573UB776 || SOC_SF32LB577VD776
+                        default BSP_MPI3_MODE_0 if SOC_SF32LB573UB766 || SOC_SF32LB573UB776 || SOC_SF32LB577VD776 || SOC_SF32LB57GVD776
                         default BSP_MPI3_MODE_0
 
                         config BSP_MPI3_MODE_0
@@ -842,7 +885,8 @@ menu "On-chip Peripherals"
                     endif
                     config BSP_QSPI3_MEM_SIZE
                         int "MPI3 Mem Size (MB)"
-                        default 16 if SOC_SF32LB573UB776 || SOC_SF32LB577VD776
+                        default 16 if SOC_SF32LB573UB776 || SOC_SF32LB577VD776 || SOC_SF32LB57GVD776
+                        default 8 if SOC_SF32LB573UB766
                         default 32
                 endif
             
@@ -1122,7 +1166,7 @@ menu "On-chip Peripherals"
         bool "PSRAM Cache Write Back Enabled"
         select MEMCPY_NON_DMA if PSRAM_CACHE_WB
         depends on !SOC_SIMULATOR && BSP_USING_PSRAM
-        default n 
+        default y
 
     menuconfig BSP_USING_PWM
         bool "PWM"
@@ -1569,6 +1613,10 @@ menu "On-chip Peripherals"
                 help
                   When enabled, SDMMC1 will only use 1-bit data bus width.
                   Disable this to allow 4-bit mode if the hardware supports it.
+            config SDIO_CARD_MODE
+                int "SDIO mode: 0 --> SDCARD, 1 --> EMMC, 2 --> SDIO"
+                range 0 2
+                default 0
         endif
 
         if BSP_USING_SDHCI1 && BSP_USING_SDMMC1
@@ -1578,9 +1626,6 @@ menu "On-chip Peripherals"
             config SD_DMA_MODE
                 int "DMA mode: 0 --> PIO, 1 --> SDMA, 2 --> ADMA"
                 default 2
-            config SDIO_CARD_MODE
-                int "SDIO mode: 0 --> SDCARD, 1 --> EMMC, 2 --> SDIO"
-                default 0
         endif # BSP_USING_SDHCI1
         
         menuconfig BSP_USING_SDMMC2
@@ -1599,6 +1644,10 @@ menu "On-chip Peripherals"
                 help
                   When enabled, SDMMC2 will only use 1-bit data bus width.
                   Disable this to allow 4-bit mode if the hardware supports it.
+            config SDIO2_CARD_MODE
+                int "SDIO mode: 0 --> SDCARD, 1 --> EMMC, 2 --> SDIO"
+                range 0 2
+                default 0
         endif
 
         if BSP_USING_SDHCI2 && BSP_USING_SDMMC2
@@ -1608,9 +1657,6 @@ menu "On-chip Peripherals"
             config SD2_DMA_MODE
                 int "DMA mode: 0 --> PIO, 1 --> SDMA, 2 --> ADMA"
                 default 2
-            config SDIO2_CARD_MODE
-                int "SDIO mode: 0 --> SDCARD, 1 --> EMMC, 2 --> SDIO"
-                default 0
         endif # BSP_USING_SDHCI2
 
         config BSP_USING_SDHCI
@@ -1748,6 +1794,47 @@ menu "On-chip Peripherals"
                 default n
         endif
 
+
+    menuconfig BSP_ENABLE_SPI_I2S_SLAVE_RX
+        bool "SPI Emulated I2S Slave RX"
+        depends on !SOC_SF32LB55X
+        default n
+        help
+            Enable SPI emulated I2S Slave RX, which can receive stereo audio data (16bit width format of each channel) from external I2S master device.
+            The audio data will be received by SPI and PTC peripheral, PTC channel1~channel3 are used. Only HPSYS SPI is supported
+    if BSP_ENABLE_SPI_I2S_SLAVE_RX
+        config BSP_I2S_SLAVE_RX_NAME
+        string "I2S Slave RX Name"
+        default "mic_s"
+            
+        config BSP_SPI_I2S_SLAVE_RX_BUF_SIZE
+            int "I2S Slave RX Buffer Size (Bytes)"
+            default 640
+            help
+                The buffer size of I2S Slave RX, the buffer is used to store the received audio data.
+                The buffer size must be a multiple of 4 and less than CFG_AUDIO_RECORD_PIPE_SIZE*2. 
+                CFG_AUDIO_RECORD_PIPE_SIZE is defined in rtos/rtthread/components/drivers/include/drivers/audio.h
+
+        config BSP_SPI_I2S_SLAVE_RX_CS_PIN
+            int "SPI CS Pin"
+            default 30
+            help
+                The pin number of SPI CS pin, the pin number is the same as the pin number used by RT-Thread pin device
+                For example, if you want to use PA30 as SPI CS pin, then the pin number is 30
+
+        choice BSP_SPI_I2S_SLAVE_RX_SPI_SELECT
+            prompt "SPI Instance"
+            default BSP_SPI_I2S_SLAVE_RX_USE_SPI1 
+            config BSP_SPI_I2S_SLAVE_RX_USE_SPI1
+                depends on !BSP_USING_SPI1
+                bool "SPI1"
+            config BSP_SPI_I2S_SLAVE_RX_USE_SPI2
+                depends on !BSP_USING_SPI2
+                bool "SPI2"
+        endchoice						
+    endif
+
+
     config BSP_USING_SYS_CFG
         bool "SYS CFG Module"
         depends on BF0_LCPU 
@@ -1818,7 +1905,7 @@ menu "On-chip Peripherals"
                 bool "Enable LPTIM3"
                 default n    
         endif
-
+        
     menuconfig BSP_USING_UART
         bool "UART"
         default n

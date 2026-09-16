@@ -15,9 +15,9 @@ extern "C" {
 #include "bf0_hal_def.h"
 #include "bf0_pin_const.h"
 
-#if defined(PIN_ARBITRARY_FUNC_LIST)
-#define HAL_PINMUX_SUPPORT_ARBITRARY_FUNCTION
-#endif /* PIN_ARBITRARY_FUNC_LIST */
+#if defined(PIN_MATRIX_FUNC_LIST)
+#define HAL_PINMUX_SUPPORT_MATRIX_FUNCTION
+#endif /* PIN_MATRIX_FUNC_LIST */
 
 /** @addtogroup BF0_HAL_Driver
   * @{
@@ -87,19 +87,36 @@ typedef enum
 typedef enum
 {
     PIN_MPI_PIMMAP_MODE_INVALID = 0,
+    /* MPI1: Legacy OPI PSRAM, MPI2: Legacy OPI PSRAM */
+    PIN_MPI_PINMAP_MODE_1 = 1,
+    /* MPI1: Xccela OPI PSRAM, MPI2: Xccela OPI PSRAM */
+    PIN_MPI_PINMAP_MODE_2 = 2,
+    /* MPI1: HyperBus OPI PSRAM, MPI2: not used */
+    PIN_MPI_PINMAP_MODE_3 = 3,
 } PIN_MpiPinmapMode;
 
 
 #elif defined(SF32LB57X)
 
-/** MPI pinmap mode for SiP memory */
+/** MPI pinmap mode (bonding type) for SiP memory */
 typedef enum
 {
     PIN_MPI_PINMAP_MODE_INVALID = 0,
+    /* bonding type 1 used by SiP PSRAM */
     PIN_MPI_PINMAP_MODE_1 = 1,
+    /* bonding type 2 used by SiP PSRAM */
     PIN_MPI_PINMAP_MODE_2 = 2,
+    /* bonding type 3 used by SiP PSRAM */
     PIN_MPI_PINMAP_MODE_3 = 3,
+    /* bonding type 4 used by SiP NOR Flash
+     * for MPI2 and MPI3 NOR Flash (i.e. SipFlash2 and SipFlash3), no need to select bonding type,
+     * because the pinmux is fixed and not configurable
+     */
     PIN_MPI_PINMAP_MODE_4 = 4,
+    /* bonding type 5 used by SiP NOR Flash
+     * for MPI2 and MPI3 NOR Flash (i.e. SipFlash2 and SipFlash3), no need to select bonding type,
+     * because the pinmux is fixed and not configurable
+     */
     PIN_MPI_PINMAP_MODE_5 = 5,
 } PIN_MpiPinmapMode;
 
@@ -158,8 +175,10 @@ typedef enum
 
 typedef struct
 {
+#ifdef PIN_SAVE_PINMUX_INSTANCE_SIZE
     uint32_t pad_regs[PIN_SAVE_PINMUX_INSTANCE_SIZE];
     uint32_t ext_regs[PIN_SAVE_PINMUX_EXT_INSTANCE_SIZE];
+#endif /* PIN_SAVE_PINMUX_INSTANCE_SIZE */
 } PIN_BackupBufTypeDef;
 
 
@@ -189,7 +208,7 @@ void HAL_PIN_Select(int pad, int func, int hcpu);
 int HAL_PIN_Set(int pad, pin_function func, int flags, int hcpu);
 
 
-#ifdef HAL_PINMUX_SUPPORT_ARBITRARY_FUNCTION
+#ifdef HAL_PINMUX_SUPPORT_MATRIX_FUNCTION
 /**
  * @brief  Set pin function defined at compile time
  *
@@ -219,7 +238,7 @@ int HAL_PIN_Set(int pad, pin_function func, int flags, int hcpu);
  * @retval 0  success
  */
 int HAL_PIN_Set2(pin_function2 func, int flags);
-#endif /* HAL_PINMUX_SUPPORT_ARBITRARY_FUNCTION */
+#endif /* HAL_PINMUX_SUPPORT_MATRIX_FUNCTION */
 
 /**
   * @brief  Set pin for analog function, fix for ROM patch, avoid pin_const update.

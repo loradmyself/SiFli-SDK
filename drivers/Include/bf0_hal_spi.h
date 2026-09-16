@@ -221,6 +221,7 @@ typedef struct
 #define SPI_DATASIZE_14BIT              (MAKE_REG_VAL(13, SPI_TOP_CTRL_DSS_Msk, SPI_TOP_CTRL_DSS_Pos))
 #define SPI_DATASIZE_15BIT              (MAKE_REG_VAL(14, SPI_TOP_CTRL_DSS_Msk, SPI_TOP_CTRL_DSS_Pos))
 #define SPI_DATASIZE_16BIT              (MAKE_REG_VAL(15, SPI_TOP_CTRL_DSS_Msk, SPI_TOP_CTRL_DSS_Pos))
+#define SPI_DATASIZE_32BIT              (MAKE_REG_VAL(31, SPI_TOP_CTRL_DSS_Msk, SPI_TOP_CTRL_DSS_Pos))
 /**
   * @} SPI_Data_Size
   */
@@ -759,7 +760,8 @@ UNUSED(tmpreg_ovr);                            \
 #define IS_SPI_DIRECTION_2LINES_OR_1LINE(MODE) (((MODE) == SPI_DIRECTION_2LINES) || \
                                                 ((MODE) == SPI_DIRECTION_1LINE))
 
-#define IS_SPI_DATASIZE(DATASIZE) (((DATASIZE) == SPI_DATASIZE_16BIT) || \
+#define IS_SPI_DATASIZE(DATASIZE) (((DATASIZE) == SPI_DATASIZE_32BIT) || \
+                                   ((DATASIZE) == SPI_DATASIZE_16BIT) || \
                                    ((DATASIZE) == SPI_DATASIZE_15BIT) || \
                                    ((DATASIZE) == SPI_DATASIZE_14BIT) || \
                                    ((DATASIZE) == SPI_DATASIZE_13BIT) || \
@@ -1035,6 +1037,24 @@ HAL_StatusTypeDef HAL_SPI_Receive_DMA(SPI_HandleTypeDef *hspi, uint8_t *pData, u
   */
 HAL_StatusTypeDef HAL_SPI_TransmitReceive_DMA(SPI_HandleTypeDef *hspi, uint8_t *pTxData, uint8_t *pRxData,
         uint16_t Size);
+
+/**
+  * @brief  Configure SPI DMA mode for tx/rx channels.
+  * @param  hspi pointer to a SPI_HandleTypeDef structure.
+  * @param  TxMode DMA mode for Tx channel, @ref DMA_mode.
+  * @param  RxMode DMA mode for Rx channel, @ref DMA_mode.
+  * @retval HAL status
+  */
+HAL_StatusTypeDef HAL_SPI_DMASetMode(SPI_HandleTypeDef *hspi, uint32_t TxMode, uint32_t RxMode);
+
+/**
+  * @brief  Receive data with DMA circular mode.
+  * @param  hspi pointer to a SPI_HandleTypeDef structure.
+  * @param  pData pointer to receive buffer.
+  * @param  Size transfer size.
+  * @retval HAL status
+  */
+HAL_StatusTypeDef HAL_SPI_Receive_DMA_Circular(SPI_HandleTypeDef *hspi, uint8_t *pData, uint16_t Size);
 
 #ifdef DMA_LINK_LIST_SUPPORT
 /**

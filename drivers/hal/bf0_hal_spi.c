@@ -326,6 +326,11 @@ __HAL_ROM_USED HAL_StatusTypeDef HAL_SPI_Init(SPI_HandleTypeDef *hspi)
     {
         hspi->Instance->TRIWIRE_CTRL &= ~SPI_TRIWIRE_CTRL_SPI_TRI_WIRE_EN;
         hspi->Instance->TOP_CTRL &= ~SPI_TOP_CTRL_TTE;
+        if (hspi->Init.Direction == SPI_DIRECTION_2LINES_RXONLY)
+        {
+            // TODO: why?
+            hspi->Instance->TRIWIRE_CTRL |= SPI_TRIWIRE_CTRL_SSP_WORK_WIDTH_DYN_CHANGE;
+        }
 #ifdef SPI_CLK_CTRL_SPI_DI_SEL
         hspi->Instance->CLK_CTRL &= ~SPI_CLK_CTRL_SPI_DI_SEL;
 #endif /* SPI_CLK_CTRL_SPI_DI_SEL */
@@ -808,6 +813,28 @@ __HAL_ROM_USED HAL_StatusTypeDef HAL_SPI_Receive(SPI_HandleTypeDef *hspi, uint8_
                 /* read the received data */
                 (* (uint8_t *)pData) = *(__IO uint8_t *)&hspi->Instance->DATA;
                 pData += sizeof(uint8_t);
+                hspi->RxXferCount--;
+            }
+            else
+            {
+                /* Timeout management */
+                if ((Timeout == 0U) || ((Timeout != HAL_MAX_DELAY) && ((HAL_GetTick() - tickstart) >=  Timeout)))
+                {
+                    errorcode = HAL_TIMEOUT;
+                    goto error;
+                }
+            }
+        }
+    }
+    else if (hspi->Init.DataSize == SPI_DATASIZE_32BIT)
+    {
+        while (hspi->RxXferCount > 0U)
+        {
+            /* Check the RXNE flag */
+            if (__HAL_SPI_GET_FLAG(hspi, SPI_FLAG_RXNE))
+            {
+                *((uint32_t *)pData) = hspi->Instance->DATA;
+                pData += sizeof(uint32_t);
                 hspi->RxXferCount--;
             }
             else
@@ -2160,6 +2187,98 @@ error:
     return errorcode;
 }
 #endif /* DMA_LINK_LIST_SUPPORT */
+
+/**
+  * @brief  Configure SPI DMA mode for tx/rx channels.
+  * @param  hspi pointer to a SPI_HandleTypeDef structure.
+  * @param  TxMode DMA mode for Tx channel.
+  * @param  RxMode DMA mode for Rx channel.
+  * @retval HAL status
+  */
+__HAL_ROM_USED HAL_StatusTypeDef HAL_SPI_DMASetMode(SPI_HandleTypeDef *hspi, uint32_t TxMode, uint32_t RxMode)
+{
+    HAL_StatusTypeDef status;
+
+    if (hspi == NULL)
+    {
+        return HAL_ERROR;
+    }
+
+    HAL_ASSERT(IS_DMA_MODE(TxMode));
+    HAL_ASSERT(IS_DMA_MODE(RxMode));
+
+    if ((hspi->State != HAL_SPI_STATE_READY) && (hspi->State != HAL_SPI_STATE_RESET))
+    {
+        return HAL_BUSY;
+    }
+
+    if ((hspi->hdmatx == NULL) && (hspi->hdmarx == NULL))
+    {
+        return HAL_ERROR;
+    }
+
+    if (hspi->hdmatx != NULL)
+    {
+        if ((hspi->hdmatx->State != HAL_DMA_STATE_READY) &&
+                (hspi->hdmatx->State != HAL_DMA_STATE_RESET))
+        {
+            return HAL_BUSY;
+        }
+
+        hspi->hdmatx->Init.Mode = TxMode;
+        status = HAL_DMA_Init(hspi->hdmatx);
+        if (status != HAL_OK)
+        {
+            return status;
+        }
+    }
+
+    if (hspi->hdmarx != NULL)
+    {
+        if ((hspi->hdmarx->State != HAL_DMA_STATE_READY) &&
+                (hspi->hdmarx->State != HAL_DMA_STATE_RESET))
+        {
+            return HAL_BUSY;
+        }
+
+        hspi->hdmarx->Init.Mode = RxMode;
+        status = HAL_DMA_Init(hspi->hdmarx);
+        if (status != HAL_OK)
+        {
+            return status;
+        }
+    }
+
+    return HAL_OK;
+}
+
+/**
+  * @brief  Receive data with DMA circular mode.
+  * @param  hspi pointer to a SPI_HandleTypeDef structure.
+  * @param  pData pointer to receive buffer.
+  * @param  Size transfer size.
+  * @retval HAL status
+  */
+__HAL_ROM_USED HAL_StatusTypeDef HAL_SPI_Receive_DMA_Circular(SPI_HandleTypeDef *hspi, uint8_t *pData, uint16_t Size)
+{
+    HAL_StatusTypeDef status;
+    uint32_t tx_mode = DMA_NORMAL;
+
+    if ((hspi != NULL) &&
+            (hspi->Init.Direction == SPI_DIRECTION_2LINES) &&
+            (hspi->Init.Mode == SPI_MODE_MASTER))
+    {
+        tx_mode = DMA_CIRCULAR;
+    }
+
+    status = HAL_SPI_DMASetMode(hspi, tx_mode, DMA_CIRCULAR);
+    if (status != HAL_OK)
+    {
+        return status;
+    }
+
+    return HAL_SPI_Receive_DMA(hspi, pData, Size);
+}
 
 /**
   * @brief  Abort ongoing transfer (blocking mode).

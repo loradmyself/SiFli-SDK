@@ -55,10 +55,7 @@ git diff <branch>..<sha>
 git checkout <sha>
 ```
 
-> **IMPORTANT**: Checking out a detached HEAD will move away from the current branch. After the review is complete, return to the original branch:
-> ```bash
-> git checkout -
-> ```
+> **IMPORTANT — STAY on the reviewed commit after the review (do NOT revert)**: Checking out a detached HEAD moves away from the current branch, but **keep the checkout once the review is done — do NOT `git checkout -` back to the original branch**. The user wants to browse the code against the report, so the working tree must remain at the reviewed commit so the line numbers quoted in the report match the code on disk. Record the original branch name (`git branch --show-current`) before checking out, and only switch back later if the user explicitly asks (`git checkout <original-branch>`).
 
 **Step 4 — Read the commit message:**
 ```bash
@@ -126,6 +123,8 @@ git log -1 --format=full FETCH_HEAD
 ```
 
 > **IMPORTANT — Always use `FETCH_HEAD` in `git log`**: After `git fetch`, `HEAD` is still your original branch. Running `git log -1` without `FETCH_HEAD` will show the wrong commit message. Even after `git checkout FETCH_HEAD`, using `FETCH_HEAD` is safer — there's no ambiguity about what you're reading.
+
+> **IMPORTANT — STAY on the reviewed commit after the review (do NOT revert)**: Same rule as Step 0a — after `git checkout FETCH_HEAD` and completing the review, **remain on the reviewed commit** so the user can keep browsing the code against the report. Do not `git checkout -` back to the original branch unless the user explicitly asks.
 
 ### Step 0c: Review Local Changes (default)
 
@@ -234,6 +233,7 @@ Check against the project's `.clang-format` (Allman brace style, 4-space indent)
 - Are RT-Thread IPC calls used correctly (message queues, mailboxes, events)?
 - Are calls to non-reentrant functions (e.g., `malloc`, `printf`) safe in the context they're called from?
 - Check for potential deadlocks: consistent lock ordering, no nested locks that could invert.
+- Passing a pointer to a local variable into any API whose name contains `async` (e.g. RT-Thread control codes ending in `_ASYNC`, such as `RTGRAPHIC_CTRL_GET_BRIGHTNESS_ASYNC`). The driver writes back through that pointer after the call returns; by then the calling function has returned and the stack frame is gone, so the writeback is use-after-scope (intermittent corruption, stack stomping, HardFault). 
 
 ### 2.4 Unnecessary Changes
 
