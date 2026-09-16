@@ -414,7 +414,14 @@ if BSP_USING_BUILTIN_LCD
             select LCD_USING_EPD_E0470A01
             select BSP_LCDC_USING_DIRECT_EPD
         
-
+        
+        config LCD_USING_24BIT_RGB_ZJY430
+            bool "4.3 rect RGB 800x480 LCD(800x480-ZJY430-RGB)"
+            select TSC_USING_GT911 if BSP_USING_TOUCHD
+            select LCD_USING_ST7265
+            select BSP_LCDC_USING_DPI
+            select LCD_USING_PWM_AS_BACKLIGHT
+            depends on BSP_SUPPORT_DPI
 
         config LCD_USING_YX40018ACT
             bool "3.92 rect DBI-16bit 320x320 TFT (YX40018ACT)"
@@ -576,7 +583,7 @@ if BSP_USING_BUILTIN_LCD
         default 128 if LCD_USING_GC9107_128x128_SPI
         default 1024 if LCD_USING_EPD_8BIT_OPM060DA
         default 320 if LCD_USING_YX40018ACT
-
+        default 800 if LCD_USING_24BIT_RGB_ZJY430
 
         
     config LCD_VER_RES_MAX
@@ -631,6 +638,7 @@ if BSP_USING_BUILTIN_LCD
         default 758 if LCD_USING_EPD_8BIT_OPM060DA
         default 684 if LCD_USING_EPD_16BIT_E0470A01
         default 320 if LCD_USING_YX40018ACT
+        default 480 if LCD_USING_24BIT_RGB_ZJY430
 
 
     config LCD_DPI
@@ -685,6 +693,7 @@ if BSP_USING_BUILTIN_LCD
         default 300 if LCD_USING_EPD_8BIT_OPM060DA
         default 297 if LCD_USING_EPD_16BIT_E0470A01
         default 117 if LCD_USING_YX40018ACT
+        default 300 if LCD_USING_24BIT_RGB_ZJY430
 
 endif
 

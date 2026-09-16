@@ -260,6 +260,10 @@ config LCD_USING_EPD_OPM060DA
     default n
 
 
+config LCD_USING_ST7265
+    bool
+    default n
+
 config LCD_USING_EPD_E0470A01
     bool
     default n
