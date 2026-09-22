@@ -1,0 +1,28 @@
+import os
+import rtconfig
+
+SIFLI_SDK = os.getenv('SIFLI_SDK')
+if not SIFLI_SDK:
+    print("Please run export.ps1/export.sh in the SiFli-SDK root first.")
+    exit()
+
+from building import *
+
+PrepareEnv()
+
+AddBootLoader(SIFLI_SDK, rtconfig.CHIP)
+AddLCPU(SIFLI_SDK, rtconfig.CHIP, "../src/lcpu_img.c")
+
+SifliEnv()
+
+TARGET = rtconfig.OUTPUT_DIR + rtconfig.TARGET_NAME + '.' + rtconfig.TARGET_EXT
+objs = PrepareBuilding(None)
+env = GetCurrentEnv()
+
+DoBuilding(TARGET, objs)
+AddFTAB(SIFLI_SDK, rtconfig.CHIP, env)
+
+fs_bin = FileSystemBuild("../disk", env)
+AddCustomImg("fs_root", bin=[fs_bin])
+
+GenDownloadScript(env)

@@ -1,3 +1,4 @@
 config USING_BATTERY_CALCULATOR
     bool "Battery Calculator"
+    depends on BSP_USING_CHARGER
     default n

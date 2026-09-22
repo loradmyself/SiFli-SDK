@@ -118,7 +118,7 @@ static LCDC_InitTypeDef lcdc_int_cfg_qadspi =
 #if defined(LCD_MAX_CLK_FREQ)
     .freq = LCD_MAX_CLK_FREQ,        //CO5300 RGB565 only support 50000000,  RGB888 support 60000000
 #else
-    .freq = 50000000, //CO5300 RGB565 only support 50000000,  RGB888 support 60000000
+    .freq = 60000000, //CO5300 RGB565 only support 50000000,  RGB888 support 60000000
 #endif
 
     .color_mode = LCDC_PIXEL_FORMAT_RGB565,//LCDC_PIXEL_FORMAT_RGB565,

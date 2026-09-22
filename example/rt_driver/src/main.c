@@ -349,6 +349,8 @@ static void lcd_refresh_task(void *parameter)
     {
         uint16_t framebuffer_color_format = FB_COLOR_FORMAT;
 
+rt_kprintf("FB_COLOR_FORMAT=%d, pixel_size=%d\n", framebuffer_color_format, get_pixel_size(framebuffer_color_format));
+
         /*Fill framebuffer*/
         rt_kprintf("Fill framebuffer addr=0x%x, w=%d, h=%d, size=%d(Bytes)\n", p_framebuffer, FB_WIDTH, FB_HEIGHT, FB_TOTAL_BYTES);
         if (0 == loop) fill_color_bar((uint8_t *)p_framebuffer, FB_WIDTH, FB_HEIGHT, framebuffer_color_format);  //Fill 8 gradient color bar

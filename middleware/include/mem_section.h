@@ -163,6 +163,20 @@ extern "C" {
 #define L2_NON_RET_BSS_SECT(section_name, var )     var SECTION(STRINGIFY(.bss.l2_non_ret_bss_##section_name))
 #endif
 
+
+#define L2_NON_RET_BSS_SECT2_BEGIN(section_name)    SECTION_ZIDATA_BEGIN(.l2_non_ret_bss2_##section_name)
+/** L2 non-retained bss section end */
+#define L2_NON_RET_BSS_SECT2_END                    SECTION_ZIDATA_END
+
+#if defined(__CC_ARM) || defined(__CLANG_ARM)
+/* ARMCC use ITCM_NON_RET_BSS_SECT_BEGIN for backward compatibility, such that no need to update link file */
+#define L2_NON_RET_BSS_SECT2(section_name, var)      var     //SECTION(STRINGIFY(.bss.l2_non_ret_bss_##section_name))
+#elif defined(_MSC_VER)
+#define L2_NON_RET_BSS_SECT2(section_name, var)      var
+#else
+#define L2_NON_RET_BSS_SECT2(section_name, var )     var SECTION(STRINGIFY(.bss.l2_non_ret_bss2_##section_name))
+#endif
+
 /** L2 non-retained rwdata section */
 #define L2_NON_RET_DATA_SECT(section_name)         SECTION(STRINGIFY(.l2_non_ret_data_##section_name))
 

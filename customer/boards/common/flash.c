@@ -1324,7 +1324,7 @@ static uint8_t psram_get_default_type(uint32_t mpi_id)
         psram_type = SPI_MODE_NOR;
         break;
     }
-#elif defined(SF32LB56X)
+#elif defined(SOC_SF32LB56X)
     uint32_t sip1 = BSP_Get_Sip1_Mode();
     uint32_t sip2 = BSP_Get_Sip2_Mode();
     if (mpi_id == 1)
@@ -1352,6 +1352,9 @@ static uint8_t psram_get_default_type(uint32_t mpi_id)
         {
 #ifdef PSRAM_BL_MODE
             psram_type = PSRAM_BL_MODE;
+#else
+            // Fallback to board-configured mode when OTP is not available
+            psram_type = BSP_QSPI1_MODE;
 #endif
         }
     }
@@ -1376,10 +1379,13 @@ static uint8_t psram_get_default_type(uint32_t mpi_id)
         {
 #ifdef PSRAM_BL_MODE
             psram_type = PSRAM_BL_MODE;
+#else
+            // Fallback to board-configured mode when OTP is not available
+            psram_type = BSP_QSPI2_MODE;
 #endif
         }
     }
-#elif defined(SF32LB57X)
+#elif defined(SOC_SF32LB57X)
     psram_type = bsp_psram_get_mpi_mode(mpi_id);
 #endif
 

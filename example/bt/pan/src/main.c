@@ -328,14 +328,65 @@ int main(void)
 }
 
 
+/**
+ * @brief Parse MAC address string "AA:BB:CC:DD:EE:FF" into 6-byte array
+ * @param str  Input string in "XX:XX:XX:XX:XX:XX" format
+ * @param mac  Output 6-byte MAC array (LSB first, matching bt_interface_conn_ext)
+ * @return 0 on success, -1 on failure
+ */
+static int pan_parse_mac(const char *str, unsigned char *mac)
+{
+    unsigned int tmp[6];
+    if (sscanf(str, "%02x:%02x:%02x:%02x:%02x:%02x",
+               &tmp[0], &tmp[1], &tmp[2], &tmp[3], &tmp[4], &tmp[5]) != 6)
+    {
+        return -1;
+    }
+    for (int i = 0; i < 6; i++)
+        mac[i] = (unsigned char)tmp[i];
+    return 0;
+}
+
 static void pan_cmd(int argc, char **argv)
 {
+    if (argc < 2)
+    {
+        LOG_I("Usage:");
+        LOG_I("  pan_cmd connect XX:XX:XX:XX:XX:XX  - Connect PAN to specified MAC");
+        LOG_I("  pan_cmd conn_pan                   - Connect PAN to last paired device");
+        LOG_I("  pan_cmd del_bond                   - Delete all bonded devices");
+        LOG_I("  pan_cmd set_retry_flag 0|1         - Enable/disable auto reconnect");
+        LOG_I("  pan_cmd set_retry_time <count>     - Set max reconnect attempts");
+        LOG_I("  pan_cmd autoconnect                - Reconnect to last paired device");
+        return;
+    }
+
     if (strcmp(argv[1], "del_bond") == 0)
     {
 #ifdef BSP_BT_CONNECTION_MANAGER
         bt_cm_delete_bonded_devs();
         LOG_D("Delete bond");
 #endif // BSP_BT_CONNECTION_MANAGER
+    }
+    // Connect PAN to a specific MAC address
+    else if (strcmp(argv[1], "connect") == 0)
+    {
+        if (argc < 3)
+        {
+            LOG_I("Usage: pan_cmd connect XX:XX:XX:XX:XX:XX");
+            return;
+        }
+        unsigned char mac[6];
+        if (pan_parse_mac(argv[2], mac) != 0)
+        {
+            LOG_I("Invalid MAC format, expected XX:XX:XX:XX:XX:XX");
+            return;
+        }
+        LOG_I("Connecting PAN to %02x:%02x:%02x:%02x:%02x:%02x",
+              mac[5], mac[4], mac[3], mac[2], mac[1], mac[0]);
+        memcpy(g_bt_app_env.bd_addr.addr, mac, 6);
+        g_bt_app_env.bt_connected = TRUE;
+        bt_interface_conn_ext((char *)mac, BT_PROFILE_PAN);
     }
     // only valid after connection setup but phone didn't enable pernal hop
     else if (strcmp(argv[1], "conn_pan") == 0)
@@ -360,8 +411,12 @@ static void pan_cmd(int argc, char **argv)
     {
         pan_reconnect();
     }
+    else
+    {
+        LOG_I("Unknown command: %s", argv[1]);
+    }
 }
 
-MSH_CMD_EXPORT(pan_cmd, Connect PAN to last paired device);
+MSH_CMD_EXPORT(pan_cmd, PAN profile control: connect/conn_pan/del_bond/set_retry);
 
 

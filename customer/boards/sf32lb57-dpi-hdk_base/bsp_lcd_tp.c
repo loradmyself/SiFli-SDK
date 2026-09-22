@@ -47,7 +47,7 @@ static void QSPI_PIN_Set(int pad, pin_function func, int flags, int hcpu)
 #else
     // Set the pin driver strength to 8mA
     HAL_PIN_Set_DS0(pad, 1, 1);
-    HAL_PIN_Set_DS1(pad, 1, 0);
+    HAL_PIN_Set_DS1(pad, 1, 1);
 #endif /* BSP_LCDC_USING_DDR_QADSPI */
 }
 
@@ -132,6 +132,7 @@ void BSP_LCD_PowerUp(void)
     // Set the pin driver strength to 2mA?
     HAL_PIN_Set_DS0(PAD_PA27, 1, 0);
     HAL_PIN_Set_DS1(PAD_PA27, 1, 0);
+    
     HAL_PIN_Set(PAD_PA28, LCDC1_TCON_SDCLK,  PIN_NOPULL, 1);
     HAL_PIN_Set(PAD_PA29, LCDC1_TCON_SDAT15, PIN_NOPULL, 1);
     HAL_PIN_Set(PAD_PA30, LCDC1_TCON_SDLE,   PIN_NOPULL, 1);
@@ -152,6 +153,7 @@ void BSP_LCD_PowerUp(void)
     HAL_PIN_Set(PAD_PA48, LCDC1_TCON_SDAT4, PIN_NOPULL, 1);
     HAL_PIN_Set(PAD_PA49, LCDC1_TCON_SDAT6, PIN_NOPULL, 1);
     HAL_PIN_Set(PAD_PA50, LCDC1_TCON_SDAT5, PIN_NOPULL, 1);
+
 
     HAL_PIN_Set(PAD_PA00 + EPD_GMODE_PIN, GPIO_A0 + EPD_GMODE_PIN, PIN_PULLUP, 1);  //GMODE
 

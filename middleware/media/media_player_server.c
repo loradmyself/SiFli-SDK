@@ -224,7 +224,7 @@ static void video_decode_thread(void *p)
             }
         }
 
-        os_message_get(thiz->av_pkt_queue, &pkt, sizeof(pkt), OS_WAIT_FORVER);
+        os_message_get(thiz->av_pkt_queue, &pkt, sizeof(pkt), rt_tick_from_millisecond(100));
 
         AVPacket orig_pkt = pkt;
 
@@ -485,7 +485,14 @@ static void audio_decode_thread(void *p)
                 thiz->audio_handle = NULL;
             }
         }
-        os_message_get(thiz->av_pkt_queue_audio, &pkt, sizeof(pkt), OS_WAIT_FORVER);
+        // Use timeout instead of infinite wait to allow checking exit condition
+        int ret = os_message_get(thiz->av_pkt_queue_audio, &pkt, sizeof(pkt), rt_tick_from_millisecond(100));
+
+        // Check if we should exit (timeout or stop signal)
+        if (ret != RT_EOK || !thiz->is_ok)
+        {
+            break;
+        }
 
         AVPacket orig_pkt = pkt;
 
@@ -515,6 +522,12 @@ static void audio_decode_thread(void *p)
                 av_frame_unref(thiz->audio_frame);
 
             TRACE_MARK_STOP(TRACEID_AUDIO_DECODE_TOTAL);
+
+            // Check exit condition to avoid infinite loop
+            if (!thiz->is_ok)
+            {
+                break;
+            }
         }
         while (got_frame);
     }
@@ -548,7 +561,7 @@ static void video_audio_decode_thread(void *p)
             }
         }
 
-        os_message_get(thiz->av_pkt_queue, &pkt, sizeof(pkt), OS_WAIT_FORVER);
+        os_message_get(thiz->av_pkt_queue, &pkt, sizeof(pkt), rt_tick_from_millisecond(100));
 
         AVPacket orig_pkt = pkt;
 
@@ -604,6 +617,12 @@ static void video_audio_decode_thread(void *p)
                            &pkt);
 
         TRACE_MARK_STOP(TRACEID_VIDEO_DECODE_TOTAL);
+
+        // Check exit condition to avoid infinite loop
+        if (!thiz->is_ok)
+        {
+            break;
+        }
     }
     while (got_frame);
 
@@ -619,6 +638,12 @@ static void video_audio_decode_thread(void *p)
             av_frame_unref(thiz->audio_frame);
 
         TRACE_MARK_STOP(TRACEID_AUDIO_DECODE_TOTAL);
+
+        // Check exit condition to avoid infinite loop
+        if (!thiz->is_ok)
+        {
+            break;
+        }
     }
     while (got_frame);
     if (thiz->audio_handle)
@@ -879,20 +904,52 @@ static void media_read_thread(void *p)
     pkt.data = NULL;
     pkt.size = 0;
 
-    while (rt_thread_find(thiz->audio_name))
+    // Add timeout to avoid infinite wait (max 5 seconds)
+    int wait_count = 0;
+    while (rt_thread_find(thiz->audio_name) && wait_count < 500)
     {
         os_message_put(thiz->av_pkt_queue_audio, &pkt, sizeof(pkt), 0);
         if (thiz->evt_audio)   os_event_flags_set(thiz->evt_audio, 1);
         rt_thread_mdelay(10);
-        LOG_I("%p wait audio thread %s exit", thiz, thiz->audio_name);
+        wait_count++;
+        if (wait_count % 100 == 0)
+        {
+            LOG_I("%p wait audio thread %s exit (%d ms)", thiz, thiz->audio_name, wait_count * 10);
+        }
+    }
+    if (rt_thread_find(thiz->audio_name))
+    {
+        LOG_E("%p audio thread %s still running after timeout, force delete", thiz, thiz->audio_name);
+        // Force delete the dynamically created thread
+        rt_thread_t tid = rt_thread_find(thiz->audio_name);
+        if (tid)
+        {
+            rt_thread_delete(tid);
+        }
     }
 
-    while (rt_thread_find(thiz->video_name))
+    // Add timeout to avoid infinite wait (max 5 seconds)
+    wait_count = 0;
+    while (rt_thread_find(thiz->video_name) && wait_count < 500)
     {
         os_message_put(thiz->av_pkt_queue, &pkt, sizeof(pkt), 0);
         if (thiz->evt_video)  os_event_flags_set(thiz->evt_video, 1);
         rt_thread_mdelay(10);
-        LOG_I("%p wait video thread %s exit", thiz, thiz->video_name);
+        wait_count++;
+        if (wait_count % 100 == 0)
+        {
+            LOG_I("%p wait video thread %s exit (%d ms)", thiz, thiz->video_name, wait_count * 10);
+        }
+    }
+    if (rt_thread_find(thiz->video_name))
+    {
+        LOG_E("%p video thread %s still running after timeout, force delete", thiz, thiz->video_name);
+        // Force delete the dynamically created thread
+        rt_thread_t tid = rt_thread_find(thiz->video_name);
+        if (tid)
+        {
+            rt_thread_delete(tid);
+        }
     }
 
     if (thiz->av_pkt_queue)
@@ -1397,7 +1454,7 @@ static void ezip_audio_decode_thread(void *p)
             }
         }
         //LOG_I("audio get");
-        os_message_get(thiz->av_pkt_queue_audio, &pkt, sizeof(pkt), OS_WAIT_FORVER);
+        os_message_get(thiz->av_pkt_queue_audio, &pkt, sizeof(pkt), rt_tick_from_millisecond(100));
         //LOG_I("audio get ok=%p", pkt.buf);
 #if EZIP_DECODE_AUDIO_USING_FFMPEG
         ezip_audio_decode(thiz, audio_callback_func, parser);
