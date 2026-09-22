@@ -1,0 +1,78 @@
+;
+; idd xfz1986 usb graphic inf - SiFli USB Display
+; Modified for SiFli USB Display (VID=303A, PID=2986)
+;
+
+[Version]
+PnpLockdown=1
+Signature="$Windows NT$"
+ClassGUID = {4D36E968-E325-11CE-BFC1-08002BE10318}
+Class = Display
+ClassVer = 2.0
+Provider=%ManufacturerName%
+DriverVer=08/05/2024,1.2.0.1
+
+[Manufacturer]
+%ManufacturerName%=Standard,NTamd64
+
+[Standard.NTamd64]
+%DeviceName%=MyDevice_Install, USB\VID_303A&PID_2986
+%DeviceName%=MyDevice_Install, USB\VID_303A&PID_2987
+
+[SourceDiskFiles]
+xfz1986_usb_graphic.dll=1
+
+[SourceDiskNames]
+1 = %DiskName%
+
+; ==================== UMDF Device ====================
+
+[MyDevice_Install.NT]
+CopyFiles=UMDriverCopy
+
+[MyDevice_Install.NT.hw]
+AddReg = MyDevice_HardwareDeviceSettings
+
+[MyDevice_HardwareDeviceSettings]
+HKR,, "UpperFilters", %REG_MULTI_SZ%, "IndirectKmd"
+HKR, "WUDF", "DeviceGroupId", %REG_SZ%, "IddEsp32xDriverGroup"
+
+[MyDevice_Install.NT.Services]
+AddService=WUDFRd,0x000001fa,WUDFRD_ServiceInstall
+
+[MyDevice_Install.NT.Wdf]
+UmdfDispatcher=NativeUSB
+UmdfService=xfz1986_usb_graphic,xfz1986_usb_graphic_Install
+UmdfServiceOrder=xfz1986_usb_graphic
+UmdfKernelModeClientPolicy=AllowKernelModeClients
+
+[xfz1986_usb_graphic_Install]
+UmdfLibraryVersion=2.15.0
+ServiceBinary=%12%\UMDF\xfz1986_usb_graphic.dll
+UmdfExtensions = IddCx0102
+
+[WUDFRD_ServiceInstall]
+DisplayName = %WudfRdDisplayName%
+ServiceType = 1
+StartType = 3
+ErrorControl = 1
+ServiceBinary = %12%\WUDFRd.sys
+
+[DestinationDirs]
+UMDriverCopy=12,UMDF
+
+[UMDriverCopy]
+xfz1986_usb_graphic.dll
+
+; ==================== Generic ====================
+
+[Strings]
+ManufacturerName="a_diyer_name_xfz1986"
+DiskName = "idd usb graphic demo Installation Disk"
+WudfRdDisplayName="Windows Driver Foundation - User-mode Driver Framework Reflector"
+DeviceName="xfz1986_usb_graphic(demo)"
+
+REG_MULTI_SZ   = 0x00010000
+REG_SZ         = 0x00000000
+REG_EXPAND_SZ  = 0x00020000
+REG_DWORD      = 0x00010001

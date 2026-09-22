@@ -21,12 +21,12 @@
 #endif
 
 
-#define LCD_ID                  0x8000
+#define LCD_ID                  0x7878
 /**
   * @brief  LCD IC Size
   */
-#define  LCD_IC_PIXEL_WIDTH    (800)
-#define  LCD_IC_PIXEL_HEIGHT   (480)
+#define  LCD_IC_PIXEL_WIDTH    (480)
+#define  LCD_IC_PIXEL_HEIGHT   (272)
 
 static LCDC_InitTypeDef lcdc_int_cfg =
 {
