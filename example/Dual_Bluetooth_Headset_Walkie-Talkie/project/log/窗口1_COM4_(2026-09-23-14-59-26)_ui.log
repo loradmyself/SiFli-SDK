@@ -1,0 +1,230 @@
+09-23 14:59:26:946    intercom scan
+09-23 14:59:26:946    [32m[3865907] I/btapp_ge btmgr: >> inquiry start...
+09-23 14:59:26:947    [0m[intercom] state: media -> scanning
+09-23 14:59:26:948    [intercom] inquiry started for about 10 seconds
+09-23 14:59:26:949    [intercom] scan accepted
+09-23 14:59:26:949    msh />
+09-23 14:59:27:145    msh />
+09-23 14:59:27:259    [32m[3868965] I/btapp_ge bts: << idx:00 address:C423:60:3CB37D class:2E410C name:A3-SURFACE rssi:-76
+09-23 14:59:27:261    [0m[intercom] found 1: 7D:B3:3C:60:23:C4  RSSI=-76  A3-SURFACE
+09-23 14:59:27:777    [32m[3874008] I/btapp_ge bts: << idx:01 address:74D5:58:481B8C class:7A420C name:Ò»¼Ó Ace 3 rssi:-69
+09-23 14:59:27:780    [0m[intercom] found 2: 8C:1B:48:58:D5:74  RSSI=-69  Ò»¼Ó Ace 3
+09-23 14:59:28:620    [32m[3882216] I/btapp_ge bts: << idx:02 address:107B:93:830C3B class:280704 name:XPAW014 0C3B rssi:-79
+09-23 14:59:28:623    [0m[intercom] found 3: 3B:0C:83:93:7B:10  RSSI=-79  XPAW014 0C3B
+09-23 14:59:29:011    [32m[3886023] I/btapp_ge bts: << idx:03 address:7872:64:73F638 class:240704 name:E6S-38-F6-73-64-72-78 rssi:-78
+09-23 14:59:29:014    [0m[intercom] found 4: 38:F6:73:64:72:78  RSSI=-78  E6S-38-F6-73-64-72-78
+09-23 14:59:30:500    [32m[3900499] I/btapp_ge bts: << idx:04 address:1C70:C9:D167F5 class:2E410C name:YXHUANG_PC rssi:-66
+09-23 14:59:30:508    [0m[intercom] found 5: F5:67:D1:C9:70:1C  RSSI=-66  YXHUANG_PC
+09-23 14:59:30:538    [32m[3900883] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 14:59:30:569    [0m[32m[3901159] I/btapp_ge bts: << idx:05 address:2C57:31:6BC0D3 class:5A020C name:÷ÈÀ¶ 6 rssi:-75
+09-23 14:59:30:570    [0m[intercom] found 6: D3:C0:6B:31:57:2C  RSSI=-75  ÷ÈÀ¶ 6
+09-23 14:59:31:608    [32m[3911296] I/btapp_ge bts: << idx:06 address:64BC:58:9706C0 class:2E4104 name:GUOLIANG rssi:-78
+09-23 14:59:31:615    [0m[intercom] found 7: C0:06:97:58:BC:64  RSSI=-78  GUOLIANG
+09-23 14:59:32:743    [32m[3922333] I/btapp_ge bts: << idx:07 address:48BC:0E:2C4D61 class:0A0110 name:¿ÍÌüµÄÐ¡Ã×µçÊÓS85 Mini LED 2026 r
+09-23 14:59:32:755    [0m[intercom] found 8: 61:4D:2C:0E:BC:48  RSSI=-80  ¿ÍÌüµÄÐ¡Ã×µçÊÓS85 Mini LED 2026
+09-23 14:59:36:053    [32m[3954551] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 14:59:36:244    [0m[32m[3956385] I/btapp_ge bts: << idx:08 address:6C2D:24:BB428D class:280704 name:XPAW013 428D rssi:-73
+09-23 14:59:36:244    [0m[intercom] found 9: 8D:42:BB:24:2D:6C  RSSI=-73  XPAW013 428D
+09-23 14:59:36:901    [32m[3962805] I/btapp_ge bts: >> inquiry finished
+09-23 14:59:36:905    [0m[32m[3962812] I/btapp_ge bts: << idx: 00--address: C423:60:3CB37D
+09-23 14:59:36:906    [0m[32m[3962819] I/btapp_ge bts: << idx: 01--address: 74D5:58:481B8C
+09-23 14:59:36:907    [0m[32m[3962827] I/btapp_ge bts: << idx: 02--address: 107B:93:830C3B
+09-23 14:59:36:907    [0m[32m[3962835] I/btapp_ge bts: << idx: 03--address: 7872:64:73F638
+09-23 14:59:36:907    [0m[32m[3962843] I/btapp_ge bts: << idx: 04--address: 1C70:C9:D167F5
+09-23 14:59:36:908    [0m[32m[3962852] I/btapp_ge bts: << idx: 05--address: 2C57:31:6BC0D3
+09-23 14:59:36:910    [0m[32m[3962860] I/btapp_ge bts: << idx: 06--address: 64BC:58:9706C0
+09-23 14:59:36:910    [0m[32m[3962868] I/btapp_ge bts: << idx: 07--address: 48BC:0E:2C4D61
+09-23 14:59:36:910    [0m[32m[3962876] I/btapp_ge bts: << idx: 08--address: 6C2D:24:BB428D
+09-23 14:59:36:911    [0m[intercom] inquiry complete: 9 device(s)
+09-23 14:59:36:912      1. 7D:B3:3C:60:23:C4  RSSI=-76  COD=0x2E410C  A3-SURFACE
+09-23 14:59:36:913      2. 8C:1B:48:58:D5:74  RSSI=-69  COD=0x7A420C  Ò»¼Ó Ace 3
+09-23 14:59:36:914      3. 3B:0C:83:93:7B:10  RSSI=-79  COD=0x280704  XPAW014 0C3B
+09-23 14:59:36:915      4. 38:F6:73:64:72:78  RSSI=-78  COD=0x240704  E6S-38-F6-73-64-72-78
+09-23 14:59:36:919      5. F5:67:D1:C9:70:1C  RSSI=-66  COD=0x2E410C  YXHUANG_PC
+09-23 14:59:36:920      6. D3:C0:6B:31:57:2C  RSSI=-75  COD=0x5A020C  ÷ÈÀ¶ 6
+09-23 14:59:36:920      7. C0:06:97:58:BC:64  RSSI=-78  COD=0x2E4104  GUOLIANG
+09-23 14:59:36:921      8. 61:4D:2C:0E:BC:48  RSSI=-80  COD=0x0A0110  ¿ÍÌüµÄÐ¡Ã×µçÊÓS85 Mini LED 2026
+09-23 14:59:36:922      9. 8D:42:BB:24:2D:6C  RSSI=-73  COD=0x280704  XPAW013 428D
+09-23 14:59:36:923    [intercom] state: scanning -> media
+09-23 14:59:40:524 TX:intercom scan
+09-23 14:59:40:529    intercom scan
+09-23 14:59:40:531    [32m[3998118] I/btapp_ge btmgr: >> inquiry start...
+09-23 14:59:40:533    [0m[intercom] state: media -> scanning
+09-23 14:59:40:534    [intercom] inquiry started for about 10 seconds
+09-23 14:59:40:535    [intercom] scan accepted
+09-23 14:59:40:536    msh />
+09-23 14:59:40:733    msh />
+09-23 14:59:40:987    [32m[4002564] I/btapp_ge bts: << idx:00 address:74D5:58:481B8C class:7A420C name:Ò»¼Ó Ace 3 rssi:-82
+09-23 14:59:40:990    [0m[intercom] found 1: 8C:1B:48:58:D5:74  RSSI=-82  Ò»¼Ó Ace 3
+09-23 14:59:41:425    [32m[4006813] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 14:59:41:616    [0m
+09-23 14:59:41:927    [32m[4011726] I/btapp_ge bts: << idx:01 address:C423:60:3CB37D class:2E410C name:A3-SURFACE rssi:-75
+09-23 14:59:41:932    [0m[intercom] found 2: 7D:B3:3C:60:23:C4  RSSI=-75  A3-SURFACE
+09-23 14:59:42:217    [32m[4014535] I/btapp_ge bts: << idx:02 address:64BC:58:9706C0 class:2E4104 name:GUOLIANG rssi:-73
+09-23 14:59:42:222    [0m[intercom] found 3: C0:06:97:58:BC:64  RSSI=-73  GUOLIANG
+09-23 14:59:42:306    [32m[4015402] I/btapp_ge bts: << idx:03 address:2C57:31:6BC0D3 class:5A020C name:÷ÈÀ¶ 6 rssi:-69
+09-23 14:59:42:307    [0m[intercom] found 4: D3:C0:6B:31:57:2C  RSSI=-69  ÷ÈÀ¶ 6
+09-23 14:59:46:938    [32m[4060482] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 14:59:47:133    [0m
+09-23 14:59:48:855    [32m[4079127] I/btapp_ge bts: << idx:04 address:48BC:0E:2C4D61 class:0A0110 name:¿ÍÌüµÄÐ¡Ã×µçÊÓS85 Mini LED 2026 r
+09-23 14:59:48:860    [0m[intercom] found 5: 61:4D:2C:0E:BC:48  RSSI=-77  ¿ÍÌüµÄÐ¡Ã×µçÊÓS85 Mini LED 2026
+09-23 14:59:49:089    [32m[4081408] I/btapp_ge bts: << idx:05 address:1C70:C9:D167F5 class:2E410C name:YXHUANG_PC rssi:-56
+09-23 14:59:49:095    [0m[intercom] found 6: F5:67:D1:C9:70:1C  RSSI=-56  YXHUANG_PC
+09-23 14:59:50:489    [32m[4095034] I/btapp_ge bts: >> inquiry finished
+09-23 14:59:50:493    [0m[32m[4095041] I/btapp_ge bts: << idx: 00--address: 74D5:58:481B8C
+09-23 14:59:50:495    [0m[32m[4095049] I/btapp_ge bts: << idx: 01--address: C423:60:3CB37D
+09-23 14:59:50:496    [0m[32m[4095057] I/btapp_ge bts: << idx: 02--address: 64BC:58:9706C0
+09-23 14:59:50:497    [0m[32m[4095065] I/btapp_ge bts: << idx: 03--address: 2C57:31:6BC0D3
+09-23 14:59:50:497    [0m[32m[4095072] I/btapp_ge bts: << idx: 04--address: 48BC:0E:2C4D61
+09-23 14:59:50:498    [0m[32m[4095080] I/btapp_ge bts: << idx: 05--address: 1C70:C9:D167F5
+09-23 14:59:50:499    [0m[intercom] inquiry complete: 6 device(s)
+09-23 14:59:50:499      1. 8C:1B:48:58:D5:74  RSSI=-82  COD=0x7A420C  Ò»¼Ó Ace 3
+09-23 14:59:50:503      2. 7D:B3:3C:60:23:C4  RSSI=-75  COD=0x2E410C  A3-SURFACE
+09-23 14:59:50:504      3. C0:06:97:58:BC:64  RSSI=-73  COD=0x2E4104  GUOLIANG
+09-23 14:59:50:504      4. D3:C0:6B:31:57:2C  RSSI=-69  COD=0x5A020C  ÷ÈÀ¶ 6
+09-23 14:59:50:505      5. 61:4D:2C:0E:BC:48  RSSI=-77  COD=0x0A0110  ¿ÍÌüµÄÐ¡Ã×µçÊÓS85 Mini LED 2026
+09-23 14:59:50:505      6. F5:67:D1:C9:70:1C  RSSI=-56  COD=0x2E410C  YXHUANG_PC
+09-23 14:59:50:506    [intercom] state: scanning -> media
+09-23 14:59:52:540    [32m[4114995] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 14:59:52:740    [0m
+09-23 15:00:00:467 TX:intercom scan
+09-23 15:00:00:472    intercom scan
+09-23 15:00:00:472    [32m[4192199] I/btapp_ge btmgr: >> inquiry start...
+09-23 15:00:00:473    [0m[intercom] state: media -> scanning
+09-23 15:00:00:474    [intercom] inquiry started for about 10 seconds
+09-23 15:00:00:474    [intercom] scan accepted
+09-23 15:00:00:475    msh />
+09-23 15:00:00:522    msh />[32m[4192678] I/btapp_ge bts: << idx:00 address:48BC:0E:2C4D61 class:0A0110 name:¿ÍÌüµÄÐ¡Ã×µçÊÓS85 Mini LED 2026 r
+09-23 15:00:00:523    [0m[intercom] found 1: 61:4D:2C:0E:BC:48  RSSI=-83  ¿ÍÌüµÄÐ¡Ã×µçÊÓS85 Mini LED 2026
+09-23 15:00:01:534    [32m[4202525] I/btapp_ge bts: << idx:01 address:64BC:58:9706C0 class:2E4104 name:GUOLIANG rssi:-70
+09-23 15:00:01:537    [0m[intercom] found 2: C0:06:97:58:BC:64  RSSI=-70  GUOLIANG
+09-23 15:00:03:162    [32m[4218384] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:00:03:193    [0m[32m[4218654] I/btapp_ge bts: << idx:02 address:C423:60:3CB37D class:2E410C name:A3-SURFACE rssi:-77
+09-23 15:00:03:195    [0m[intercom] found 3: 7D:B3:3C:60:23:C4  RSSI=-77  A3-SURFACE
+09-23 15:00:03:556    [32m[4222205] I/btapp_ge bts: << idx:03 address:1C70:C9:D167F5 class:2E410C name:YXHUANG_PC rssi:-62
+09-23 15:00:03:560    [0m[intercom] found 4: F5:67:D1:C9:70:1C  RSSI=-62  YXHUANG_PC
+09-23 15:00:08:417    [32m[4269511] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:00:08:619    [0m
+09-23 15:00:10:057    [32m[4285471] I/btapp_ge bts: << idx:04 address:74D5:58:481B8C class:7A420C name:Ò»¼Ó Ace 3 rssi:-72
+09-23 15:00:10:060    [0m[intercom] found 5: 8C:1B:48:58:D5:74  RSSI=-72  Ò»¼Ó Ace 3
+09-23 15:00:10:425    [32m[4289067] I/btapp_ge bts: >> inquiry finished
+09-23 15:00:10:427    [0m[32m[4289074] I/btapp_ge bts: << idx: 00--address: 48BC:0E:2C4D61
+09-23 15:00:10:428    [0m[32m[4289082] I/btapp_ge bts: << idx: 01--address: 64BC:58:9706C0
+09-23 15:00:10:428    [0m[32m[4289090] I/btapp_ge bts: << idx: 02--address: C423:60:3CB37D
+09-23 15:00:10:429    [0m[32m[4289098] I/btapp_ge bts: << idx: 03--address: 1C70:C9:D167F5
+09-23 15:00:10:431    [0m[32m[4289106] I/btapp_ge bts: << idx: 04--address: 74D5:58:481B8C
+09-23 15:00:10:431    [0m[intercom] inquiry complete: 5 device(s)
+09-23 15:00:10:432      1. 61:4D:2C:0E:BC:48  RSSI=-83  COD=0x0A0110  ¿ÍÌüµÄÐ¡Ã×µçÊÓS85 Mini LED 2026
+09-23 15:00:10:434      2. C0:06:97:58:BC:64  RSSI=-70  COD=0x2E4104  GUOLIANG
+09-23 15:00:10:434      3. 7D:B3:3C:60:23:C4  RSSI=-77  COD=0x2E410C  A3-SURFACE
+09-23 15:00:10:435      4. F5:67:D1:C9:70:1C  RSSI=-62  COD=0x2E410C  YXHUANG_PC
+09-23 15:00:10:435      5. 8C:1B:48:58:D5:74  RSSI=-72  COD=0x7A420C  Ò»¼Ó Ace 3
+09-23 15:00:10:438    [intercom] state: scanning -> media
+09-23 15:00:13:844    [32m[4322327] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:00:14:037    [0m
+09-23 15:00:19:214    [32m[4374584] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:00:19:409    [0m
+09-23 15:00:24:526    [32m[4426274] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:00:24:725    [0m
+09-23 15:00:34:975    [32m[4527947] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:00:35:181    [0m
+09-23 15:00:40:693    [32m[4583579] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:00:40:889    [0m
+09-23 15:00:46:352    [32m[4638651] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:00:46:543    [0m
+09-23 15:00:52:100    [32m[4694565] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:00:52:298    [0m
+09-23 15:00:57:905    [32m[4751045] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:00:58:096    [0m
+09-23 15:01:03:304    [32m[4803577] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:01:03:501    [0m
+09-23 15:01:11:258 TX:intercom scan
+09-23 15:01:11:263    intercom scan
+09-23 15:01:11:263    [32m[4881019] I/btapp_ge btmgr: >> inquiry start...
+09-23 15:01:11:263    [0m[intercom] state: media -> scanning
+09-23 15:01:11:264    [intercom] inquiry started for about 10 seconds
+09-23 15:01:11:265    [intercom] scan accepted
+09-23 15:01:11:265    msh />
+09-23 15:01:11:448    msh />
+09-23 15:01:12:925    [32m[4897188] I/btapp_ge bts: << idx:00 address:2C57:31:6BC0D3 class:5A020C name:÷ÈÀ¶ 6 rssi:-60
+09-23 15:01:12:928    [0m[intercom] found 1: D3:C0:6B:31:57:2C  RSSI=-60  ÷ÈÀ¶ 6
+09-23 15:01:14:478    [32m[4912303] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:01:14:596    [0m[32m[4913420] I/btapp_ge bts: << idx:01 address:6C2D:24:BB428D class:280704 name:XPAW013 428D rssi:-73
+09-23 15:01:14:601    [0m[intercom] found 2: 8D:42:BB:24:2D:6C  RSSI=-73  XPAW013 428D
+09-23 15:01:16:270    [32m[4929730] I/btapp_ge bts: << idx:02 address:C423:60:3CB37D class:2E410C name:A3-SURFACE rssi:-74
+09-23 15:01:16:274    [0m[intercom] found 3: 7D:B3:3C:60:23:C4  RSSI=-74  A3-SURFACE
+09-23 15:01:17:676    [32m[4943389] I/btapp_ge bts: << idx:03 address:74D5:58:481B8C class:7A420C name:Ò»¼Ó Ace 3 rssi:-76
+09-23 15:01:17:682    [0m[intercom] found 4: 8C:1B:48:58:D5:74  RSSI=-76  Ò»¼Ó Ace 3
+09-23 15:01:19:785    [32m[4963943] I/btapp_ge bts: << idx:04 address:1C70:C9:D167F5 class:2E410C name:YXHUANG_PC rssi:-60
+09-23 15:01:19:789    [0m[intercom] found 5: F5:67:D1:C9:70:1C  RSSI=-60  YXHUANG_PC
+09-23 15:01:20:109    [32m[4967094] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:01:20:304    [0m
+09-23 15:01:21:219    [32m[4977906] I/btapp_ge bts: >> inquiry finished
+09-23 15:01:21:222    [0m[32m[4977913] I/btapp_ge bts: << idx: 00--address: 2C57:31:6BC0D3
+09-23 15:01:21:223    [0m[32m[4977921] I/btapp_ge bts: << idx: 01--address: 6C2D:24:BB428D
+09-23 15:01:21:223    [0m[32m[4977929] I/btapp_ge bts: << idx: 02--address: C423:60:3CB37D
+09-23 15:01:21:224    [0m[32m[4977936] I/btapp_ge bts: << idx: 03--address: 74D5:58:481B8C
+09-23 15:01:21:224    [0m[32m[4977944] I/btapp_ge bts: << idx: 04--address: 1C70:C9:D167F5
+09-23 15:01:21:225    [0m[intercom] inquiry complete: 5 device(s)
+09-23 15:01:21:226      1. D3:C0:6B:31:57:2C  RSSI=-60  COD=0x5A020C  ÷ÈÀ¶ 6
+09-23 15:01:21:226      2. 8D:42:BB:24:2D:6C  RSSI=-73  COD=0x280704  XPAW013 428D
+09-23 15:01:21:227      3. 7D:B3:3C:60:23:C4  RSSI=-74  COD=0x2E410C  A3-SURFACE
+09-23 15:01:21:227      4. 8C:1B:48:58:D5:74  RSSI=-76  COD=0x7A420C  Ò»¼Ó Ace 3
+09-23 15:01:21:230      5. F5:67:D1:C9:70:1C  RSSI=-60  COD=0x2E410C  YXHUANG_PC
+09-23 15:01:21:230    [intercom] state: scanning -> media
+09-23 15:01:25:740    [32m[5021881] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:01:25:939    [0m
+09-23 15:01:31:371    [32m[5076670] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:01:31:570    [0m
+09-23 15:01:37:031    [32m[5131742] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:01:37:224    [0m
+09-23 15:01:48:061    [32m[5239059] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:01:48:259    [0m
+09-23 15:01:53:633    [32m[5293288] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:01:53:814    [0m
+09-23 15:01:59:177    [32m[5347233] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:01:59:369    [0m
+09-23 15:02:04:749    [32m[5401460] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:02:04:942    [0m
+09-23 15:02:10:526    [32m[5457669] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:02:10:725    [0m
+09-23 15:02:22:021    [32m[5569515] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:02:22:209    [0m
+09-23 15:02:27:680    [32m[5624589] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:02:27:885    [0m
+09-23 15:02:33:369    [32m[5679948] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:02:33:567    [0m
+09-23 15:02:39:261    [32m[5737282] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:02:39:454    [0m
+09-23 15:02:44:949    [32m[5792645] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:02:45:142    [0m
+09-23 15:02:56:647    [32m[5906467] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:02:56:823    [0m
+09-23 15:03:02:394    [32m[5962394] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:03:02:589    [0m
+09-23 15:03:08:141    [32m[6018319] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:03:08:333    [0m
+09-23 15:03:13:917    [32m[6074525] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:03:14:087    [0m
+09-23 15:03:19:955    [32m[6133272] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:03:20:145    [0m
+09-23 15:03:31:797    [32m[6248504] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:03:31:965    [0m
+09-23 15:03:37:718    [32m[6306119] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:03:37:920    [0m
+09-23 15:03:43:437    [32m[6361762] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:03:43:635    [0m
+09-23 15:03:49:125    [32m[6417114] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:03:49:325    [0m
+09-23 15:03:54:784    [32m[6472191] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:03:54:988    [0m
+09-23 15:04:06:250    [32m[6583756] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:04:06:439    [0m
+09-23 15:04:12:286    [32m[6642502] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:04:12:489    [0m
+09-23 15:04:18:266    [32m[6700682] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:04:18:461    [0m
+09-23 15:04:24:013    [32m[6756606] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:04:24:190    [0m
+09-23 15:04:29:993    [32m[6814787] I/audio_av_src bts: a2dp_transfor: buffer empty
+09-23 15:04:30:188    [0m

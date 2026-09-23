@@ -19,6 +19,7 @@ static void app_cli_relay_help(void)
     rt_kprintf("  intercom scan\n");
     rt_kprintf("  intercom connect <scan-index|XX:XX:XX:XX:XX:XX>\n");
     rt_kprintf("  intercom disconnect <headset-index|XX:XX:XX:XX:XX:XX>\n");
+    rt_kprintf("  intercom unbond <XX:XX:XX:XX:XX:XX>\n");
     rt_kprintf("  intercom talk <start|stop>\n");
     rt_kprintf("  intercom volume\n");
     rt_kprintf("  intercom volume <music|talk> <headset-index> <0-15>\n");
@@ -174,6 +175,10 @@ __ROM_USED void intercom(int argc, char **argv)
     else if ((strcmp(argv[1], "disconnect") == 0) && (argc == 3))
     {
         app_cli_print_result("disconnect", app_bt_disconnect(argv[2]));
+    }
+    else if ((strcmp(argv[1], "unbond") == 0) && (argc == 3))
+    {
+        app_cli_print_result("unbond", app_bt_unbond(argv[2]));
     }
     else if ((strcmp(argv[1], "talk") == 0) && (argc == 3))
     {

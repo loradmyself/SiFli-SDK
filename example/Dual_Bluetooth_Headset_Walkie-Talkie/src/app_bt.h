@@ -17,6 +17,7 @@ bool app_bt_is_ready(void);
 int app_bt_scan(void);
 int app_bt_connect(const char *target);
 int app_bt_disconnect(const char *target);
+int app_bt_unbond(const char *target);
 int app_bt_talk(bool start);
 int app_bt_set_headset_volume(app_volume_target_t target, uint8_t headset,
                               uint8_t level);
