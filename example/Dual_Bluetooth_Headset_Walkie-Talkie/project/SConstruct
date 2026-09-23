@@ -22,7 +22,7 @@ env = GetCurrentEnv()
 DoBuilding(TARGET, objs)
 AddFTAB(SIFLI_SDK, rtconfig.CHIP, env)
 
-fs_bin = FileSystemBuild("../disk", env)
-AddCustomImg("fs_root", bin=[fs_bin])
+# fs_bin = FileSystemBuild("../disk", env)
+# AddCustomImg("fs_root", bin=[fs_bin])
 
 GenDownloadScript(env)

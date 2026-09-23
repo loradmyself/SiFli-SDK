@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#if  0
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -184,18 +185,18 @@ static void app_source_thread_entry(void *parameter)
     }
 }
 
-static int app_source_mount_music(void)
-{
-    register_mtd_device(FS_REGION_START_ADDR, FS_REGION_SIZE,
-                        APP_SOURCE_FS_DEVICE);
-    if (dfs_mount(APP_SOURCE_FS_DEVICE, "/", "elm", 0, 0) != 0)
-    {
-        rt_kprintf("[intercom] failed to mount embedded music image\n");
-        return -RT_EIO;
-    }
-    g_fs_mounted = true;
-    return RT_EOK;
-}
+// static int app_source_mount_music(void)
+// {
+//     register_mtd_device(FS_REGION_START_ADDR, FS_REGION_SIZE,
+//                         APP_SOURCE_FS_DEVICE);
+//     if (dfs_mount(APP_SOURCE_FS_DEVICE, "/", "elm", 0, 0) != 0)
+//     {
+//         rt_kprintf("[intercom] failed to mount embedded music image\n");
+//         return -RT_EIO;
+//     }
+//     g_fs_mounted = true;
+//     return RT_EOK;
+// }
 
 int app_source_init(void)
 {
@@ -209,11 +210,11 @@ int app_source_init(void)
     HAL_PIN_Set_DS1(PAD_PA09, 1, 1);
     HAL_PIN_Set(PAD_PA08, I2S2_LRCK, PIN_NOPULL, 1);
 
-    error = app_source_mount_music();
-    if (error != RT_EOK)
-    {
-        return error;
-    }
+    // error = app_source_mount_music();
+    // if (error != RT_EOK)
+    // {
+    //     return error;
+    // }
 
     g_source_queue = rt_mq_create("srcmq", sizeof(app_source_message_t),
                                   APP_SOURCE_QUEUE_DEPTH, RT_IPC_FLAG_FIFO);
@@ -272,3 +273,5 @@ void app_source_print_status(void)
                APP_SOURCE_MUSIC_PATH);
     rt_kprintf("  I2S1 TX master: PA25=SDO PA29=BCK PA30=LRCK PA24=MCLK\n");
 }
+
+#endif

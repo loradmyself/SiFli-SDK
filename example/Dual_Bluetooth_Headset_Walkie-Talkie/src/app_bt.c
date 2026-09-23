@@ -42,6 +42,15 @@
 #define APP_BT_DEFAULT_TALK_VOLUME 8U
 #define APP_BT_AVRCP_VOLUME_RETRY_MS 100U
 #define APP_BT_AVRCP_VOLUME_MAX_RETRIES 20U
+#define APP_BT_RECONNECT_INTERVAL_MS 3000U
+#define APP_BT_RECONNECT_QUEUE_SIZE 3
+/* First attempts run on the 3s timer tick; afterwards back off to one
+ * attempt every 15s so a headset that is powered off or briefly out of
+ * range is still picked up when it comes back, without paging every 3s
+ * and disturbing the good headset's audio. */
+#define APP_BT_RECONNECT_FAST_RETRY 3U
+#define APP_BT_RECONNECT_SLOW_INTERVAL_MS 15000U
+#define APP_BT_RECONNECT_MAX_TOTAL_RETRY 40U
 
 typedef enum
 {
@@ -57,6 +66,7 @@ typedef enum
     APP_BT_CMD_AVRCP_VOLUME_RETRY,
     APP_BT_EVENT_MEDIA_CLOSED,
     APP_BT_EVENT_MEDIA_ERROR,
+    APP_BT_CMD_RECONNECT,
 } app_bt_internal_event_id_t;
 
 typedef enum
@@ -210,6 +220,13 @@ static bool g_avrcp_reported_source_known;
 static uint8_t g_avrcp_reported_volume_level;
 static bt_notify_device_mac_t g_avrcp_reported_mac;
 
+static rt_timer_t g_reconnect_timer;
+static bt_notify_device_mac_t g_reconnect_queue[APP_BT_RECONNECT_QUEUE_SIZE];
+static uint8_t g_reconnect_len;
+static uint8_t g_reconnect_retry[APP_BT_RECONNECT_QUEUE_SIZE];
+static rt_tick_t g_reconnect_next_try[APP_BT_RECONNECT_QUEUE_SIZE];
+static bool g_reconnect_active;
+
 static int app_bt_post_simple_event(uint16_t event_id, uint32_t token);
 static int app_bt_post_timer_event(uint16_t event_id, int8_t slot,
                                    uint32_t generation);
@@ -221,6 +238,12 @@ static int app_bt_post_volume_command(app_volume_target_t target,
                                       uint32_t connection_generation,
                                       uint8_t level);
 static void app_bt_abort_connection(int slot_index);
+static void app_bt_reconnect_enqueue(const bt_notify_device_mac_t *mac);
+static void app_bt_reconnect_try_next(void);
+static void app_bt_reconnect_load_bonded(void);
+static void app_bt_reconnect_stop(void);
+static void app_bt_reconnect_remove_mac(const bt_notify_device_mac_t *mac);
+static void app_bt_reconnect_timer_cb(void *parameter);
 
 static bool app_bt_mac_equal(const bt_notify_device_mac_t *left,
                              const bt_notify_device_mac_t *right)
@@ -997,6 +1020,11 @@ static void app_bt_abort_connection(int slot_index)
     app_bt_connect_timer_stop(slot_index);
     if (app_bt_slot_has_link(slot))
     {
+        /* This teardown is initiated by us (connect failed/aborted).
+         * Mark it so the ensuing ACL_DISCONNECTED does NOT re-enter the
+         * auto-reconnect queue — otherwise a failing device loops forever:
+         * fail → disconnect → re-enqueue (retry reset) → fail → ... */
+        slot->release_pending = true;
         if (!slot->disconnect_watchdog_active ||
                 (slot->disconnect_attempts == 0U))
         {
@@ -1544,6 +1572,9 @@ static void app_bt_handle_scan_command(void)
     rt_kprintf("[intercom] inquiry started for about 10 seconds\n");
 }
 
+/* Connect without suspending the running A2DP share first: the share
+ * pump's reconcile path starts the newly opened link (hot-join) while the
+ * existing headset keeps streaming, so music is not interrupted. */
 static void app_bt_handle_connect_command(const app_bt_event_t *event)
 {
     int slot_index;
@@ -1592,19 +1623,6 @@ static void app_bt_handle_connect_command(const app_bt_event_t *event)
     slot->used = true;
     slot->mac = event->data.command_device.mac;
     strncpy(slot->name, event->data.command_device.name, sizeof(slot->name) - 1U);
-
-    if ((app_bt_a2dp_count() != 0U) && app_bt_media_active())
-    {
-        slot->connection_stage = APP_BT_CONN_MEDIA_STOP_PENDING;
-        slot->connection_generation = app_bt_next_connection_generation();
-        slot->restore_media_after_connect = true;
-        slot->media_stop_sequence = app_bt_request_media_stop();
-        app_bt_connect_timer_start(slot_index, APP_BT_MEDIA_CLOSE_TIMEOUT_MS);
-        app_state_set_mode(APP_MODE_CONNECTING);
-        rt_kprintf("[intercom] waiting for A2DP sharing to suspend before connecting headset %u\n",
-                   slot_index + 1U);
-        return;
-    }
 
     app_bt_begin_a2dp_connect(slot_index);
 }
@@ -1660,6 +1678,7 @@ static void app_bt_handle_disconnect_command(const app_bt_event_t *event)
     app_bt_connect_timer_stop(slot_index);
     g_slots[slot_index].connection_stage = APP_BT_CONN_ABORTING;
     g_slots[slot_index].release_pending = true;
+    app_bt_reconnect_remove_mac(&event->data.command_device.mac);
     if (!g_slots[slot_index].disconnect_watchdog_active)
     {
         g_slots[slot_index].disconnect_attempts = 0U;
@@ -1767,6 +1786,13 @@ static void app_bt_handle_acl_disconnected(const bt_notify_device_base_info_t *i
 
     rt_kprintf("[intercom] headset %u ACL disconnected, reason=%u\n",
                slot_index + 1U, info->res);
+    if (!release_slot)
+    {
+        /* Unexpected drop (including mid-talk): queue for auto-reconnect.
+         * The periodic timer skips attempts while talk/error/scan is
+         * active and retries once the state machine settles. */
+        app_bt_reconnect_enqueue(&info->mac);
+    }
     app_bt_refresh_leds();
     if (mode == APP_MODE_ERROR)
     {
@@ -3016,6 +3042,9 @@ static void app_bt_handle_internal(const app_bt_event_t *event)
         rt_kprintf("[intercom] A2DP sharing error: %d\n",
                    (int32_t)event->data.token);
         break;
+    case APP_BT_CMD_RECONNECT:
+        app_bt_reconnect_try_next();
+        break;
     default:
         break;
     }
@@ -3052,6 +3081,10 @@ static void app_bt_manager_thread(void *parameter)
                 g_bt_ready = true;
                 rt_mb_send(g_bt_ready_mailbox, 1U);
                 rt_kprintf("[intercom] Bluetooth stack and profiles are ready\n");
+                app_bt_reconnect_load_bonded();
+                /* Kick the first attempt immediately instead of waiting
+                 * for the first periodic-timer tick (saves 3s on boot). */
+                app_bt_reconnect_try_next();
                 break;
             }
             case BT_NOTIFY_COMMON_DISCOVER_IND:
@@ -3374,6 +3407,213 @@ static void app_bt_avrcp_volume_timeout(void *parameter)
     }
 }
 
+/* ---- auto-reconnect helpers ---- */
+
+static bool app_bt_mac_in_queue(const bt_notify_device_mac_t *mac)
+{
+    uint8_t i;
+
+    for (i = 0; i < g_reconnect_len; i++)
+    {
+        if (app_bt_mac_equal(&g_reconnect_queue[i], mac))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void app_bt_reconnect_enqueue(const bt_notify_device_mac_t *mac)
+{
+    int slot;
+
+    if (app_bt_mac_in_queue(mac))
+    {
+        return;
+    }
+    slot = app_bt_find_slot_by_mac(mac);
+    if ((slot >= 0) && g_slots[slot].acl_connected &&
+            g_slots[slot].hfp_connected)
+    {
+        return;
+    }
+    if (g_reconnect_len >= APP_BT_RECONNECT_QUEUE_SIZE)
+    {
+        return;
+    }
+    g_reconnect_queue[g_reconnect_len] = *mac;
+    g_reconnect_retry[g_reconnect_len] = 0U;
+    g_reconnect_next_try[g_reconnect_len] = 0U;
+    g_reconnect_len++;
+    if (!g_reconnect_active)
+    {
+        g_reconnect_active = true;
+        rt_timer_start(g_reconnect_timer);
+    }
+}
+
+static void app_bt_reconnect_remove_at(uint8_t idx)
+{
+    uint8_t i;
+
+    if (idx >= g_reconnect_len)
+    {
+        return;
+    }
+    for (i = idx; i + 1U < g_reconnect_len; i++)
+    {
+        g_reconnect_queue[i] = g_reconnect_queue[i + 1U];
+        g_reconnect_retry[i] = g_reconnect_retry[i + 1U];
+        g_reconnect_next_try[i] = g_reconnect_next_try[i + 1U];
+    }
+    g_reconnect_len--;
+    if (g_reconnect_len == 0U)
+    {
+        g_reconnect_active = false;
+        rt_timer_stop(g_reconnect_timer);
+    }
+}
+
+static void app_bt_reconnect_remove_connected(void)
+{
+    uint8_t i = 0;
+
+    while (i < g_reconnect_len)
+    {
+        int slot = app_bt_find_slot_by_mac(&g_reconnect_queue[i]);
+
+        if ((slot >= 0) && g_slots[slot].hfp_connected)
+        {
+            app_bt_reconnect_remove_at(i);
+        }
+        else
+        {
+            i++;
+        }
+    }
+}
+
+static void app_bt_reconnect_remove_mac(const bt_notify_device_mac_t *mac)
+{
+    uint8_t i = 0;
+
+    while (i < g_reconnect_len)
+    {
+        if (app_bt_mac_equal(&g_reconnect_queue[i], mac))
+        {
+            app_bt_reconnect_remove_at(i);
+        }
+        else
+        {
+            i++;
+        }
+    }
+}
+
+static void app_bt_reconnect_stop(void)
+{
+    g_reconnect_len = 0;
+    g_reconnect_active = false;
+    rt_timer_stop(g_reconnect_timer);
+}
+
+static void app_bt_reconnect_try_next(void)
+{
+    app_mode_t mode = app_state_get_mode();
+    const bt_notify_device_mac_t *mac;
+    app_bt_slot_t *slot;
+    int slot_index;
+
+    app_bt_reconnect_remove_connected();
+    if (g_reconnect_len == 0U)
+    {
+        /* Queue drained: remove_connected already stopped the timer. */
+        g_reconnect_active = false;
+        return;
+    }
+    if (app_bt_is_talk_mode(mode) || (mode == APP_MODE_ERROR) ||
+            (mode == APP_MODE_SCANNING))
+    {
+        return; /* periodic timer keeps polling until the state clears */
+    }
+    if (g_connecting_slot >= 0)
+    {
+        return; /* a connection attempt is already in progress */
+    }
+
+    mac = &g_reconnect_queue[0];
+    slot_index = app_bt_find_slot_by_mac(mac);
+    if (slot_index >= 0)
+    {
+        slot = &g_slots[slot_index];
+        if (slot->used && ((slot->connection_stage != APP_BT_CONN_IDLE) ||
+                           app_bt_slot_has_link(slot) ||
+                           slot->release_pending))
+        {
+            /* Attempt/teardown already in flight for this device — wait
+             * without burning a retry counter on a rejected command. */
+            return;
+        }
+    }
+
+    /* Back-off gate: fast phase runs every timer tick; slow phase arms
+     * this deadline so weak/off headsets are retried every 15s instead
+     * of every 3s (paging the radio disturbs the healthy headset). */
+    if (rt_tick_get() < g_reconnect_next_try[0])
+    {
+        return;
+    }
+
+    if (g_reconnect_retry[0] >= APP_BT_RECONNECT_MAX_TOTAL_RETRY)
+    {
+        rt_kprintf("[intercom] reconnect giving up on headset\n");
+        app_bt_reconnect_remove_at(0);
+        return;
+    }
+    g_reconnect_retry[0]++;
+    if (g_reconnect_retry[0] > APP_BT_RECONNECT_FAST_RETRY)
+    {
+        g_reconnect_next_try[0] = rt_tick_get() +
+                                  rt_tick_from_millisecond(
+                                      APP_BT_RECONNECT_SLOW_INTERVAL_MS);
+        rt_kprintf("[intercom] auto-reconnect slow retry %u/%u (next in %ums)\n",
+                   g_reconnect_retry[0], APP_BT_RECONNECT_MAX_TOTAL_RETRY,
+                   APP_BT_RECONNECT_SLOW_INTERVAL_MS);
+    }
+    else
+    {
+        rt_kprintf("[intercom] auto-reconnect attempt %u/%u\n",
+                   g_reconnect_retry[0], APP_BT_RECONNECT_FAST_RETRY);
+    }
+    app_bt_post_command(APP_BT_CMD_CONNECT, mac, RT_NULL);
+}
+
+static void app_bt_reconnect_load_bonded(void)
+{
+    bt_cm_bonded_dev_t *bonded = bt_cm_get_bonded_dev();
+    uint8_t i;
+
+    for (i = 0; i < BT_CM_MAX_BOND; i++)
+    {
+        if (bonded->info[i].is_use && !bd_is_empty(&bonded->info[i].bd_addr))
+        {
+            bt_notify_device_mac_t mac;
+
+            memset(&mac, 0, sizeof(mac));
+            bt_addr_convert_to_general(&bonded->info[i].bd_addr,
+                                       (bd_addr_t *)&mac);
+            app_bt_reconnect_enqueue(&mac);
+            rt_kprintf("[intercom] queued bonded headset for reconnect\n");
+        }
+    }
+}
+
+static void app_bt_reconnect_timer_cb(void *parameter)
+{
+    (void)parameter;
+    app_bt_post_simple_event(APP_BT_CMD_RECONNECT, 0U);
+}
+
 static int app_bt_post_simple_event(uint16_t event_id, uint32_t token)
 {
     app_bt_event_t event = {0};
@@ -3485,6 +3725,12 @@ int app_bt_init(void)
                                    APP_BT_AVRCP_VOLUME_RETRY_MS),
                                RT_TIMER_FLAG_ONE_SHOT |
                                RT_TIMER_FLAG_SOFT_TIMER);
+    g_reconnect_timer = rt_timer_create(
+                            "btrcn", app_bt_reconnect_timer_cb, RT_NULL,
+                            rt_tick_from_millisecond(
+                                APP_BT_RECONNECT_INTERVAL_MS),
+                            RT_TIMER_FLAG_PERIODIC |
+                            RT_TIMER_FLAG_SOFT_TIMER);
     for (index = 0; index < APP_HEADSET_COUNT; index++)
     {
         const char *name = (index == 0U) ? "btdisc0" : "btdisc1";
@@ -3500,11 +3746,13 @@ int app_bt_init(void)
             (g_bt_lock == RT_NULL) ||
             (g_talk_timer == RT_NULL) || (g_connect_timer == RT_NULL) ||
             (g_avrcp_volume_timer == RT_NULL) ||
+            (g_reconnect_timer == RT_NULL) ||
             (g_disconnect_timers[0] == RT_NULL) ||
             (g_disconnect_timers[1] == RT_NULL))
     {
         return -RT_ENOMEM;
     }
+    app_bt_reconnect_stop();
 
     sharing_result = app_a2dp_share_init(app_bt_share_callback, RT_NULL);
     if (sharing_result != RT_EOK)

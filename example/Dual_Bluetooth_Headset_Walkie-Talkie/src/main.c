@@ -12,9 +12,8 @@
 #include "app_board.h"
 #include "app_bt.h"
 #include "app_i2s.h"
-#include "app_source.h"
+// #include "app_source.h"
 #include "app_state.h"
-#include "app_adc.h"
 
 void HAL_MspInit(void)
 {
@@ -27,26 +26,29 @@ int main(void)
     app_role_t role;
 
     role = app_board_init();
-    app_state_init(role);
-    rt_kprintf("[intercom] PA20=%s, role=%s\n",
+    /* SOURCE role removed: always run as relay regardless of PA20. */
+    app_state_init(APP_ROLE_RELAY);
+    rt_kprintf("[intercom] PA20=%s, role=%s (relay-only build)\n",
                (role == APP_ROLE_SOURCE) ? "high" : "low",
                app_state_role_name(role));
 
-    if (role == APP_ROLE_SOURCE)
-    {
-        result = app_source_init();
-        if (result != RT_EOK)
-        {
-            rt_kprintf("[intercom] source initialization failed: %d\n",
-                       result);
-            app_state_set_mode(APP_MODE_ERROR);
-        }
-        else
-        {
-            rt_kprintf("[intercom] source ready; use 'intercom play'\n");
-        }
-    }
-    else
+    /* SOURCE role (local music playback) removed: only the dual-headset
+       relay path is kept regardless of PA20. */
+    // if (role == APP_ROLE_SOURCE)
+    // {
+    //     result = app_source_init();
+    //     if (result != RT_EOK)
+    //     {
+    //         rt_kprintf("[intercom] source initialization failed: %d\n",
+    //                    result);
+    //         app_state_set_mode(APP_MODE_ERROR);
+    //     }
+    //     else
+    //     {
+    //         rt_kprintf("[intercom] source ready; use 'intercom play'\n");
+    //     }
+    // }
+    // else
     {
         rt_kprintf("[intercom] dual-headset relay starting\n");
         result = app_i2s_init();
@@ -72,7 +74,7 @@ int main(void)
     }
 
     rt_kprintf("[intercom] command shell ready; run 'intercom status'\n");
-    app_adc_init();
+
     while (1)
     {
         rt_thread_mdelay(10000);

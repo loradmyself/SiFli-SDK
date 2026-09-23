@@ -9,7 +9,7 @@
 #include <rtthread.h>
 
 #include "app_bt.h"
-#include "app_source.h"
+// #include "app_source.h"
 #include "app_state.h"
 
 static void app_cli_relay_help(void)
@@ -24,21 +24,21 @@ static void app_cli_relay_help(void)
     rt_kprintf("  intercom volume <music|talk> <headset-index> <0-15>\n");
 }
 
-static void app_cli_source_help(void)
-{
-    rt_kprintf("Usage:\n");
-    rt_kprintf("  intercom status\n");
-    rt_kprintf("  intercom play\n");
-    rt_kprintf("  intercom stop\n");
-}
+// static void app_cli_source_help(void)
+// {
+//     rt_kprintf("Usage:\n");
+//     rt_kprintf("  intercom status\n");
+//     rt_kprintf("  intercom play\n");
+//     rt_kprintf("  intercom stop\n");
+// }
 
 static void app_cli_help(void)
 {
-    if (app_state_get_role() == APP_ROLE_SOURCE)
-    {
-        app_cli_source_help();
-    }
-    else
+    // if (app_state_get_role() == APP_ROLE_SOURCE)
+    // {
+    //     app_cli_source_help();
+    // }
+    // else
     {
         app_cli_relay_help();
     }
@@ -129,7 +129,7 @@ static void app_cli_print_result(const char *operation, int error)
 
 __ROM_USED void intercom(int argc, char **argv)
 {
-    app_role_t role = app_state_get_role();
+    // app_role_t role = app_state_get_role();
 
     if (argc < 2)
     {
@@ -139,30 +139,30 @@ __ROM_USED void intercom(int argc, char **argv)
 
     if ((strcmp(argv[1], "status") == 0) && (argc == 2))
     {
-        if (role == APP_ROLE_SOURCE)
-        {
-            app_source_print_status();
-        }
-        else
+        // if (role == APP_ROLE_SOURCE)
+        // {
+        //     app_source_print_status();
+        // }
+        // else
         {
             app_bt_print_status();
         }
     }
-    else if (role == APP_ROLE_SOURCE)
-    {
-        if ((strcmp(argv[1], "play") == 0) && (argc == 2))
-        {
-            app_cli_print_result("play", app_source_play());
-        }
-        else if ((strcmp(argv[1], "stop") == 0) && (argc == 2))
-        {
-            app_cli_print_result("stop", app_source_stop());
-        }
-        else
-        {
-            app_cli_source_help();
-        }
-    }
+    // else if (role == APP_ROLE_SOURCE)
+    // {
+    //     if ((strcmp(argv[1], "play") == 0) && (argc == 2))
+    //     {
+    //         app_cli_print_result("play", app_source_play());
+    //     }
+    //     else if ((strcmp(argv[1], "stop") == 0) && (argc == 2))
+    //     {
+    //         app_cli_print_result("stop", app_source_stop());
+    //     }
+    //     else
+    //     {
+    //         app_cli_source_help();
+    //     }
+    // }
     else if ((strcmp(argv[1], "scan") == 0) && (argc == 2))
     {
         app_cli_print_result("scan", app_bt_scan());
