@@ -68,6 +68,16 @@
  * Allow outgoing attempts during this recovery window even while media
  * streams; once it closes, strict silence-during-playback applies. */
 #define APP_BT_RECONNECT_BOOT_WINDOW_MS 60000U
+/* Link supervision timeout written explicitly after every ACL-up so the
+ * value is known and visible in the HCI log (Write_Link_Supervision_
+ * Timeout, 0x0C37). Units of 0.625ms:
+ *   0x7D00 = 20s (Bluetooth default, stack's hidden default likely this)
+ *   0xFFFF = 40.96s — raise to this for the close-range-disconnect
+ *   experiment (if deaths stop with the larger window, an intermittent
+ *   <40s radio blackout is confirmed).
+ * NOTE: a large value only MASKS periodic radio stalls — it also delays
+ * detection of real out-of-range events (reconnect kicks in later). */
+#define APP_BT_LINK_SUPERV_TIMEOUT 0x7D00U
 
 typedef enum
 {
@@ -194,6 +204,7 @@ typedef struct
             bt_notify_device_mac_t mac;
             uint32_t connection_generation;
         } volume;
+        bt_notify_rmt_name_t rname; /* remote name request result */
         struct
         {
             bt_notify_profile_state_info_t profile;
@@ -266,6 +277,7 @@ static int app_bt_post_volume_command(app_volume_target_t target,
                                       uint32_t connection_generation,
                                       uint8_t level);
 static void app_bt_abort_connection(int slot_index);
+static int app_bt_find_slot_by_mac(const bt_notify_device_mac_t *mac);
 static void app_bt_reconnect_enqueue(const bt_notify_device_mac_t *mac);
 static void app_bt_reconnect_try_next(void);
 static void app_bt_reconnect_load_bonded(void);
@@ -306,6 +318,52 @@ static void app_bt_print_mac(const bt_notify_device_mac_t *mac)
     rt_kprintf("%02X:%02X:%02X:%02X:%02X:%02X",
                mac->addr[0], mac->addr[1], mac->addr[2],
                mac->addr[3], mac->addr[4], mac->addr[5]);
+}
+
+/* Reconnect paths have no name source (bonding does not store names,
+ * and the slot is fresh after a reboot) — ask the connected headset
+ * for its name so `intercom status` does not show <unknown>. */
+static void app_bt_request_remote_name(int slot_index)
+{
+    app_bt_slot_t *slot = &g_slots[slot_index];
+    BTS2S_BD_ADDR addr;
+
+    if (slot->name[0] != '\0')
+    {
+        return;
+    }
+    if (bt_addr_convert_to_bts((bd_addr_t *)slot->mac.addr, &addr) != 0U)
+    {
+        return;
+    }
+    gap_rd_rmt_name_req(bts2_task_get_app_task_id(), addr);
+    rt_kprintf("[intercom] headset %u remote name requested\n",
+               slot_index + 1U);
+}
+
+static void app_bt_handle_remote_name(const bt_notify_rmt_name_t *nm)
+{
+    int slot_index;
+
+    if ((nm == RT_NULL) || (nm->res != BTS2_SUCC) ||
+            (nm->bt_name[0] == '\0'))
+    {
+        return;
+    }
+    slot_index = app_bt_find_slot_by_mac(&nm->mac);
+    if (slot_index < 0)
+    {
+        return;
+    }
+    if (g_slots[slot_index].name[0] != '\0')
+    {
+        return; /* keep a name learned from discovery */
+    }
+    strncpy(g_slots[slot_index].name, nm->bt_name,
+            sizeof(g_slots[slot_index].name) - 1U);
+    g_slots[slot_index].name[sizeof(g_slots[slot_index].name) - 1U] = '\0';
+    rt_kprintf("[intercom] headset %u remote name: %s\n",
+               slot_index + 1U, g_slots[slot_index].name);
 }
 
 static const char *app_bt_sco_codec_name(uint8_t air_mode)
@@ -1903,6 +1961,19 @@ static void app_bt_handle_acl_connected(const bt_notify_device_acl_conn_info_t *
     }
     rt_kprintf("[intercom] headset %u ACL %s\n", slot_index + 1U,
                (info->res == HCI_SUCC) ? "connected" : "failed");
+    if (info->res == HCI_SUCC)
+    {
+        /* Make the supervision window explicit (the stack's own write
+         * comes from the prebuilt lib with an unknown value). */
+        BTS2S_BD_ADDR addr;
+
+        if (bt_addr_convert_to_bts((bd_addr_t *)info->mac.addr, &addr) == 0U)
+        {
+            gap_wr_super_vision_timeout_req(bts2_task_get_app_task_id(),
+                                            addr,
+                                            APP_BT_LINK_SUPERV_TIMEOUT);
+        }
+    }
     app_bt_update_activity_state();
 }
 
@@ -2327,6 +2398,7 @@ static void app_bt_handle_a2dp(uint16_t event_id,
                            slot_index + 1U);
                 app_bt_update_media_for_links();
                 app_bt_request_avrcp(slot_index);
+                app_bt_request_remote_name(slot_index);
             }
             /* Kick the share immediately: start streaming to this newly
              * opened link instead of waiting for the next pump tick —
@@ -2454,6 +2526,7 @@ static void app_bt_handle_hfp(uint16_t event_id,
                        slot_index + 1U, info->profile_channel);
             app_bt_update_media_for_links();
             app_bt_request_avrcp(slot_index);
+            app_bt_request_remote_name(slot_index);
         }
         else
         {
@@ -3393,6 +3466,9 @@ static void app_bt_manager_thread(void *parameter)
             case BT_NOTIFY_COMMON_SCO_DISCONNECTED:
                 app_bt_handle_sco(event.id, &event.data.sco);
                 break;
+            case BT_NOTIFY_COMMON_REMOTE_NAME_RSP:
+                app_bt_handle_remote_name(&event.data.rname);
+                break;
             default:
                 break;
             }
@@ -3571,6 +3647,18 @@ static int app_bt_event_callback(uint16_t type, uint16_t event_id,
             else
             {
                 memcpy(&event.data.sco, data, sizeof(event.data.sco));
+            }
+            break;
+        case BT_NOTIFY_COMMON_REMOTE_NAME_RSP:
+            if ((data == RT_NULL) ||
+                    (data_len < sizeof(event.data.rname)))
+            {
+                enqueue = false;
+            }
+            else
+            {
+                memcpy(&event.data.rname, data,
+                       sizeof(event.data.rname));
             }
             break;
         default:
