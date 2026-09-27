@@ -27,7 +27,7 @@
     (APP_SHARE_RTP_HEADER_SIZE + APP_SHARE_SBC_HEADER_SIZE)
 #define APP_SHARE_RING_SIZE                                               \
     (SINK_DATA_LIST_MAX_THRESHOLD * AV_MTU_SIZE)
-#define APP_SHARE_PREFILL_MS 200U
+#define APP_SHARE_PREFILL_MS 100U
 #define APP_SHARE_MAX_FRAMES_PER_PACKET 10U
 #define APP_SHARE_MAX_PCM_BYTES                                           \
     (APP_SHARE_MAX_FRAMES_PER_PACKET * 16U * 8U * 2U * sizeof(int16_t))
@@ -47,6 +47,37 @@
 #define APP_SHARE_GAIN_UNITY_Q15 32768L
 #define APP_SHARE_VOLUME_RAMP_FRAMES                                    \
     ((APP_PCM_SAMPLE_RATE * APP_SHARE_VOLUME_RAMP_MS + 999U) / 1000U)
+
+/* Minimum spacing between bt_av_start_stream() attempts per connection.
+ * Covers both the post-open initial delay (A) and the reject back-off (B):
+ * after each attempt the next one is held off for this interval, which
+ * breaks the ~34 ms "reject → pump → reconcile → start" death loop and
+ * gives the headset time to finish its A2DP sink init after reconnect. */
+#define APP_SHARE_START_RETRY_MS 1500U
+
+/* Maximum time to wait for the ring to reach the prefill target before
+ * force-kicking the stream. When a second sink joins and starts draining
+ * the ring, the buffer may never reach the full prefill target — without
+ * this timeout the share stays in PREFILLING forever (silent). */
+#define APP_SHARE_PREFILL_TIMEOUT_MS 2000U
+
+/* Ring level controller for two-sink sync. bt_avsrc_sharing distributes
+ * from one shared ring to all sinks equally — per-sink pacing is not
+ * possible at this layer. Instead we steer the ENCODE rate to keep the
+ * ring near a target level: if the ring drains low the faster sink is
+ * winning (slow the encoder); if it fills high both sinks lag (speed up).
+ * This pulls the two sinks' consumption rates together and shrinks
+ * playback drift without touching the BT submodule. */
+#define APP_SHARE_SYNC_RING_TARGET_MS 80U
+#define APP_SHARE_SYNC_STEP_US 50U
+
+/* Forced two-sink resync: every APP_SHARE_RESYNC_INTERVAL_MS, briefly
+ * suspend then resume all A2DP streams. This flushes both headsets'
+ * jitter buffers so they restart from the same ring position, acting
+ * as a hard "sync floor" against clock-drift accumulation. The brief
+ * pause (APP_SHARE_RESYNC_PAUSE_MS) is the cost of the guarantee. */
+#define APP_SHARE_RESYNC_INTERVAL_MS 30000U
+#define APP_SHARE_RESYNC_PAUSE_MS 100U
 
 typedef struct
 {
@@ -70,6 +101,14 @@ static struct rt_event g_control_event;
 static struct rt_messagequeue g_record_queue;
 static struct rt_thread g_producer_thread;
 static struct rt_ringbuffer32 g_share_ring;
+
+/* Per-connection tick of the last bt_av_start_stream() attempt (0 = none
+ * yet). Used to space out start attempts (see APP_SHARE_START_RETRY_MS). */
+static rt_tick_t g_start_retry_tick[MAX_CONNS];
+
+/* Tick when the producer entered PREFILLING state; used to force-kick
+ * after APP_SHARE_PREFILL_TIMEOUT_MS if the ring never fills enough. */
+static rt_tick_t g_prefill_start_tick;
 
 ALIGN(4) static rt_uint8_t g_share_ring_pool[APP_SHARE_RING_SIZE];
 static rt_uint32_t
@@ -101,6 +140,13 @@ static uint8_t g_music_volume_level;
 static int32_t g_music_gain_q15;
 static int32_t g_music_gain_target_q15;
 static uint32_t g_music_gain_ramp_frames;
+
+/* Encode-rate pacing for two-sink sync (see APP_SHARE_SYNC_*). */
+static int32_t g_sync_encode_delay_us;
+
+/* Forced resync state: 0 = idle, 1 = suspended, waiting to resume. */
+static uint8_t g_resync_phase;
+static rt_tick_t g_resync_last_tick;
 
 static void app_share_bts_pump(uint16_t message, void *parameter);
 
@@ -264,9 +310,17 @@ static uint32_t app_share_calculate_prefill_target(
     record_size = sizeof(uint16_t) + APP_SHARE_PACKET_HEADER_SIZE +
                   (uint64_t)config->frmsize * config->frms_per_payload;
     target_size = packet_count * record_size;
-    if ((target_size == 0U) || (target_size >= APP_SHARE_RING_SIZE))
+    if (target_size == 0U)
     {
         return 0U;
+    }
+    /* Cap at half the ring so the prefill never fills the entire buffer
+     * (which would starve the pump and leave no room for the encoder).
+     * If the requested target is larger, use the cap instead of failing —
+     * a smaller prefill is always better than no audio at all. */
+    if (target_size >= (APP_SHARE_RING_SIZE / 2U))
+    {
+        target_size = APP_SHARE_RING_SIZE / 2U;
     }
     return (uint32_t)target_size;
 }
@@ -453,7 +507,9 @@ static int app_share_start_producer(
     g_status.pcm_bytes_per_packet = (uint16_t)snapshot->sbc.bytes_to_rd;
     g_status.prefill_target = prefill_target;
     g_stats.producer_starts++;
+    g_status.kicked = false;
     app_share_unlock();
+    g_prefill_start_tick = rt_tick_get();
     return RT_EOK;
 }
 
@@ -470,6 +526,7 @@ static void app_share_stop_producer(void)
     g_encoder_cleanup_pending = false;
     g_music_gain_q15 = g_music_gain_target_q15;
     g_music_gain_ramp_frames = 0U;
+    g_sync_encode_delay_us = 0;
     if (!g_status.desired &&
             (g_status.state != APP_A2DP_SHARE_STATE_ERROR))
     {
@@ -516,6 +573,9 @@ static void app_share_invalidate_encoder(void)
     {
         app_i2s_set_rx_enabled(false);
     }
+    app_share_lock();
+    g_status.kicked = false;
+    app_share_unlock();
 }
 
 static int app_share_encode_record(const uint8_t *pcm,
@@ -771,6 +831,12 @@ static void app_share_producer(void *parameter)
 
         while (g_pcm_used >= g_active_config.bytes_to_rd)
         {
+            /* Two-sink sync pacing: briefly pause encoding to let the
+             * slower sink catch up (or skip the pause to speed up). */
+            if (g_sync_encode_delay_us > 0)
+            {
+                rt_thread_mdelay((g_sync_encode_delay_us + 999) / 1000);
+            }
             int error = app_share_encode_record(g_pcm_buffer,
                                                 &g_active_config,
                                                 &g_producer_record);
@@ -894,8 +960,129 @@ static void app_share_bts_pump(uint16_t message, void *parameter)
         g_status.ring_bytes = ring_bytes;
         app_share_unlock();
 
+        /* Forced two-sink resync: temporarily disabled — caused stream
+         * state conflicts (suspend/start race) and ring overflow. */
+        if (0 && (links.streaming_count >= 2U))
+        {
+            rt_tick_t now = rt_tick_get();
+            if (g_resync_phase == 1U)
+            {
+                /* Phase 2: resume all streams after the pause. */
+                uint8_t idx;
+                bts2s_av_inst_data *avinst = bt_av_get_inst_data();
+
+                g_resync_phase = 0U;
+                g_resync_last_tick = now;
+                if (avinst != RT_NULL)
+                {
+                    for (idx = 0U; idx < MAX_CONNS; idx++)
+                    {
+                        if ((avinst->con[idx].cfg == AV_AUDIO_SRC) &&
+                                (avinst->con[idx].st == avconned_open))
+                        {
+                            bt_av_start_stream(idx);
+                        }
+                    }
+                }
+            }
+            else if ((g_resync_last_tick != 0U) &&
+                     ((now - g_resync_last_tick) >=
+                      rt_tick_from_millisecond(APP_SHARE_RESYNC_INTERVAL_MS)))
+            {
+                /* Phase 1: suspend all streams to drain jitter buffers. */
+                uint8_t idx;
+                bts2s_av_inst_data *avinst = bt_av_get_inst_data();
+
+                g_resync_phase = 1U;
+                if (avinst != RT_NULL)
+                {
+                    for (idx = 0U; idx < MAX_CONNS; idx++)
+                    {
+                        if ((avinst->con[idx].cfg == AV_AUDIO_SRC) &&
+                                (avinst->con[idx].st == avconned_streaming))
+                        {
+                            bt_av_suspend_stream(idx);
+                        }
+                    }
+                }
+                should_reschedule = true;
+                next_delay = APP_SHARE_RESYNC_PAUSE_MS;
+                goto resync_skip;
+            }
+        }
+        else
+        {
+            g_resync_phase = 0U;
+            g_resync_last_tick = 0U;
+        }
+resync_skip:
+
+        /* Two-sink sync: steer the encode rate to hold the ring near
+         * APP_SHARE_SYNC_RING_TARGET_MS of data. This couples the two
+         * sinks' consumption rates and shrinks playback drift. Only
+         * active with 2+ streaming sinks (single sink has nothing to
+         * desync from). */
+        if (links.streaming_count >= 2U)
+        {
+            uint32_t samples_per_packet =
+                (uint32_t)links.sbc.blocks * links.sbc.subbands *
+                links.sbc.frms_per_payload;
+            uint32_t record_size =
+                (uint32_t)sizeof(uint16_t) + APP_SHARE_PACKET_HEADER_SIZE +
+                (uint32_t)links.sbc.frmsize * links.sbc.frms_per_payload;
+            uint32_t target_bytes;
+            uint32_t sample_freq = links.sbc.sample_freq ? links.sbc.sample_freq
+                                   : APP_PCM_SAMPLE_RATE;
+
+            if ((samples_per_packet > 0U) && (record_size > 0U))
+            {
+                uint32_t packets_in_target =
+                    (sample_freq * APP_SHARE_SYNC_RING_TARGET_MS / 1000U +
+                     samples_per_packet - 1U) / samples_per_packet;
+                target_bytes = packets_in_target * record_size;
+            }
+            else
+            {
+                target_bytes = prefill_target;
+            }
+            if (target_bytes > 0U)
+            {
+                if ((ring_bytes + record_size) < target_bytes)
+                {
+                    /* Ring too low — the fast sink is draining us; slow
+                     * the encoder so the slow sink can catch up. */
+                    g_sync_encode_delay_us += (int32_t)APP_SHARE_SYNC_STEP_US;
+                    if (g_sync_encode_delay_us > 2000)
+                    {
+                        g_sync_encode_delay_us = 2000;
+                    }
+                }
+                else if (ring_bytes > (target_bytes + record_size * 4U))
+                {
+                    /* Ring too high — both sinks lag; speed up. */
+                    g_sync_encode_delay_us -= (int32_t)APP_SHARE_SYNC_STEP_US;
+                    if (g_sync_encode_delay_us < -1000)
+                    {
+                        g_sync_encode_delay_us = -1000;
+                    }
+                }
+            }
+        }
+        else
+        {
+            g_sync_encode_delay_us = 0;
+        }
+
         if (!kicked && links.config_valid && producer_active &&
-                (prefill_target > 0U) && (ring_bytes >= prefill_target))
+                (prefill_target > 0U) &&
+                ((ring_bytes >= prefill_target) ||
+                 /* Force-kick after timeout: when a second sink joins and
+                  * drains the ring, the buffer may never reach the prefill
+                  * target — without this the share stays in PREFILLING
+                  * forever and there is no audio. */
+                 ((g_prefill_start_tick != 0U) &&
+                  ((rt_tick_get() - g_prefill_start_tick) >=
+                   rt_tick_from_millisecond(APP_SHARE_PREFILL_TIMEOUT_MS)))))
         {
             app_share_lock();
             g_status.kicked = true;
@@ -1179,9 +1366,17 @@ void app_a2dp_share_on_a2dp_event(uint16_t event_id)
     case BT_NOTIFY_A2DP_SUSPEND_CFM:
         break;
     case BT_NOTIFY_A2DP_PROFILE_DISCONNECTED:
+        /* A sink left — the active SBC config may no longer be valid
+         * for the remaining sinks, so the encoder must be re-checked. */
+        invalidate = true;
+        break;
     case BT_NOTIFY_A2DP_START_IND:
     case BT_NOTIFY_A2DP_START_CFM:
-        invalidate = true;
+        /* Do NOT invalidate: a stream start (second headset joining) does
+         * NOT change the SBC config. Invalidating tears down the running
+         * producer, flushes the ring, and forces a full prefill restart —
+         * killing audio for both headsets. Let the share continue from the
+         * current ring position so both get audio without interruption. */
         break;
     default:
         return;
@@ -1239,13 +1434,24 @@ void app_a2dp_share_reconcile_streams(void)
                     !connection->start_pending &&
                     !connection->suspend_pending)
             {
-                bt_av_start_stream(index);
+                rt_tick_t now = rt_tick_get();
+                if ((g_start_retry_tick[index] == 0U) ||
+                    ((now - g_start_retry_tick[index]) >=
+                     rt_tick_from_millisecond(APP_SHARE_START_RETRY_MS)))
+                {
+                    bt_av_start_stream(index);
+                    g_start_retry_tick[index] = now;
+                }
             }
             else if ((connection->st == avconned_streaming) &&
                      connection->suspend_pending &&
                      (connection->pending_cmd != A2DP_START_CMD))
             {
                 bt_av_start_stream(index);
+            }
+            if (connection->st == avconned_streaming)
+            {
+                g_start_retry_tick[index] = 0U;
             }
         }
         else if (((connection->st == avconned_streaming) &&

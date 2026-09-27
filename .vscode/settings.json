@@ -17,5 +17,7 @@
             "priority": 4
         }
     ],
-    "cmake.sourceDirectory": "F:/SiFli/SDK/SiFli-SDK/main/tools/flash"
+    "cmake.sourceDirectory": "F:/SiFli/SDK/SiFli-SDK/main/tools/flash",
+    "C_Cpp.default.compileCommands": "F:/SiFli/SDK/SiFli-SDK/main/example/Dual_Bluetooth_Headset_Walkie-Talkie/project/build_spi-hdk_lb57bun3n6_hcpu/compile_commands.json",
+    "C_Cpp.default.intelliSenseMode": "gcc-arm"
 }

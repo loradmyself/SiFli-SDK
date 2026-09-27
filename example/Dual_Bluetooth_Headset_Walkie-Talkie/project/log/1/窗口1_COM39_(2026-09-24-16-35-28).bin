@@ -1,0 +1,483 @@
+SFBL
+Serial:c2,Chip:5,Package:0,Rev:1  Reason:00000000
+
+ \ | /
+- SiFli Corporation
+ / | \     build on Sep 24 2026, 2.5.0 build 85521ea9
+ 2020 - 2022 Copyright by SiFli team
+mount /dev sucess
+[32m[291] I/drv.rtc main: PSCLR=0x80000100 DivAI=128 DivAF=0 B=256
+[0m[32m[299] I/drv.rtc main: RC10K Freq=9kHz, cycle=987142, rtc ppm=0
+
+[0m[32m[307] I/drv.rtc main: DIVA=37, DIVA_FRA=16195, DIVB=256
+
+[0m[32m[315] I/drv.rtc main: Init RTC, wake = 0
+
+[0m[32m[365] I/drv.audprc main: init 00 ADC_PATH_CFG0 0x6
+
+[0m[32m[372] I/drv.audprc main: HAL_AUDPRC_Init res 0
+
+[0m[32m[379] I/drv.audcodec main: HAL_AUDCODEC_Init res 0
+
+[0m[32;22m[I/FAL] Flash Abstraction Layer (V0.5.99) initialize success.[0m
+[32;22m[I/FAL] The FAL MTD NOR device (dfu) created successfully[0m
+[32;22m[I/FAL] The FAL MTD NOR device (ble) created successfully[0m
+call par CFG1(3313)
+fc 9, xtal 2000, pll 2015
+call par CFG1(3313)
+fc 9, xtal 2000, pll 2015
+[32m[457] I/audio audiosvr: audio server run
+[0m[intercom] PA20=low, role=relay (relay-only build)
+[intercom] dual-headset relay starting
+[32m[475] I/drv.i2s_audio main: i2s rx sample rate config 44100
+[0m[32m[483] I/drv.i2s_audio main: i2s tx sample rate config 44100
+[0m[32m[490] I/drv.i2s_audio main: i2s rx sample formate config 16
+[0m[32m[498] I/drv.i2s_audio main: i2s tx sample formate config 16
+[0m[32m[505] I/drv.i2s_audio main: i2s rx channel config stereo
+[0m[32m[513] I/drv.i2s_audio main: i2s tx channel config stereo
+[0m[32m[520] I/drv.i2s_audio main: I2S input exteranl interface 0
+
+[0m[32m[527] I/drv.i2s_audio main: i2s rx mode config slave
+[0m[32m[534] I/drv.i2s_audio main: i2s tx mode config slave
+[0m[32m[541] I/drv.i2s_audio main: i2s buf size=640
+[0menable pll 
+new PLL_ENABLE vco:8, freq_type:1
+pll lock! freq_type:1
+[32m[579] I/drv.i2s_audio main: bf0_audio_start 1 done
+
+[0m[32m[588] I/sibles main: enable BLE Core. Lib ver: bt.2.0.c6420b58
+[0m[32m[596] I/audio bt_downv: audio_btdownlink run
+[0m[32m[2123] I/nvds mbox: read sleep time 4500
+[0mmsh />[32m[13745] I/nvds mbox: hci en 32
+[0m[31m[13777] E/NO_TAG KE_EVT2: read bt bonded failed!
+[0mle p256 nvds get 1
+le p256 nvds get 1
+app addr nvds get 1
+[32m[19660] I/sibles KE_EVT2: 
+BLE ready!
+
+[0m[32m[19666] I/btcomm KE_EVT2: Clear mask 1
+[0m[32m[19826] I/btapp_ag bts: hfp ag profile service new_date:0, old_state:0
+[0m[32m[19836] I/btapp_ag bts: hfp ag profile service new_date:1, old_state:0
+[0m[32m[19852] I/btapp_ag bts: hfp ag msg *msg_type 8000 inst_data->st 1
+
+[0m[32m[19862] I/btapp_ag bts: hfp ag profile service new_date:2, old_state:1
+[0m[32m[19876] I/btapp_ge bts: << Local device addreess: CDAB:78:563412
+
+[0m[32m[19886] I/btapp.av bts: enable(0) ret 0
+[0m[32m[19895] I/audio_avrcp bts: >> AVCTP enabled
+
+[0m[32m[19917] I/btapp_ge bts: << Local LMP version: 16
+
+[0m[32m[19924] I/btapp_ge bts: << Local LMP subversion: 773
+
+[0m[32m[19931] I/btapp_ge bts: << Local controller manufacturer name id: 2636
+
+[0m[intercom] AVRCP control service is ready
+[32m[19970] I/btapp_ge bts: << Write eir data success!
+
+[0m[32m[20007] I/btapp_ge bts: << Local device name changed!
+
+[0m[32m[20034] I/btapp_ge bts: << Class of device has been changed!
+
+[0m[32m[20063] I/NO_TAG bts: BTS2MU_GAP_RD_LOCAL_NAME_CFM
+[0m[32m[20070] I/btcomm bts: Clear mask 2
+[0m[32m[20075] I/btapp_ge bts: << Local device name: SifliDemo-12-34-56-78-ab-cd
+
+[0m[32m[20085] I/btapp_ge bts: service state 1
+[0m[32m[20091] I/btapp_ge bts: bt stack ready
+
+[0m[32m[20099] I/btapp_intf btmgr: set name 	SiFli Intercom��� �� �� _N
+
+[0m[32m[20108] I/btapp_intf btmgr: bt_interface_set_scan_mode target_scan_mode:0 scan_mode:0 fsm:0 0 
+
+[0m[32m[20124] I/btapp_ge bts: << Class of device: 0x6D240704
+
+[0m[32m[20135] I/btapp_ge bts: << Write scan enable success
+
+[0m[intercom] relay ready; use 'intercom scan'
+[intercom] command shell ready; run 'intercom status'
+[32m[20159] I/btapp_ge bts: << Write eir data success!
+
+[0m[intercom] Bluetooth stack and profiles are ready
+[32m[20177] I/btapp_ge bts: << Local device name changed!
+
+[0m[32m[20187] I/btapp_ge bts: << Scan mode: 3
+
+[0m[32m[20192] I/btapp_ge bts: <<            Inquiry scan enbd.
+<<            Page scan enbd.
+
+[0m[32m[20211] I/NO_TAG bts: BTS2MU_GAP_RD_LOCAL_NAME_CFM
+[0m[32m[20218] I/btcomm bts: Clear mask 2
+[0m[32m[20223] I/btapp_ge bts: << Local device name: SiFli Intercom
+
+[0m[32m[20231] I/btapp_ge bts: service state 2
+[0m[32m[20244] I/btapp_ge bts: << Write scan enable success
+
+[0m[32m[20267] I/btapp_ge bts: << Scan mode: 3
+
+[0m[32m[20273] I/btapp_ge bts: <<            Inquiry scan enbd.
+<<            Page scan enbd.
+
+[0mintercom scan
+[32m[925685] I/btapp_ge btmgr: >> inquiry start...
+
+[0m[intercom] state: idle -> scanning
+[intercom] inquiry started for about 4 seconds
+[intercom] scan accepted
+msh />
+msh />[32m[927946] I/btapp_ge bts: << idx:00 address:C03C:59:B8428B class:2E410C name:CHAOTAOYANG rssi:-71
+
+[0m[intercom] found 1: 8B:42:B8:59:3C:C0  RSSI=-71  CHAOTAOYANG
+[32m[932171] I/btapp_ge bts: << idx:01 address:B06E:72:16E552 class:5A020C name:真我 V20 rssi:-66
+
+[0m[intercom] found 2: 52:E5:16:72:6E:B0  RSSI=-66  真我 V20
+[32m[933054] I/btapp_ge bts: << idx:02 address:DC55:83:6863CC class:5A020C name:OPPO A73 rssi:-74
+
+[0m[intercom] found 3: CC:63:68:83:55:DC  RSSI=-74  OPPO A73
+[32m[937614] I/btapp_ge bts: << idx:03 address:A450:46:A610C1 class:5A020C name:2597231132的MI 8 rssi:-54
+
+[0m[intercom] found 4: C1:10:A6:46:50:A4  RSSI=-54  2597231132的MI 8
+[32m[941017] I/btapp_ge bts: << idx:04 address:14C6:97:95E946 class:5A020C name:OPPO R15 rssi:-83
+
+[0m[intercom] found 5: 46:E9:95:97:C6:14  RSSI=-83  OPPO R15
+[32m[946474] I/btapp_ge bts: << idx:05 address:9011:22:785C04 class:240704 name:SifliDemo-4d-3c-2b-1a-60-2 rssi:-62
+
+[0m[intercom] found 6: 04:5C:78:22:11:90  RSSI=-62  SifliDemo-4d-3c-2b-1a-60-2
+[32m[950656] I/btapp_ge bts: << idx:06 address:FFFF:2A:D90C31 class:240704 name:SifliDemo-31-c-d9-2a-ff-ff rssi:-62
+
+[0m[intercom] found 7: 31:0C:D9:2A:FF:FF  RSSI=-62  SifliDemo-31-c-d9-2a-ff-ff
+[32m[956448] I/btapp_ge bts: << idx:07 address:7EBA:46:0000F9 class:5A020C name:OPPO A7x rssi:-86
+
+[0m[intercom] found 8: F9:00:00:46:BA:7E  RSSI=-86  OPPO A7x
+[32m[964581] I/btapp_ge bts: >> inquiry finished
+
+[0m[32m[964588] I/btapp_ge bts: << idx: 00--address: C03C:59:B8428B
+[0m[32m[964596] I/btapp_ge bts: << idx: 01--address: B06E:72:16E552
+[0m[32m[964603] I/btapp_ge bts: << idx: 02--address: DC55:83:6863CC
+[0m[32m[964611] I/btapp_ge bts: << idx: 03--address: A450:46:A610C1
+[0m[32m[964619] I/btapp_ge bts: << idx: 04--address: 14C6:97:95E946
+[0m[32m[964627] I/btapp_ge bts: << idx: 05--address: 9011:22:785C04
+[0m[32m[964635] I/btapp_ge bts: << idx: 06--address: FFFF:2A:D90C31
+[0m[32m[964642] I/btapp_ge bts: << idx: 07--address: 7EBA:46:0000F9
+[0m[intercom] inquiry complete: 8 device(s)
+  1. 8B:42:B8:59:3C:C0  RSSI=-71  COD=0x2E410C  CHAOTAOYANG
+  2. 52:E5:16:72:6E:B0  RSSI=-66  COD=0x5A020C  真我 V20
+  3. CC:63:68:83:55:DC  RSSI=-74  COD=0x5A020C  OPPO A73
+  4. C1:10:A6:46:50:A4  RSSI=-54  COD=0x5A020C  2597231132的MI 8
+  5. 46:E9:95:97:C6:14  RSSI=-83  COD=0x5A020C  OPPO R15
+  6. 04:5C:78:22:11:90  RSSI=-62  COD=0x240704  SifliDemo-4d-3c-2b-1a-60-2
+  7. 31:0C:D9:2A:FF:FF  RSSI=-62  COD=0x240704  SifliDemo-31-c-d9-2a-ff-ff
+  8. F9:00:00:46:BA:7E  RSSI=-86  COD=0x5A020C  OPPO A7x
+[intercom] state: scanning -> idle
+intercom scan
+[32m[1032751] I/btapp_ge btmgr: >> inquiry start...
+
+[0m[intercom] state: idle -> scanning
+[intercom] inquiry started for about 4 seconds
+[intercom] scan accepted
+msh />
+msh />[32m[1040650] I/btapp_ge bts: << idx:00 address:C03C:59:B8428B class:2E410C name:CHAOTAOYANG rssi:-65
+
+[0m[intercom] found 1: 8B:42:B8:59:3C:C0  RSSI=-65  CHAOTAOYANG
+[32m[1040957] I/btapp_ge bts: << idx:01 address:B06E:72:16E552 class:5A020C name:真我 V20 rssi:-63
+
+[0m[intercom] found 2: 52:E5:16:72:6E:B0  RSSI=-63  真我 V20
+[32m[1042314] I/btapp_ge bts: << idx:02 address:5CFF:3F:A6755C class:240704 name:SifliDemo-5c-75-a6-3f-ff-5c rssi:-50
+
+[0m[intercom] found 3: 5C:75:A6:3F:FF:5C  RSSI=-50  SifliDemo-5c-75-a6-3f-ff-5c
+[32m[1043059] I/btapp_ge bts: << idx:03 address:9011:22:785C04 class:240704 name:SifliDemo-4d-3c-2b-1a-60-2 rssi:-60
+
+[0m[intercom] found 4: 04:5C:78:22:11:90  RSSI=-60  SifliDemo-4d-3c-2b-1a-60-2
+[32m[1045089] I/btapp_ge bts: << idx:04 address:DC55:83:6863CC class:5A020C name:OPPO A73 rssi:-74
+
+[0m[intercom] found 5: CC:63:68:83:55:DC  RSSI=-74  OPPO A73
+[32m[1049640] I/btapp_ge bts: << idx:05 address:A450:46:A610C1 class:5A020C name:2597231132的MI 8 rssi:-65
+
+[0m[intercom] found 6: C1:10:A6:46:50:A4  RSSI=-65  2597231132的MI 8
+[32m[1062290] I/btapp_ge bts: << idx:06 address:5CFD:52:004E73 class:240704 name:SifliDemo-73-4e-0-52-fd-5c rssi:-74
+
+[0m[intercom] found 7: 73:4E:00:52:FD:5C  RSSI=-74  SifliDemo-73-4e-0-52-fd-5c
+[32m[1065225] I/btapp_ge bts: << idx:07 address:14C6:97:95E946 class:5A020C name:OPPO R15 rssi:-85
+
+[0m[intercom] found 8: 46:E9:95:97:C6:14  RSSI=-85  OPPO R15
+[32m[1071647] I/btapp_ge bts: >> inquiry finished
+
+[0m[32m[1071654] I/btapp_ge bts: << idx: 00--address: C03C:59:B8428B
+[0m[32m[1071662] I/btapp_ge bts: << idx: 01--address: B06E:72:16E552
+[0m[32m[1071670] I/btapp_ge bts: << idx: 02--address: 5CFF:3F:A6755C
+[0m[32m[1071678] I/btapp_ge bts: << idx: 03--address: 9011:22:785C04
+[0m[32m[1071686] I/btapp_ge bts: << idx: 04--address: DC55:83:6863CC
+[0m[32m[1071693] I/btapp_ge bts: << idx: 05--address: A450:46:A610C1
+[0m[32m[1071701] I/btapp_ge bts: << idx: 06--address: 5CFD:52:004E73
+[0m[32m[1071709] I/btapp_ge bts: << idx: 07--address: 14C6:97:95E946
+[0m[intercom] inquiry complete: 8 device(s)
+  1. 8B:42:B8:59:3C:C0  RSSI=-65  COD=0x2E410C  CHAOTAOYANG
+  2. 52:E5:16:72:6E:B0  RSSI=-63  COD=0x5A020C  真我 V20
+  3. 5C:75:A6:3F:FF:5C  RSSI=-50  COD=0x240704  SifliDemo-5c-75-a6-3f-ff-5c
+  4. 04:5C:78:22:11:90  RSSI=-60  COD=0x240704  SifliDemo-4d-3c-2b-1a-60-2
+  5. CC:63:68:83:55:DC  RSSI=-74  COD=0x5A020C  OPPO A73
+  6. C1:10:A6:46:50:A4  RSSI=-65  COD=0x5A020C  2597231132的MI 8
+  7. 73:4E:00:52:FD:5C  RSSI=-74  COD=0x240704  SifliDemo-73-4e-0-52-fd-5c
+  8. 46:E9:95:97:C6:14  RSSI=-85  COD=0x5A020C  OPPO R15
+[intercom] state: scanning -> idle
+intercom scan
+[32m[1272304] I/btapp_ge btmgr: >> inquiry start...
+
+[0m[intercom] state: idle -> scanning
+[intercom] inquiry started for about 4 seconds
+[intercom] scan accepted
+msh />
+msh />[32m[1277632] I/btapp_ge bts: << idx:00 address:9A78:56:3412C2 class:240704 name:SifliDemo-12-34-56-78-ab-cd rssi:-79
+
+[0m[intercom] found 1: C2:12:34:56:78:9A  RSSI=-79  SifliDemo-12-34-56-78-ab-cd
+[32m[1281740] I/btapp_ge bts: << idx:01 address:FFFF:5C:7464FF class:240704 name:SifliDemo-ff-64-74-5c-ff-ff rssi:-60
+
+[0m[intercom] found 2: FF:64:74:5C:FF:FF  RSSI=-60  SifliDemo-ff-64-74-5c-ff-ff
+[32m[1287964] I/btapp_ge bts: << idx:02 address:DC55:83:6863CC class:5A020C name:OPPO A73 rssi:-79
+
+[0m[intercom] found 3: CC:63:68:83:55:DC  RSSI=-79  OPPO A73
+[32m[1291340] I/btapp_ge bts: << idx:03 address:5CFD:52:004E73 class:240704 name:SifliDemo-73-4e-0-52-fd-5c rssi:-76
+
+[0m[intercom] found 4: 73:4E:00:52:FD:5C  RSSI=-76  SifliDemo-73-4e-0-52-fd-5c
+[32m[1296133] I/btapp_ge bts: << idx:04 address:FFFF:05:7F232E class:240704 name:SifliDemo-2e-23-7f-5-ff-ff rssi:-88
+
+[0m[intercom] found 5: 2E:23:7F:05:FF:FF  RSSI=-88  SifliDemo-2e-23-7f-5-ff-ff
+[32m[1298236] I/btapp_ge bts: << idx:05 address:C03C:59:B8428B class:2E410C name:CHAOTAOYANG rssi:-67
+
+[0m[intercom] found 6: 8B:42:B8:59:3C:C0  RSSI=-67  CHAOTAOYANG
+[32m[1299583] I/btapp_ge bts: << idx:06 address:9011:22:785C04 class:240704 name:SifliDemo-4d-3c-2b-1a-60-2 rssi:-61
+
+[0m[intercom] found 7: 04:5C:78:22:11:90  RSSI=-61  SifliDemo-4d-3c-2b-1a-60-2
+[32m[1301124] I/btapp_ge bts: << idx:07 address:4142:2A:CDDDE8 class:240404 name:YKY-J02 rssi:-18
+
+[0m[intercom] found 8: E8:DD:CD:2A:42:41  RSSI=-18  YKY-J02
+[32m[1305070] I/btapp_ge bts: << idx:08 address:B06E:72:16E552 class:5A020C name:真我 V20 rssi:-61
+
+[0m[intercom] found 9: 52:E5:16:72:6E:B0  RSSI=-61  真我 V20
+[32m[1308447] I/btapp_ge bts: << idx:09 address:5CFF:3F:A6755C class:240704 name:SifliDemo-5c-75-a6-3f-ff-5c rssi:-47
+
+[0m[intercom] found 10: 5C:75:A6:3F:FF:5C  RSSI=-47  SifliDemo-5c-75-a6-3f-ff-5c
+[32m[1311193] I/btapp_ge bts: >> inquiry finished
+
+[0m[intercom] inquiry complete: 10 device(s)
+  1. C2:12:34:56:78:9A  RSSI=-79  COD=0x240704  SifliDemo-12-34-56-78-ab-cd
+  2. FF:64:74:5C:FF:FF  RSSI=-60  COD=0x240704  SifliDemo-ff-64-74-5c-ff-ff
+  3. CC:63:68:83:55:DC  RSSI=-79  COD=0x5A020C  OPPO A73
+  4. 73:4E:00:52:FD:5C  RSSI=-76  COD=0x240704  SifliDemo-73-4e-0-52-fd-5c
+  5. 2E:23:7F:05:FF:FF  RSSI=-88  COD=0x240704  SifliDemo-2e-23-7f-5-ff-ff
+  6. 8B:42:B8:59:3C:C0  RSSI=-67  COD=0x2E410C  CHAOTAOYANG
+  7. 04:5C:78:22:11:90  RSSI=-61  COD=0x240704  SifliDemo-4d-3c-2b-1a-60-2
+  8. E8:DD:CD:2A:42:41  RSSI=-18  COD=0x240404  YKY-J02
+  9. 52:E5:16:72:6E:B0  RSSI=-61  COD=0x5A020C  真我 V20
+  10. 5C:75:A6:3F:FF:5C  RSSI=-47  COD=0x240704  SifliDemo-5c-75-a6-3f-ff-5c
+[intercom] state: scanning -> idle
+intercom connect 8
+[32m[1440933] I/btapp_intf btmgr: bt_interface_set_scan_mode target_scan_mode:0 scan_mode:3 fsm:0 0 
+
+[0m[32m[1440948] I/btapp.av btmgr:  -- av conn rmt device... peer_role:1 local_role:0
+
+[0m[32m[1440958] I/btapp.av btmgr:  -- address: 4142:2A:CDDDE8
+
+[0m[32m[1440969] I/btapp_ge bts: << Write scan enable success
+
+[0mcon_id = 4
+[32m[1440986] I/btapp_ge bts: << Scan mode: 0
+
+[0m[32m[1440992] I/btapp_ge bts: <<            No scans enbd.
+
+[0m[intercom] state: idle -> connecting
+[intercom] headset 1 A2DP connect requested: E8:DD:CD:2A:42:41
+[intercom] connect accepted
+msh />
+msh />[32m[1441023] I/NO_TAG bts: DM_ACL_CREATE_CONN_STATUS
+[0m[intercom] headset 1 connection timed out
+[intercom] state: connecting -> idle
+[32m[1538238] I/NO_TAG bts: DM_ACL_CREATE_CONN_STATUS
+[0m[32m[1538247] I/NO_TAG bts: link connected COD:0 Incoming:0 hdl 65535 res 2
+
+[0m[32m[1538257] I/NO_TAG bts: bd addr 4142-2a-cddde8
+
+[0m[32m[1538264] I/NO_TAG bts: bt_cm_hci_acl_connect_complete_event_hdl conn:2000d978
+[0m[32m[1538276] I/btapp.av bts:  -- a2dp connect failed 97
+
+[0m[intercom] headset 1 ACL failed
+[intercom] headset 1 A2DP disconnected
+[32m[1538308] I/btapp_ge bts: << Write scan enable success
+
+[0m[32m[1538322] I/btapp_ge bts: << Scan mode: 3
+
+[0m[32m[1538328] I/btapp_ge bts: <<            Inquiry scan enbd.
+<<            Page scan enbd.
+
+[0m[intercom] headset 1 disconnect completed without ACL event
+intercom status
+[intercom] state=idle bt=ready avrcp=ready scan=idle media=idle discovered=10
+  headset1: unassigned
+  headset2: unassigned
+  volume: music=15/15 talk=8/15
+  I2S: signaled=30274240 rx=30274240 pipe-drop=0 ring-drop=0 underflow=0 errors=0
+  A2DP sharing: connected=0 streaming=0 start-pending=0 suspend-pending=0 config=invalid kicked=0 error=0
+  SBC: rate=0 frame=0 frames/packet=0 pcm/packet=0 pcm-bytes=0 frames=0 packets=0 encode-errors=0
+  sharing buffer: i2s=0/30720 ring=0/20160 target=0 pumped=0 queue-drop=0 ring-drop=0 kicks=0
+  heap: used=50732 max-used=55800 total=301720 free-now=250988
+msh />
+msh />intercom scan
+[32m[1903590] I/btapp_ge btmgr: >> inquiry start...
+
+[0m[intercom] state: idle -> scanning
+[intercom] inquiry started for about 4 seconds
+[intercom] scan accepted
+msh />
+msh />[32m[1904287] I/btapp_ge bts: << idx:00 address:DC55:83:6863CC class:5A020C name:OPPO A73 rssi:-71
+
+[0m[intercom] found 1: CC:63:68:83:55:DC  RSSI=-71  OPPO A73
+[32m[1904896] I/btapp_ge bts: << idx:01 address:9A78:56:3412C2 class:240704 name:SifliDemo-12-34-56-78-ab-cd rssi:-79
+
+[0m[intercom] found 2: C2:12:34:56:78:9A  RSSI=-79  SifliDemo-12-34-56-78-ab-cd
+[32m[1906943] I/btapp_ge bts: << idx:02 address:B06E:72:16E552 class:5A020C name:真我 V20 rssi:-63
+
+[0m[intercom] found 3: 52:E5:16:72:6E:B0  RSSI=-63  真我 V20
+[32m[1908569] I/btapp_ge bts: << idx:03 address:A450:46:A610C1 class:5A020C name:2597231132的MI 8 rssi:-64
+
+[0m[intercom] found 4: C1:10:A6:46:50:A4  RSSI=-64  2597231132的MI 8
+[32m[1909467] I/btapp_ge bts: << idx:04 address:C03C:59:B8428B class:2E410C name:CHAOTAOYANG rssi:-66
+
+[0m[intercom] found 5: 8B:42:B8:59:3C:C0  RSSI=-66  CHAOTAOYANG
+[32m[1909731] I/btapp_ge bts: << idx:05 address:5CFF:3F:A6755C class:240704 name:SifliDemo-5c-75-a6-3f-ff-5c rssi:-48
+
+[0m[intercom] found 6: 5C:75:A6:3F:FF:5C  RSSI=-48  SifliDemo-5c-75-a6-3f-ff-5c
+[32m[1916035] I/btapp_ge bts: << idx:06 address:7EBA:46:0000F9 class:5A020C name:OPPO A7x rssi:-80
+
+[0m[intercom] found 7: F9:00:00:46:BA:7E  RSSI=-80  OPPO A7x
+[32m[1925221] I/btapp_ge bts: << idx:07 address:5CFD:52:004E73 class:240704 name:SifliDemo-73-4e-0-52-fd-5c rssi:-77
+
+[0m[intercom] found 8: 73:4E:00:52:FD:5C  RSSI=-77  SifliDemo-73-4e-0-52-fd-5c
+[32m[1929738] I/btapp_ge bts: << idx:08 address:4142:2A:CDDDE8 class:240404 name:YKY-J02 rssi:-38
+
+[0m[intercom] found 9: E8:DD:CD:2A:42:41  RSSI=-38  YKY-J02
+[32m[1930083] I/btapp_ge bts: << idx:09 address:FFFF:2A:D90C31 class:240704 name:SifliDemo-31-c-d9-2a-ff-ff rssi:-59
+
+[0m[intercom] found 10: 31:0C:D9:2A:FF:FF  RSSI=-59  SifliDemo-31-c-d9-2a-ff-ff
+[32m[1942468] I/btapp_ge bts: >> inquiry finished
+
+[0m[intercom] inquiry complete: 10 device(s)
+  1. CC:63:68:83:55:DC  RSSI=-71  COD=0x5A020C  OPPO A73
+  2. C2:12:34:56:78:9A  RSSI=-79  COD=0x240704  SifliDemo-12-34-56-78-ab-cd
+  3. 52:E5:16:72:6E:B0  RSSI=-63  COD=0x5A020C  真我 V20
+  4. C1:10:A6:46:50:A4  RSSI=-64  COD=0x5A020C  2597231132的MI 8
+  5. 8B:42:B8:59:3C:C0  RSSI=-66  COD=0x2E410C  CHAOTAOYANG
+  6. 5C:75:A6:3F:FF:5C  RSSI=-48  COD=0x240704  SifliDemo-5c-75-a6-3f-ff-5c
+  7. F9:00:00:46:BA:7E  RSSI=-80  COD=0x5A020C  OPPO A7x
+  8. 73:4E:00:52:FD:5C  RSSI=-77  COD=0x240704  SifliDemo-73-4e-0-52-fd-5c
+  9. E8:DD:CD:2A:42:41  RSSI=-38  COD=0x240404  YKY-J02
+  10. 31:0C:D9:2A:FF:FF  RSSI=-59  COD=0x240704  SifliDemo-31-c-d9-2a-ff-ff
+[intercom] state: scanning -> idle
+intercom connect 9
+[32m[2054388] I/btapp_intf btmgr: bt_interface_set_scan_mode target_scan_mode:0 scan_mode:3 fsm:0 0 
+
+[0m[32m[2054403] I/btapp.av btmgr:  -- av conn rmt device... peer_role:1 local_role:0
+
+[0m[32m[2054413] I/btapp.av btmgr:  -- address: 4142:2A:CDDDE8
+
+[0m[32m[2054424] I/btapp_ge bts: << Write scan enable success
+
+[0mcon_id = 4
+[32m[2054440] I/btapp_ge bts: << Scan mode: 0
+
+[0m[32m[2054447] I/btapp_ge bts: <<            No scans enbd.
+
+[0m[intercom] state: idle -> connecting
+[intercom] headset 1 A2DP connect requested: E8:DD:CD:2A:42:41
+[intercom] connect accepted
+msh />
+msh />[32m[2054477] I/NO_TAG bts: DM_ACL_CREATE_CONN_STATUS
+[0m[BR_SMP] bind security chcb on conn cfm: chcb=2002bf90 hdl=0x80
+[32m[2070623] I/NO_TAG bts: link connected COD:0 Incoming:0 hdl 128 res 0
+
+[0m[32m[2070632] I/NO_TAG bts: bd addr 4142-2a-cddde8
+
+[0m[32m[2070639] I/NO_TAG bts: bt_cm_hci_acl_connect_complete_event_hdl conn:2000d978
+[0m[intercom] headset 1 ACL connected
+[32m[2070674] I/btapp_ge bts: << Write link supvisn timeout successful!
+
+[0m[32m[2070691] I/btapp_ge bts: device address: 4142:2A:CDDDE8
+[0m[32m[2070698] I/btapp_ge bts:     role: master
+
+[0m[32m[2070716] I/btapp_ge bts: << Write scan enable success
+
+[0m[32m[2070733] I/btapp_ge bts: res = 0,page_num = 1,max_page_num = 2
+
+[0m[32m[2070741] I/btapp_ge bts: ext_lmp_featr[0] = 0x1,ext_lmp_featr[1] = 0x0,ext_lmp_featr[2] = 0x0,ext_lmp_featr[3] = 0x0
+[0m[32m[2070763] I/btapp_ge bts: << Write link supvisn timeout successful!
+
+[0m[32m[2070777] I/btapp_ge bts: << Scan mode: 3
+
+[0m[32m[2070784] I/btapp_ge bts: <<            Inquiry scan enbd.
+<<            Page scan enbd.
+
+[0m[32m[2071792] I/btapp_ge bts: -- Remote device haven't display and input capability
+
+[0m[32m[2084645] I/btapp_ge bts: >> The Numeric_Value is:852017
+
+[0m[32m[2085547] I/NO_TAG bts: BTS2S_SC_PAIR_IND cod:0x 0
+[0m[32m[2085663] I/btapp_ge bts: -- Pair with device: 4142:2A:CDDDE8
+
+[0m[32m[2087077] I/btapp_ge bts: BTS2MU_GAP_ENCRYPTION_IND
+[0m[32m[2087717] I/btapp.av bts: << (d0)av connect success,cfg = 0
+
+[0m[intercom] headset 1 A2DP Source connected
+[32m[2090364] I/btapp_ag bts: hfp ag msg *msg_type 8002 inst_data->st 2
+
+[0m[32m[2090373] I/btapp_ag bts: hfp_ag device state: 1 res: 0 type 32770 mux_id:255
+[0m[32m[2090383] I/btapp_ag bts: BTS2MU_AG_CONN_CFM state: 1 res: 0 type 32770
+[0mget_new_dlc_id,id = 1
+[32m[2093556] I/audio_avrcp bts: << avrcp indicate to connect with remote device
+
+[0m[intercom] headset 1 AVRCP Target connected
+[32m[2093787] I/audio_avrcp bts: << register play status changed 2
+
+[0m[intercom] headset 1 AVRCP volume event: level=15/15
+[32m[2093847] I/audio_avrcp bts: << register notificaiton volume changed 20
+
+[0m[32m[2093897] I/btapp_ag bts: hfp ag msg *msg_type 800d inst_data->st 2
+
+[0m[32m[2093906] I/btapp_ag bts: bt_hfp_ag_app_at_cmd_hdl 14 ?
+[0m[32m[2093916] I/btapp_ag bts: hfp ag msg *msg_type 800e inst_data->st 2
+
+[0m[32m[2093926] I/btapp_ag bts: hfp ag msg *msg_type 800e inst_data->st 2
+
+[0m[32m[2094273] I/btapp_ag bts: hfp ag msg *msg_type 8002 inst_data->st 2
+
+[0m[32m[2094282] I/btapp_ag bts: hfp_ag device state: 3 res: 0 type 32770 mux_id:0
+[0m[32m[2094292] I/btapp_ag bts: BTS2MU_AG_CONN_CFM state: 3 res: 0 type 32770
+[0m[intercom] headset 1 HFP AG connected, channel=0
+[32m[2094314] I/btapp.av btmgr: >> (0)start the av stream
+
+[0mbefore start stream should prohibit sniff mode!
+[intercom] state: connecting -> media
+[intercom] headset 1 music volume requested: 7/15 (AVRCP=63/127)
+[32m[2094612] I/btapp.av bts: >> (d0)peer device accept to start stream 
+
+[0m[32m[2094622] I/audio_avrcp bts: play status play_status_notify1 play_status1 
+
+[0m[32m[2094721] I/audio_avrcp bts: << register play status changed 1
+
+[0m[32m[2095063] I/btapp_ag bts: hfp ag msg *msg_type 800d inst_data->st 2
+
+[0m[32m[2095072] I/btapp_ag bts: bt_hfp_ag_app_at_cmd_hdl 8 9
+[0m[32m[2095379] I/btapp_ag bts: hfp ag msg *msg_type 800d inst_data->st 2
+
+[0m[32m[2095388] I/btapp_ag bts: bt_hfp_ag_app_at_cmd_hdl 7 15
+[0mintercom status
+[intercom] state=media bt=ready avrcp=ready scan=idle media=running discovered=10
+  headset1: E8:DD:CD:2A:42:41  YKY-J02  ACL=1 A2DP=1 HFP=1(ch=0 session=1) AVRCP=1 SCO=0 phase=idle request=0 relay=0 barrier=0 volume(talk=8/15 music-requested=7/15)
+  headset2: unassigned
+  volume: music=15/15 talk=8/15
+  I2S: signaled=40528640 rx=40528640 pipe-drop=0 ring-drop=0 underflow=0 errors=0
+  A2DP sharing: connected=1 streaming=1 start-pending=0 suspend-pending=0 config=valid kicked=1 error=0
+  SBC: rate=44100 frame=63 frames/packet=10 pcm/packet=5120 pcm-bytes=2564160 frames=5000 packets=500 encode-errors=0
+  sharing buffer: i2s=0/30720 ring=1290/20160 target=2580 pumped=500 queue-drop=0 ring-drop=0 kicks=1
+  heap: used=57384 max-used=59408 total=301720 free-now=244336
+msh />
+msh />
