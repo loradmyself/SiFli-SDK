@@ -198,10 +198,6 @@ typedef struct
      * HFP ourselves (then quiet retries). */
     bool hfp_deferred;
     uint8_t hfp_tries;
-    /* Reconnect flavor: page via AVRCP and wait for the remote's own
-     * AVDTP (collides less when the headset is self-reconnecting).
-     * Manual flavor keeps the classic immediate AVDTP connect. */
-    bool defer_avdtp;
     volatile uint32_t disconnect_generation;
     app_bt_sco_phase_t sco_phase;
     bool sco_requires_acl_barrier;
@@ -1152,67 +1148,22 @@ static int app_bt_begin_a2dp_connect(int slot_index)
     app_bt_connect_timer_stop(slot_index);
     slot->connection_generation = app_bt_next_connection_generation();
     slot->connection_stage = APP_BT_CONN_A2DP_PENDING;
+    slot->av_deferred = false;
     bt_interface_set_scan_mode(0U, 0U);
-    /* Pre-connect cleanup: force-disconnect any stale ACL left by a
-     * previous failed attempt so the BT stack starts clean. Without this
-     * a hung con_id slot blocks every subsequent connect (10s timeout). */
-    (void)bt_interface_disconnect_req(slot->mac.addr);
-    /* Strategy is chosen by radio conditions, not just flavor: while the
-     * other headset is STREAMING, our outgoing AVDTP signaling is starved
-     * for TX slots on the single radio and never gets answered (measured:
-     * every initiate during streaming vanished; every initiate when idle
-     * landed in <200ms). The remote's OWN AVDTP open uses its TX and our
-     * RX — both free — and lands reliably even during streaming. So while
-     * media is active, always give the remote the first move. */
-    if (slot->defer_avdtp || app_bt_media_active())
+    /* Proven-stable connect flow (commit 6269331a2): AVDTP immediately,
+     * 10s watchdog. The carrier/defer/grace complexity that accumulated
+     * here was band-aids for bugs now fixed at their roots (a2dp_reset
+     * cancelling foreign attempts, conn_ind missing role, shared connect
+     * timer, double create). The remote-open preference stays only on the
+     * incoming-accept path (begin_accept_wait). */
+    error = bt_interface_conn_to_source_ext(slot->mac.addr, BT_PROFILE_A2DP);
+    if (error != BT_EOK)
     {
-        /* Reconnect flavor: page via AVRCP and leave AVDTP to the
-         * accept-wait grace: a headset in its own reconnect mode (e.g.
-         * right after our reset) opens AVDTP itself within seconds of the
-         * ACL — our simultaneous AVDTP open collides at L2CAP PSM 0x19
-         * ("conn rej psm: 19") and both attempts die, so the connect
-         * never completes. AVRCP rides a different PSM and converges even
-         * when both sides open it at once. */
-        error = bt_interface_conn_to_source_ext(slot->mac.addr,
-                                                BT_PROFILE_AVRCP);
-        if (error == BT_EOK)
-        {
-            slot->av_deferred = true;
-        }
-        else
-        {
-            /* Fallback: page through AVDTP like before (passive headsets). */
-            error = bt_interface_conn_to_source_ext(slot->mac.addr,
-                                                    BT_PROFILE_A2DP);
-            if (error != BT_EOK)
-            {
-                rt_kprintf("[intercom] A2DP connect request failed: %d\n",
-                           (int)error);
-                /* A synchronous refusal usually means a stale attempt is
-                 * still in the AV layer — hand the device to the reconnect
-                 * queue (retries with back-off) instead of dead-ending. */
-                app_bt_reconnect_enqueue(&slot->mac);
-                app_bt_cancel_deferred_connect(slot_index);
-                return -RT_ERROR;
-            }
-        }
-    }
-    else
-    {
-        /* Manual flavor: the classic immediate AVDTP connect. An
-         * operator-driven connect targets a passive, freshly paired
-         * headset — the original flow connected in ~2s and never needed
-         * the defer dance (which turned it into a fragile 20s one). */
-        error = bt_interface_conn_to_source_ext(slot->mac.addr,
-                                                BT_PROFILE_A2DP);
-        if (error != BT_EOK)
-        {
-            rt_kprintf("[intercom] A2DP connect request failed: %d\n",
-                       (int)error);
-            app_bt_reconnect_enqueue(&slot->mac);
-            app_bt_cancel_deferred_connect(slot_index);
-            return -RT_ERROR;
-        }
+        rt_kprintf("[intercom] A2DP connect request failed: %d\n",
+                   (int)error);
+        app_bt_reconnect_enqueue(&slot->mac);
+        app_bt_cancel_deferred_connect(slot_index);
+        return -RT_ERROR;
     }
 
     app_bt_connect_timer_start(slot_index, APP_BT_CONNECT_TIMEOUT_MS);
@@ -1991,9 +1942,6 @@ static void app_bt_handle_connect_command(const app_bt_event_t *event)
                 sizeof(saved_name) - 1U);
         app_bt_clear_slot(slot_index);
         slot->used = true;
-        /* Manual connect keeps the classic immediate AVDTP flow; only
-         * auto-reconnect uses the deferred/grace dance. */
-        slot->defer_avdtp = (event->id != APP_BT_CMD_CONNECT_MANUAL);
         slot->mac = event->data.command_device.mac;
         if (event->data.command_device.name[0] != '\0')
         {
