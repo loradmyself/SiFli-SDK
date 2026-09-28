@@ -366,16 +366,20 @@ static void app_share_collect_links(app_share_link_snapshot_t *snapshot)
         if (connection->st == avconned_streaming)
         {
             snapshot->streaming_count++;
-        }
-        if (!have_config)
-        {
-            first_config = connection->act_cfg;
-            have_config = true;
-        }
-        else if (!app_share_config_equal(&first_config,
-                                         &connection->act_cfg))
-        {
-            configs_match = false;
+            /* Only links that are actually streaming contribute encode
+             * params: a half-open joiner (stuck between open and
+             * streaming) carries an empty act_cfg and used to veto the
+             * config for EVERYONE — total silence on all headsets. */
+            if (!have_config)
+            {
+                first_config = connection->act_cfg;
+                have_config = true;
+            }
+            else if (!app_share_config_equal(&first_config,
+                                             &connection->act_cfg))
+            {
+                configs_match = false;
+            }
         }
     }
     rt_hw_interrupt_enable(level);
@@ -386,8 +390,12 @@ static void app_share_collect_links(app_share_link_snapshot_t *snapshot)
         (snapshot->streaming_count == snapshot->connected_count) &&
         (snapshot->start_pending_count == 0U) &&
         (snapshot->suspend_pending_count == 0U);
-    snapshot->config_valid = snapshot->all_streaming && have_config &&
-                             configs_match &&
+    /* "Whoever streams gets audio": encoding needs ONE streaming link
+     * with a valid config — not every connected link streaming. The
+     * all_streaming veto used to silence BOTH headsets whenever a
+     * joiner's stream start stalled. */
+    snapshot->config_valid = (snapshot->streaming_count > 0U) &&
+                             have_config && configs_match &&
                              app_share_validate_config(&first_config);
 }
 
