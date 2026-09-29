@@ -73,13 +73,30 @@
  * not wait for it). First give the headset this window to open SLC itself:
  * measured on Redmi Buds 4 Pro, its HF starts SLC ~2.3s after AVDTP, and
  * firing our AG→HF connect into that in-flight attempt collides ("conn
- * rej psm 19" / AG res 19) and wedges the link until it drops. If the
- * remote stays silent past the window we request HFP ourselves, and on
- * failure quietly retry every APP_BT_HFP_RETRY_INTERVAL_MS — never tearing
- * down a link that is already playing music. */
-#define APP_BT_HFP_DEFER_GRACE_MS 5000U
-#define APP_BT_HFP_RETRY_INTERVAL_MS 15000U
-#define APP_BT_HFP_RETRY_MAX 6U
+ * rej psm 19" / AG res 19) and wedges the link until it drops. Anyka OWS
+ * T700 opens its own SLC ~3s after AVDTP and spends ~2s in CONFIG — a 5s
+ * defer landed our request right inside that window and every attempt
+ * came back AG res 19. If the remote stays silent past the window we
+ * request HFP ourselves, and on failure quietly retry every
+ * APP_BT_HFP_RETRY_INTERVAL_MS — never tearing down a link that is
+ * already playing music. */
+#define APP_BT_HFP_DEFER_GRACE_MS 8000U
+#define APP_BT_HFP_RETRY_INTERVAL_MS 5000U
+#define APP_BT_HFP_RETRY_MAX 10U
+/* A failed attempt (AG res 19 = collision with the remote's own SLC)
+ * clears the way for a clean retry — come back quickly instead of
+ * sitting out a full retry interval. */
+#define APP_BT_HFP_RETRY_FAST_MS 3000U
+/* AVDTP flap recovery: a headset that closes and re-opens AVDTP around
+ * its own SLC bring-up must not cost us the whole ACL (dropping it there
+ * killed the remote's in-flight SLC and left its AVDTP wedged for
+ * minutes). Re-send AVDTP a couple of times before giving up. */
+#define APP_BT_AV_RESEND_MAX 2U
+#define APP_BT_AV_RESEND_DELAY_MS 1500U
+/* A queued `intercom talk start` stays valid this long: the command is
+ * accepted even while a headset's HFP is still connecting and talk then
+ * starts by itself the moment both headsets are ready. */
+#define APP_BT_TALK_QUEUED_TIMEOUT_MS 30000U
 /* Max consecutive 2s poll waits (encryption gate / page-in-flight gate)
  * before falling through to the normal timeout recovery. */
 #define APP_BT_GATE_WAITS_MAX 8U
@@ -200,11 +217,24 @@ typedef struct
      * out the defer grace for the remote to open SLC before requesting
      * HFP ourselves (then quiet retries). */
     bool hfp_deferred;
+    /* One AG→HF request is outstanding. Firing a second into the stack
+     * while the first is in flight (talk "acceleration" landing 4ms after
+     * a retry did exactly that) makes both fail with AG res 19. */
+    bool hfp_request_in_flight;
     uint8_t hfp_tries;
+    /* Bounded AVDTP re-sends while the ACL is alive but A2DP flapped
+     * mid-setup (some headsets close and re-open AVDTP around their own
+     * SLC bring-up; aborting the ACL there wedges the remote). */
+    uint8_t av_resend_tries;
     /* Bounded 2s wait loops (encryption / page-in-flight): unbounded
      * re-arming used to wedge any_connect_pending forever and block all
      * manual connects. */
     uint8_t gate_waits;
+    /* When the current outgoing attempt started: a duplicate manual
+     * connect within 2s of this is a double-press, not a wedged attempt
+     * worth taking over (the takeover cancelled an in-flight Create
+     * Connection and echoed ghost hdl 65535 res 2 twice). */
+    rt_tick_t connect_attempt_tick;
     volatile uint32_t disconnect_generation;
     app_bt_sco_phase_t sco_phase;
     bool sco_requires_acl_barrier;
@@ -279,6 +309,10 @@ static bool g_restore_media;
 static bool g_talk_waiting_for_media;
 static bool g_talk_stop_settling;
 static bool g_talk_recovery_attempted;
+/* Queued `intercom talk start`: accepted while a headset is still
+ * connecting, starts by itself once both headsets are READY. */
+static bool g_talk_pending;
+static uint32_t g_talk_pending_tick;
 static bool g_error_cleanup_reported;
 static bool g_pending_disconnect;
 static bt_notify_device_mac_t g_pending_disconnect_mac;
@@ -1122,6 +1156,49 @@ static void app_bt_hfp_timeout(void *parameter)
     }
 }
 
+/* Single choke point for AG->HF connect requests. Refuses to fire a
+ * second request while one is in flight (a talk acceleration landing 4ms
+ * after a retry made both die with AG res 19) and treats a middleware
+ * "busy" answer (the remote's own SLC is mid-setup) as a short-poll
+ * deferral rather than a burnt try. */
+static void app_bt_hfp_send_request(int slot_index, const char *why)
+{
+    app_bt_slot_t *slot = &g_slots[slot_index];
+    bt_err_t error;
+
+    if (slot->hfp_request_in_flight)
+    {
+        rt_kprintf("[intercom] headset %u HFP request already in flight — %s deferred\n",
+                   slot_index + 1U, why);
+        return;
+    }
+    error = bt_interface_conn_to_source_ext(slot->mac.addr, BT_PROFILE_HFP);
+    if (error == (bt_err_t)BT_ERROR_IN_PROGRESS)
+    {
+        /* The remote is opening the SLC itself right now. Do not count
+         * this as a try — its own SLC usually lands within a second; if
+         * it fails, the failure notify restarts acquisition. */
+        rt_kprintf("[intercom] headset %u HFP request suppressed: remote SLC in progress (%s)\n",
+                   slot_index + 1U, why);
+        slot->hfp_deferred = true;
+        app_bt_hfp_timer_start(slot_index, APP_BT_HFP_RETRY_FAST_MS);
+        return;
+    }
+    if (error != BT_EOK)
+    {
+        rt_kprintf("[intercom] headset %u HFP request failed: %d (%s)\n",
+                   slot_index + 1U, (int)error, why);
+        slot->hfp_deferred = true;
+        app_bt_hfp_timer_start(slot_index, APP_BT_HFP_RETRY_FAST_MS);
+        return;
+    }
+    slot->hfp_request_in_flight = true;
+    slot->hfp_tries++;
+    rt_kprintf("[intercom] headset %u HFP request %u/%u sent (%s)\n",
+               slot_index + 1U, slot->hfp_tries, APP_BT_HFP_RETRY_MAX, why);
+    app_bt_hfp_timer_start(slot_index, APP_BT_HFP_RETRY_INTERVAL_MS);
+}
+
 static void app_bt_cancel_deferred_connect(int slot_index)
 {
     app_bt_slot_t *slot = &g_slots[slot_index];
@@ -1166,7 +1243,9 @@ static int app_bt_begin_a2dp_connect(int slot_index)
     slot->connection_generation = app_bt_next_connection_generation();
     slot->connection_stage = APP_BT_CONN_A2DP_PENDING;
     slot->av_deferred = false;
+    slot->av_resend_tries = 0U;
     slot->gate_waits = 0U;
+    slot->connect_attempt_tick = rt_tick_get();
     bt_interface_set_scan_mode(0U, 0U);
     /* Proven-stable connect flow (commit 6269331a2): AVDTP immediately,
      * 10s watchdog. The carrier/defer/grace complexity that accumulated
@@ -1206,6 +1285,7 @@ static int app_bt_begin_accept_wait(int slot_index)
     slot->connection_generation = app_bt_next_connection_generation();
     slot->connection_stage = APP_BT_CONN_A2DP_PENDING;
     slot->av_deferred = true;
+    slot->av_resend_tries = 0U;
     slot->gate_waits = 0U;
     app_bt_connect_timer_start(slot_index, APP_BT_ACCEPT_AVDTP_GRACE_MS);
     app_state_set_mode(APP_MODE_CONNECTING);
@@ -1564,13 +1644,15 @@ static void app_bt_start_talk(void)
 {
     uint8_t index;
     bool ready = true;
+    int blocker = -1;
     app_mode_t mode = app_state_get_mode();
 
-    if ((mode != APP_MODE_MEDIA) || g_scanning ||
-            app_bt_any_connect_pending())
+    if (g_scanning || (mode == APP_MODE_ERROR) ||
+            ((mode != APP_MODE_MEDIA) && (mode != APP_MODE_CONNECTING)))
     {
         rt_kprintf("[intercom] talk command rejected in state %s\n",
                    app_state_mode_name(mode));
+        g_talk_pending = false;
         return;
     }
 
@@ -1582,36 +1664,45 @@ static void app_bt_start_talk(void)
                 (g_slots[index].connection_stage != APP_BT_CONN_READY))
         {
             ready = false;
+            if (blocker < 0)
+            {
+                blocker = (int)index;
+            }
             if (g_slots[index].used && g_slots[index].a2dp_connected &&
                     !g_slots[index].hfp_connected &&
                     g_slots[index].hfp_deferred)
             {
                 /* Talk was requested while this headset's HFP is still in
-                 * background acquisition — the first attempt used to fail
-                 * silently and the second (seconds later) succeeded. Kick
-                 * the HFP request NOW instead of waiting out the defer. */
-                bt_err_t error;
-
+                 * background acquisition. Kick the HFP request NOW instead
+                 * of waiting out the defer — app_bt_hfp_send_request
+                 * refuses to double-fire into a request that is already
+                 * outstanding or into the remote's own in-flight SLC. */
                 g_slots[index].hfp_deferred = false;
                 app_bt_hfp_timer_stop(index);
-                error = bt_interface_conn_to_source_ext(
-                            g_slots[index].mac.addr, BT_PROFILE_HFP);
-                if (error == BT_EOK)
-                {
-                    g_slots[index].hfp_tries++;
-                    app_bt_hfp_timer_start(index, APP_BT_HFP_RETRY_INTERVAL_MS);
-                    rt_kprintf("[intercom] headset %u HFP accelerated for talk\n",
-                               index + 1U);
-                }
+                app_bt_hfp_send_request((int)index, "talk");
             }
         }
     }
     if (!ready || !app_bt_all_sco_quiescent())
     {
-        rt_kprintf("[intercom] talk not ready yet (HFP or second headset still pending) — retry in a couple of seconds\n");
+        if (!g_talk_pending)
+        {
+            g_talk_pending = true;
+            g_talk_pending_tick = rt_tick_get();
+        }
+        if (blocker >= 0)
+        {
+            rt_kprintf("[intercom] talk queued — will start automatically when headset %d is ready (HFP connecting)\n",
+                       blocker + 1);
+        }
+        else
+        {
+            rt_kprintf("[intercom] talk queued — will start automatically when the link settles\n");
+        }
         return;
     }
 
+    g_talk_pending = false;
     g_restore_media = g_media_desired || app_bt_media_active();
     g_talk_recovery_attempted = false;
     g_error_cleanup_reported = false;
@@ -1620,7 +1711,27 @@ static void app_bt_start_talk(void)
     g_talk_waiting_for_media = true;
     g_talk_media_sequence = app_bt_request_media_stop();
     app_bt_talk_timer_start(APP_BT_MEDIA_CLOSE_TIMEOUT_MS);
-    rt_kprintf("[intercom] waiting for both A2DP streams to stop\n");
+    rt_kprintf("[intercom] talk start accepted — waiting for both A2DP streams to stop\n");
+}
+
+/* A previously queued talk request becomes startable the moment the last
+ * blocker clears (HFP lands / second headset READY / a pending connect
+ * resolves). Called from the success paths — cheap no-op when nothing is
+ * queued. */
+static void app_bt_kick_queued_talk(void)
+{
+    if (!g_talk_pending)
+    {
+        return;
+    }
+    if ((rt_tick_get() - g_talk_pending_tick) >=
+            rt_tick_from_millisecond(APP_BT_TALK_QUEUED_TIMEOUT_MS))
+    {
+        g_talk_pending = false;
+        rt_kprintf("[intercom] queued talk expired (30s) — press 'intercom talk start' again\n");
+        return;
+    }
+    app_bt_start_talk();
 }
 
 static void app_bt_handle_media_closed(uint32_t sequence)
@@ -1820,17 +1931,27 @@ static void app_bt_handle_scan_command(void)
 {
     bt_start_inquiry_ex_t inquiry = {0};
     app_mode_t mode = app_state_get_mode();
+    bool pending_with_link = false;
+    uint8_t i;
 
-    if (g_scanning)
+    if (g_scanning || (mode == APP_MODE_SCANNING))
     {
         /* Self-heal: an incoming page escapes a running inquiry and its
-         * completion event never arrives — the stuck scan flag used to
-         * make every later `intercom scan` fail as "busy" forever. */
-        bt_interface_stop_inquiry();
-        g_scanning = false;
-        rt_kprintf("[intercom] restarting stalled inquiry\n");
+         * completion event never arrives — the stuck scan flag (and the
+         * mode pinned after it) used to make every later `intercom scan`
+         * fail as "busy" / "in state scanning" forever. Drop the stale
+         * state and start over. */
+        if (g_scanning)
+        {
+            bt_interface_stop_inquiry();
+            g_scanning = false;
+        }
+        app_bt_update_activity_state();
+        mode = app_state_get_mode();
+        rt_kprintf("[intercom] clearing stalled scan state\n");
     }
-    if ((mode != APP_MODE_IDLE) && (mode != APP_MODE_MEDIA))
+    if ((mode != APP_MODE_IDLE) && (mode != APP_MODE_MEDIA) &&
+            (mode != APP_MODE_CONNECTING))
     {
         rt_kprintf("[intercom] scan rejected in state %s\n",
                    app_state_mode_name(mode));
@@ -1843,6 +1964,37 @@ static void app_bt_handle_scan_command(void)
         rt_kprintf("[intercom] scan rejected: both headsets are already connected\n");
         return;
     }
+    /* A pending attempt that already HAS a link is a real profile setup
+     * in progress — refuse rather than tear it down mid-handshake. */
+    for (i = 0U; i < APP_HEADSET_COUNT; i++)
+    {
+        if (g_connect_timer_armed[i] && app_bt_slot_has_link(&g_slots[i]))
+        {
+            pending_with_link = true;
+        }
+    }
+    if (pending_with_link)
+    {
+        rt_kprintf("[intercom] scan rejected: a headset connection is being established\n");
+        return;
+    }
+    /* An in-flight page to an absent headset must not block the operator's
+     * scan (after a reset with headsets in their case this was "scan
+     * rejected: device is not ready or is busy" for minutes). Abort the
+     * link-less attempts — the reconnect queue re-pages them once the
+     * scan finishes (reconnect_try_next defers while mode == SCANNING). */
+    for (i = 0U; i < APP_HEADSET_COUNT; i++)
+    {
+        if (g_connect_timer_armed[i] && !app_bt_slot_has_link(&g_slots[i]))
+        {
+            rt_kprintf("[intercom] deferring headset %u auto-connect for scan\n",
+                       i + 1U);
+            app_bt_abort_connection(i);
+            app_bt_disconnect_timer_cancel(i);
+            app_bt_clear_slot(i);
+        }
+    }
+    app_bt_refresh_leds();
 
     memset(g_discovered, 0, sizeof(g_discovered));
     g_discovered_count = 0U;
@@ -1945,6 +2097,20 @@ static void app_bt_handle_connect_command(const app_bt_event_t *event)
         if ((event->id != APP_BT_CMD_CONNECT_MANUAL) || fully_up)
         {
             rt_kprintf("[intercom] headset %u is already connecting/connected\n",
+                       slot_index + 1U);
+            return;
+        }
+        /* Duplicate press while the first attempt is still fresh (two
+         * `intercom connect 1` 376ms apart in the 9-29 16:57 log): taking
+         * it over cancelled an in-flight Create Connection and the cancel
+         * raced its completion — ghost hdl 65535 res 2 twice and both
+         * attempts died. Refuse the duplicate; attempts older than 2s can
+         * still take over for wedge recovery as before. */
+        if (g_connect_timer_armed[slot_index] &&
+                ((rt_tick_get() - slot->connect_attempt_tick) <
+                 rt_tick_from_millisecond(2000U)))
+        {
+            rt_kprintf("[intercom] headset %u attempt just started; duplicate connect ignored\n",
                        slot_index + 1U);
             return;
         }
@@ -2232,6 +2398,24 @@ static void app_bt_handle_acl_connected(const bt_notify_device_acl_conn_info_t *
                                             addr,
                                             APP_BT_LINK_SUPERV_TIMEOUT);
         }
+        /* Audio link: prohibit Sniff immediately at ACL-up (role-switch
+         * only, 0x01) and kick the link out of Sniff if it is already
+         * there. The headset case-reconnect used to idle into Sniff in
+         * this very window (bt_cm arms a 5s-idle sniff policy on every
+         * connect) and the A2DP stream later played silent. */
+        bt_interface_wr_link_policy_setting(info->mac.addr, 0x01);
+        bt_interface_exit_sniff_mode(info->mac.addr);
+        /* Page time must not eat the pairing/profile budget: the watchdog
+         * started at the connect command, so an 8s page left only 2s for
+         * SSP + AVDTP and the attempt was aborted 355ms after the fresh
+         * bond was written (9-29 16:53 log) — that half-committed pairing
+         * is what desynced the link keys (auth failure / KEYMISSING /
+         * reason 19 loop). Now that the ACL exists, give the profile
+         * phase its own full window; A2DP success stops the timer. */
+        if (app_bt_connection_pending(slot) && !slot->av_deferred)
+        {
+            app_bt_connect_timer_start(slot_index, APP_BT_CONNECT_TIMEOUT_MS);
+        }
         /* Fetch the remote name now so `intercom status` shows it even
          * if the A2DP/HFP profile setup later fails half-way. */
         // app_bt_request_remote_name(slot_index); // moved to after AVDTP to avoid HCI race
@@ -2286,6 +2470,17 @@ static void app_bt_handle_acl_disconnected(const bt_notify_device_base_info_t *i
 
     rt_kprintf("[intercom] headset %u ACL disconnected, reason=%u\n",
                slot_index + 1U, info->res);
+    if (((info->res == 0x05U) || (info->res == 0x06U)) &&
+            app_bt_is_bonded_earphone(&info->mac))
+    {
+        /* Authentication Failure (0x05) / PIN or Key Missing (0x06):
+         * the stored key itself is bad — retrying with it can never
+         * recover. This is the ONLY signal that justifies deleting a
+         * bond; a plain A2DP timeout or a remote power-off keeps it. */
+        bt_cm_delete_bonded_devs_and_linkkey((uint8_t *)info->mac.addr);
+        rt_kprintf("[intercom] headset %u bond dropped (auth failure, reason=%u); next attempt re-pairs\n",
+                   slot_index + 1U, info->res);
+    }
     if (!release_slot)
     {
         /* Unexpected drop (headset powered off / out of range): queue
@@ -2379,9 +2574,17 @@ static void app_bt_prepare_acl_for_audio(const bt_notify_device_mac_t *mac)
         return;
     }
     connection = bt_cm_get_conn_by_addr(manager, &address);
+    /* Audio link policy: role-switch ONLY (0x01). This used to write
+     * 0x05 = role-switch|SNIFF — i.e. it explicitly ALLOWED the sniff
+     * the headset then slid into after reconnect, and the stream went
+     * silent ("streaming but no audio"). The SNIFF bit (0x04) stays
+     * cleared for the whole life of the link; exit sniff in case the
+     * link is already there. Written for both master and slave roles —
+     * the old slave-only guard left master links unprotected. */
+    bt_interface_wr_link_policy_setting((unsigned char *)mac->addr, 0x01);
+    bt_interface_exit_sniff_mode((unsigned char *)mac->addr);
     if ((connection != RT_NULL) && (connection->info.role == BT_LINK_SLAVE))
     {
-        bt_interface_wr_link_policy_setting((unsigned char *)mac->addr, 0x05);
         bt_send_switch_role(&address, 0);
     }
 }
@@ -2654,6 +2857,7 @@ static void app_bt_handle_a2dp(uint16_t event_id,
 
             slot->a2dp_connected = true;
             slot->av_deferred = false; /* remote (or we) opened AVDTP */
+            slot->av_resend_tries = 0U;
             app_bt_mark_seen(&slot->mac);
             if ((slot->connection_stage != APP_BT_CONN_A2DP_PENDING) ||
                     slot->release_pending || app_bt_is_talk_mode(mode) ||
@@ -2710,6 +2914,7 @@ static void app_bt_handle_a2dp(uint16_t event_id,
             {
                 app_a2dp_share_reconcile_streams();
             }
+            app_bt_kick_queued_talk();
         }
         else
         {
@@ -2750,14 +2955,51 @@ static void app_bt_handle_a2dp(uint16_t event_id,
             return;
         }
         slot->a2dp_connected = false;
-        rt_kprintf("[intercom] headset %u A2DP disconnected\n",
-                   slot_index + 1U);
+        rt_kprintf("[intercom] headset %u A2DP disconnected (res=%u)\n",
+                   slot_index + 1U, (unsigned int)info->res);
         if (talk_affected)
         {
             slot->connection_stage = APP_BT_CONN_ABORTING;
             slot->profile_cleanup_pending = true;
             slot->disconnect_blocks_media = true;
             app_bt_begin_talk_stop();
+        }
+        else if ((mode != APP_MODE_ERROR) && app_bt_slot_has_link(slot) &&
+                 !slot->release_pending &&
+                 (slot->av_resend_tries < APP_BT_AV_RESEND_MAX))
+        {
+            /* AVDTP flapped while the ACL is healthy — the remote often
+             * closes and re-opens AVDTP around its own SLC bring-up
+             * (Anyka dropped AVDTP 30ms after opening its HFP SLC).
+             * Dropping the ACL here used to kill the remote's in-flight
+             * SLC and wedge its AVDTP for minutes (every follow-up
+             * attempt then died with 97). Re-send AVDTP after a short
+             * back-off instead; if the remote is truly gone the ACL drop
+             * follows and handle_acl_disconnected cleans up. */
+            uint8_t other = (slot_index == 0) ? 1U : 0U;
+
+            slot->av_resend_tries++;
+            /* Route the re-send through the deferred branch of the
+             * connect watchdog: it re-issues AVDTP after the delay and
+             * re-arms the 10s watchdog around it. The stage must move
+             * back to A2DP_PENDING so the watchdog sees a live attempt
+             * (READY would make it "clear the stale timeout" instead). */
+            slot->connection_stage = APP_BT_CONN_A2DP_PENDING;
+            slot->av_deferred = true;
+            slot->gate_waits = 0U;
+            if (!g_connect_timer_armed[other] &&
+                    ((info->res == AV_CONN_ATTMPT_FAILED) ||
+                     (info->res == AV_CONNECT_CONFLICT) ||
+                     (info->res == AV_DUPLICATE_CONNECTING)))
+            {
+                a2dp_reset_req();
+            }
+            app_bt_connect_timer_start(slot_index,
+                                       APP_BT_AV_RESEND_DELAY_MS);
+            rt_kprintf("[intercom] headset %u A2DP re-send scheduled in %ums (attempt %u/%u)\n",
+                       slot_index + 1U, APP_BT_AV_RESEND_DELAY_MS,
+                       slot->av_resend_tries, APP_BT_AV_RESEND_MAX);
+            app_bt_update_media_for_links();
         }
         else
         {
@@ -2806,6 +3048,7 @@ static void app_bt_handle_hfp(uint16_t event_id,
             }
             slot->hfp_connected = true;
             slot->hfp_deferred = false;
+            slot->hfp_request_in_flight = false;
             app_bt_hfp_timer_stop(slot_index);
             slot->hfp_channel = info->profile_channel;
             if ((slot->connection_stage == APP_BT_CONN_A2DP_PENDING) &&
@@ -2851,12 +3094,27 @@ static void app_bt_handle_hfp(uint16_t event_id,
             app_bt_request_avrcp(slot_index);
             app_bt_request_remote_name(slot_index);
             app_bt_refresh_leds();
+            app_bt_kick_queued_talk();
         }
         else
         {
             rt_kprintf("[intercom] headset %u HFP AG connect failed: %u\n",
                        slot_index + 1U, info->res);
-            if (slot->connection_stage == APP_BT_CONN_HFP_PENDING)
+            slot->hfp_request_in_flight = false;
+            if ((slot->connection_stage == APP_BT_CONN_READY) &&
+                    slot->a2dp_connected && !slot->hfp_connected &&
+                    slot->used)
+            {
+                /* Background HFP acquisition failed (res 19 = we fired
+                 * into the remote's own in-flight SLC). That failure
+                 * clears the air — come back fast instead of sitting out
+                 * a full retry interval. */
+                slot->hfp_deferred = true;
+                app_bt_hfp_timer_start(slot_index, APP_BT_HFP_RETRY_FAST_MS);
+                rt_kprintf("[intercom] headset %u HFP retry scheduled in %ums\n",
+                           slot_index + 1U, APP_BT_HFP_RETRY_FAST_MS);
+            }
+            else if (slot->connection_stage == APP_BT_CONN_HFP_PENDING)
             {
                 app_bt_abort_connection(slot_index);
             }
@@ -2892,6 +3150,7 @@ static void app_bt_handle_hfp(uint16_t event_id,
         }
         slot->hfp_connected = false;
         slot->hfp_channel = 0U;
+        slot->hfp_request_in_flight = false;
         slot->hfp_session_generation++;
         if (slot->hfp_session_generation == 0U)
         {
@@ -3466,12 +3725,17 @@ static void app_bt_handle_internal(const app_bt_event_t *event)
         app_bt_start_talk();
         break;
     case APP_BT_CMD_TALK_STOP:
+        if (g_talk_pending)
+        {
+            g_talk_pending = false;
+            rt_kprintf("[intercom] queued talk cancelled\n");
+        }
         if ((app_state_get_mode() == APP_MODE_TALK_STARTING) ||
                 (app_state_get_mode() == APP_MODE_TALKING))
         {
             app_bt_begin_talk_stop();
         }
-        else
+        else if (!g_talk_pending)
         {
             rt_kprintf("[intercom] talk is not active\n");
         }
@@ -3596,21 +3860,15 @@ static void app_bt_handle_internal(const app_bt_event_t *event)
                  * remote SLC is still accepted by handle_hfp; until then
                  * the headset is music-only (talk is rejected politely). */
                 slot->hfp_deferred = false;
+                slot->hfp_request_in_flight = false;
                 rt_kprintf("[intercom] headset %u HFP unavailable; music-only until the headset opens SLC itself\n",
                            slot_index + 1U);
                 break;
             }
-            {
-                bt_err_t error = bt_interface_conn_to_source_ext(
-                                    slot->mac.addr, BT_PROFILE_HFP);
-
-                slot->hfp_tries++;
-                rt_kprintf("[intercom] headset %u HFP request %u/%u sent: %d\n",
-                           slot_index + 1U, slot->hfp_tries,
-                           APP_BT_HFP_RETRY_MAX, (int)error);
-                app_bt_hfp_timer_start(slot_index,
-                                       APP_BT_HFP_RETRY_INTERVAL_MS);
-            }
+            /* This timer tick means the previous request's window is
+             * over — allow the retry to fire. */
+            slot->hfp_request_in_flight = false;
+            app_bt_hfp_send_request(slot_index, "retry");
         }
         break;
     case APP_BT_CMD_CONNECT_TIMEOUT:
@@ -3702,6 +3960,23 @@ static void app_bt_handle_internal(const app_bt_event_t *event)
                 }
                 else
                 {
+                    /* Page still running in the controller: cancelling it
+                     * here raced the create completion and echoed the
+                     * ghost "hdl 65535 res 2" invalid-handle status on
+                     * every timed-out attempt (both 9-29 logs). Wait it
+                     * out in bounded slices instead — the controller's
+                     * own page timeout then settles the create with a
+                     * real status, and a late success still lands (ACL-up
+                     * re-arms the profile window above). */
+                    if (!slot->acl_connected && app_bt_acl_creating(&slot->mac) &&
+                            (slot->gate_waits < APP_BT_GATE_WAITS_MAX))
+                    {
+                        slot->gate_waits++;
+                        app_bt_connect_timer_start(slot_index, 5000U);
+                        rt_kprintf("[intercom] headset %u page still in flight; waiting\n",
+                                   slot_index + 1U);
+                        break;
+                    }
                     /* Real timeout: hand the device back to the reconnect
                      * queue (its back-off re-drives a clean connect via
                      * APP_BT_CMD_CONNECT) instead of re-issuing in place. */
@@ -3719,25 +3994,13 @@ static void app_bt_handle_internal(const app_bt_event_t *event)
                             a2dp_reset_req();
                         }
                     }
-                    if (slot->acl_connected &&
-                            app_bt_is_bonded_earphone(&slot->mac))
-                    {
-                        /* Fresh-pair fallback (generic): some headsets
-                         * only bring their profiles up in their
-                         * post-PAIRING flow — a bonded reconnect that
-                         * missed A2DP never recovers however often we
-                         * retry with the same key. Drop the bond so the
-                         * next queued attempt re-pairs (the manual
-                         * "disconnect + connect" recovery, automated).
-                         * Only when the link itself was fine (ACL+auth up
-                         * but no A2DP): a headset that was simply off or
-                         * out of range keeps its bond and can still come
-                         * back on its own. */
-                        bt_cm_delete_bonded_devs_and_linkkey(
-                            (uint8_t *)slot->mac.addr);
-                        rt_kprintf("[intercom] headset %u bond dropped; next attempt re-pairs\n",
-                                   slot_index + 1U);
-                    }
+                    /* No bond deletion here: a plain A2DP timeout says
+                     * nothing about the key. Deleting the bond used to
+                     * turn one slow AVDTP into "rejecting unassigned ACL"
+                     * on the headset's own re-page (bonded=0) and forced
+                     * a manual re-pair. Auth/key failures delete the bond
+                     * at the disconnect handler instead — that is the
+                     * only signal that says the key itself is bad. */
                     rt_kprintf("[intercom] headset %u connection timed out; queued for retry\n",
                                slot_index + 1U);
                     app_bt_reconnect_enqueue(&slot->mac);
@@ -4368,13 +4631,21 @@ static void app_bt_reconnect_enqueue(const bt_notify_device_mac_t *mac)
         return;
     }
     slot = app_bt_find_slot_by_mac(mac);
-    if ((slot >= 0) && g_slots[slot].acl_connected &&
-            g_slots[slot].hfp_connected)
+    if ((slot >= 0) && (g_slots[slot].connection_stage == APP_BT_CONN_READY) &&
+            g_slots[slot].a2dp_connected && g_slots[slot].hfp_connected)
     {
+        /* Fully up (music + HFP) — nothing to retry. A half-up link
+         * (e.g. HFP early but A2DP missing) MUST still be queued: the
+         * silent skip used to leave "queued for retry" as a lie, the
+         * queue stayed empty, and the headset's own re-page was then
+         * rejected as unassigned. */
         return;
     }
     if (g_reconnect_len >= APP_BT_RECONNECT_QUEUE_SIZE)
     {
+        rt_kprintf("[intercom] reconnect queue full — not queueing ");
+        app_bt_print_mac(mac);
+        rt_kprintf("\n");
         return;
     }
     g_reconnect_queue[g_reconnect_len] = *mac;
@@ -4872,13 +5143,32 @@ bool app_bt_is_ready(void)
     return g_bt_initialized && g_bt_ready;
 }
 
+bool app_bt_is_link_registered(const unsigned char *mac)
+{
+    bt_notify_device_mac_t key;
+    int slot;
+
+    if (mac == RT_NULL)
+    {
+        return false;
+    }
+    memcpy(key.addr, mac, sizeof(key.addr));
+    slot = app_bt_find_slot_by_mac(&key);
+    return (slot >= 0) && g_slots[slot].used &&
+           g_slots[slot].a2dp_connected;
+}
+
 int app_bt_scan(void)
 {
     app_mode_t mode = app_state_get_mode();
 
+    /* CONNECTING is allowed: after a reset the auto-reconnect queue keeps
+     * a slot "connecting" while it pages absent headsets, and that used to
+     * reject every `intercom scan` with "device is not ready or is busy".
+     * The command handler pauses those attempts for the inquiry. */
     if (!g_bt_initialized || !g_bt_ready ||
             ((mode != APP_MODE_IDLE) && (mode != APP_MODE_MEDIA) &&
-             (mode != APP_MODE_SCANNING)))
+             (mode != APP_MODE_SCANNING) && (mode != APP_MODE_CONNECTING)))
     {
         return -RT_EBUSY;
     }
@@ -4985,9 +5275,15 @@ int app_bt_talk(bool start)
     {
         return -RT_EBUSY;
     }
-    if ((start && ((mode != APP_MODE_MEDIA) || g_scanning ||
-                   app_bt_any_connect_pending())) ||
-            (!start && !app_bt_is_talk_mode(mode)))
+    /* Start is accepted (and queued if the link is not READY yet) as long
+     * as we are in a media-ish state; only a hard reject in scan/error.
+     * Stop covers both an active talk and a still-queued request. */
+    if (start && (g_scanning || (mode == APP_MODE_ERROR) ||
+                  ((mode != APP_MODE_MEDIA) && (mode != APP_MODE_CONNECTING))))
+    {
+        return -RT_EBUSY;
+    }
+    if (!start && !app_bt_is_talk_mode(mode) && !g_talk_pending)
     {
         return -RT_EBUSY;
     }

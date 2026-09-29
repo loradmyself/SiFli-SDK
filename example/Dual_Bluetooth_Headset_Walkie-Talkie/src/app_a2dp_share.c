@@ -11,6 +11,7 @@
 #include <rtthread.h>
 
 #include "app_a2dp_share.h"
+#include "app_bt.h"
 #include "app_i2s.h"
 #include "app_types.h"
 
@@ -1435,6 +1436,24 @@ void app_a2dp_share_reconcile_streams(void)
                 (connection->st <= avconned))
         {
             continue;
+        }
+        /* Never start a stream the application has not registered yet:
+         * the AV layer reaches avconned_open before the app's A2DP
+         * CONNECTED lands, and a start issued in that gap raced the
+         * remote's own AVDTP setup — it then dropped the link (Anyka
+         * closed AVDTP 60ms after our premature start) and the drop
+         * cascaded into a wedged reconnect. The app kicks
+         * app_a2dp_share_reconcile_streams() right after registering, so
+         * the link streams a few ms later instead. */
+        if (desired && (connection->st >= avconned_open))
+        {
+            uint8_t mac[6];
+
+            bt_addr_convert(&connection->av_rmt_addr, mac);
+            if (!app_bt_is_link_registered(mac))
+            {
+                continue;
+            }
         }
         if (desired)
         {

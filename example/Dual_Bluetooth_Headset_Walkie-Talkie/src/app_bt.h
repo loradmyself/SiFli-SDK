@@ -14,6 +14,11 @@
 
 int app_bt_init(void);
 bool app_bt_is_ready(void);
+/* True once the application has registered this link as A2DP-connected.
+ * The share fan-out uses it to avoid starting streams on AV instances
+ * the app has not accepted yet (an unregistered start raced the remote's
+ * own AVDTP setup and made it drop the link). */
+bool app_bt_is_link_registered(const unsigned char *mac);
 int app_bt_scan(void);
 int app_bt_connect(const char *target);
 int app_bt_disconnect(const char *target);
