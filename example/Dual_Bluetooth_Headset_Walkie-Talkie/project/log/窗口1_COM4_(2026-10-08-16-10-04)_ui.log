@@ -1,0 +1,25 @@
+10-08 16:10:05:471 TX:intercom status
+10-08 16:10:05:473    intercom status
+10-08 16:10:05:475    [intercom] state=media bt=ready avrcp=ready scan=idle media=running discovered=0
+10-08 16:10:05:476      headset1: 3E:03:00:E6:A6:44  Anyka OWS T700  ACL=1 A2DP=1 HFP=1(ch=0 session=1) AVRCP=1 SCO=0 phase=idle request=0 relay=0 barrier=0 volume(talk=8/15 music-requested=5/15)
+10-08 16:10:05:478      headset2: 00:30:76:F6:03:ED  A10 Pro  ACL=1 A2DP=1 HFP=1(ch=1 session=1) AVRCP=1 SCO=0 phase=idle request=0 relay=0 barrier=0 volume(talk=8/15 music-requested=5/15)
+10-08 16:10:05:479      volume: music=15/15 talk=8/15
+10-08 16:10:05:481      I2S: signaled=5074240 rx=5074240 pipe-drop=0 ring-drop=0 underflow=0 errors=0
+10-08 16:10:05:481      A2DP sharing: connected=2 streaming=2 start-pending=0 suspend-pending=0 config=valid kicked=1 error=0
+10-08 16:10:05:483      SBC: rate=44100 frame=63 frames/packet=10 pcm/packet=5120 pcm-bytes=3073600 frames=5990 packets=599 encode-errors=0
+10-08 16:10:05:484      sharing buffer: i2s=0/30720 ring=645/20160 target=2580 pumped=599 queue-drop=0 ring-drop=0 kicks=2
+10-08 16:10:05:488      heap: used=91184 max-used=97136 total=301176 free-now=209992
+10-08 16:10:05:489    msh />
+10-08 16:10:05:489    msh />
+10-08 16:10:11:976    [32m[343146] I/audio_avrcp bts: PAUSE ON
+10-08 16:10:11:978    [0m
+10-08 16:10:12:005    [32m[343446] I/audio_avrcp bts: PAUSE OFF
+10-08 16:10:12:006    [0m
+10-08 16:10:12:458    [32m[347557] I/audio_av_src bts: a2dp_transfor: buffer empty
+10-08 16:10:12:459    [0m
+10-08 16:10:19:744    [32m[418614] I/audio_avrcp bts: PLAY ON
+10-08 16:10:19:747    [0m
+10-08 16:10:19:749    [32m[418666] I/audio_avrcp bts: PLAY OFF
+10-08 16:10:19:750    [0m
+10-08 16:10:21:109    [32m[431586] I/audio_av_src bts: a2dp_transfor: buffer empty
+10-08 16:10:21:112    [0m

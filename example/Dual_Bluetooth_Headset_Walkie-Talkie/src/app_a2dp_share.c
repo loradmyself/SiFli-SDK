@@ -95,6 +95,13 @@ typedef struct
     uint8_t suspend_pending_count;
     bool config_valid;
     bool all_streaming;
+    uint8_t media_streaming_mask;
+    uint8_t media_con_active;
+    uint8_t media_mac[MAX_CONNS][6];
+    uint32_t media_req[MAX_CONNS];
+    uint32_t media_nomem[MAX_CONNS];
+    uint32_t media_qos[MAX_CONNS];
+    uint8_t media_buff[MAX_CONNS];
 } app_share_link_snapshot_t;
 
 static struct rt_mutex g_share_lock;
@@ -347,6 +354,25 @@ static void app_share_collect_links(app_share_link_snapshot_t *snapshot)
     {
         const bts2_av_conn *connection = &instance->con[index];
 
+        if (bt_avsrc_get_media_stats(index, &snapshot->media_req[index],
+                                     &snapshot->media_nomem[index],
+                                     &snapshot->media_qos[index],
+                                     &snapshot->media_buff[index]))
+        {
+            if ((connection->cfg == AV_AUDIO_SRC) ||
+                    (snapshot->media_req[index] != 0U) ||
+                    (snapshot->media_qos[index] != 0U))
+            {
+                bt_addr_convert(&connection->av_rmt_addr,
+                                snapshot->media_mac[index]);
+                snapshot->media_con_active |= (uint8_t)(1U << index);
+            }
+        }
+        if ((connection->cfg == AV_AUDIO_SRC) &&
+                (connection->st == avconned_streaming))
+        {
+            snapshot->media_streaming_mask |= (uint8_t)(1U << index);
+        }
         if (connection->cfg != AV_AUDIO_SRC)
         {
             continue;
@@ -408,7 +434,198 @@ static void app_share_update_link_status(
     g_status.streaming_count = snapshot->streaming_count;
     g_status.start_pending_count = snapshot->start_pending_count;
     g_status.suspend_pending_count = snapshot->suspend_pending_count;
+    g_status.media_con_count = MAX_CONNS;
+    g_status.media_con_active = snapshot->media_con_active;
+    /* Sizes come from the source arrays: the snapshot holds
+     * MAX_CONNS entries while the published status has room for
+     * four; never copy more than the snapshot actually has. */
+    memset(&g_status.media_con_mac[MAX_CONNS], 0,
+           sizeof(g_status.media_con_mac) -
+           sizeof(snapshot->media_mac));
+    memcpy(g_status.media_con_mac, snapshot->media_mac,
+           sizeof(snapshot->media_mac));
+    memcpy(g_status.media_req, snapshot->media_req,
+           sizeof(snapshot->media_req));
+    memcpy(g_status.media_nomem, snapshot->media_nomem,
+           sizeof(snapshot->media_nomem));
+    memcpy(g_status.media_qos, snapshot->media_qos,
+           sizeof(snapshot->media_qos));
+    memcpy(g_status.media_buff, snapshot->media_buff,
+           sizeof(snapshot->media_buff));
     app_share_unlock();
+}
+
+/* ---- wedged media-path watchdog ---------------------------------
+ * The shared sender can wedge one stream's media path inside the AVDTP
+ * layer: the app reports the link as streaming (and keeps handing
+ * payloads to av_stream_data_req) but the headset never gets audio and
+ * never recovers on its own — teardown + reconnect is the proven heal.
+ * Detect the stall from the per-connection media counters and bounce
+ * that one link (app_bt_bounce_media_link disconnects it and lets the
+ * existing auto-reconnect queue bring it back as our own outgoing
+ * connect, the path that is proven to deliver audio). */
+#define APP_SHARE_WEDGE_CHECK_MS 1000U
+#define APP_SHARE_WEDGE_STALL_MS 3000U
+#define APP_SHARE_WEDGE_BUFF_FULL 8U
+#define APP_SHARE_WEDGE_BUFF_STREAK 2U
+#define APP_SHARE_WEDGE_BOUNCE_COOLDOWN_MS 30000U
+#define APP_SHARE_WEDGE_BOUNCE_MAX 3U
+
+static rt_tick_t g_wedge_check_tick;
+static uint32_t g_wedge_sig[MAX_CONNS];
+static rt_tick_t g_wedge_stall_tick[MAX_CONNS];
+static uint8_t g_wedge_buff_streak[MAX_CONNS];
+static uint8_t g_wedge_bounce_count[MAX_CONNS];
+static rt_tick_t g_wedge_bounce_tick[MAX_CONNS];
+static bool g_wedge_qos_seen;
+
+static void app_share_wedge_check(const app_share_link_snapshot_t *links)
+{
+    rt_tick_t now = rt_tick_get();
+    bool qos_seen = false;
+    bool progress = false;
+    uint8_t i;
+
+    if ((now - g_wedge_check_tick) <
+            rt_tick_from_millisecond(APP_SHARE_WEDGE_CHECK_MS))
+    {
+        return;
+    }
+    g_wedge_check_tick = now;
+
+    for (i = 0U; i < MAX_CONNS; i++)
+    {
+        if (links->media_qos[i] != 0U)
+        {
+            qos_seen = true;
+            break;
+        }
+    }
+    if (qos_seen != g_wedge_qos_seen)
+    {
+        /* Signal source switched (QOS appeared): rebuild the baseline
+         * so the switch itself cannot look like a stall. */
+        g_wedge_qos_seen = qos_seen;
+        for (i = 0U; i < MAX_CONNS; i++)
+        {
+            g_wedge_sig[i] = qos_seen ? links->media_qos[i]
+                             : links->media_req[i];
+            g_wedge_stall_tick[i] = 0U;
+            g_wedge_buff_streak[i] = 0U;
+        }
+        return;
+    }
+
+    for (i = 0U; i < MAX_CONNS; i++)
+    {
+        if ((links->media_streaming_mask & (uint8_t)(1U << i)) != 0U)
+        {
+            uint32_t sig = qos_seen ? links->media_qos[i]
+                           : links->media_req[i];
+
+            if (sig > g_wedge_sig[i])
+            {
+                progress = true;
+            }
+        }
+    }
+
+    for (i = 0U; i < MAX_CONNS; i++)
+    {
+        uint32_t sig;
+        bool stalled;
+        uint8_t j;
+
+        if ((links->media_streaming_mask & (uint8_t)(1U << i)) == 0U)
+        {
+            g_wedge_stall_tick[i] = 0U;
+            g_wedge_buff_streak[i] = 0U;
+            continue;
+        }
+
+        sig = qos_seen ? links->media_qos[i] : links->media_req[i];
+        stalled = false;
+
+        if (sig > g_wedge_sig[i])
+        {
+            g_wedge_stall_tick[i] = 0U;
+        }
+        else if (progress)
+        {
+            /* Data is being delivered somewhere but not to this
+             * stream: the media path of this link is wedged. */
+            if (g_wedge_stall_tick[i] == 0U)
+            {
+                g_wedge_stall_tick[i] = now;
+            }
+            else if ((now - g_wedge_stall_tick[i]) >=
+                     rt_tick_from_millisecond(APP_SHARE_WEDGE_STALL_MS))
+            {
+                stalled = true;
+            }
+        }
+
+        /* Queued-not-drained variant: the stream buffer sits near full
+         * while another streaming link stays near empty. */
+        if (links->media_buff[i] >= APP_SHARE_WEDGE_BUFF_FULL)
+        {
+            for (j = 0U; j < MAX_CONNS; j++)
+            {
+                if ((j != i) &&
+                        ((links->media_streaming_mask &
+                          (uint8_t)(1U << j)) != 0U) &&
+                        (links->media_buff[j] <= 5U))
+                {
+                    break;
+                }
+            }
+            if (j < MAX_CONNS)
+            {
+                if (g_wedge_buff_streak[i] < 0xFFU)
+                {
+                    g_wedge_buff_streak[i]++;
+                }
+                if (g_wedge_buff_streak[i] >= APP_SHARE_WEDGE_BUFF_STREAK)
+                {
+                    stalled = true;
+                }
+            }
+        }
+        else
+        {
+            g_wedge_buff_streak[i] = 0U;
+        }
+
+        if (stalled)
+        {
+            g_wedge_stall_tick[i] = 0U;
+            g_wedge_buff_streak[i] = 0U;
+            if ((g_wedge_bounce_count[i] < APP_SHARE_WEDGE_BOUNCE_MAX) &&
+                    ((g_wedge_bounce_tick[i] == 0U) ||
+                     ((now - g_wedge_bounce_tick[i]) >=
+                      rt_tick_from_millisecond(
+                          APP_SHARE_WEDGE_BOUNCE_COOLDOWN_MS))))
+            {
+                uint8_t mac[6];
+
+                memcpy(mac, links->media_mac[i], sizeof(mac));
+                g_wedge_bounce_count[i]++;
+                g_wedge_bounce_tick[i] = now;
+                rt_kprintf("[intercom] wedged media path on link %u "
+                           "(req=%u qos=%u buff=%u)\n",
+                           i, (unsigned int)links->media_req[i],
+                           (unsigned int)links->media_qos[i],
+                           links->media_buff[i]);
+                app_bt_bounce_media_link(mac);
+            }
+        }
+    }
+
+    for (i = 0U; i < MAX_CONNS; i++)
+    {
+        g_wedge_sig[i] = qos_seen ? links->media_qos[i]
+                         : links->media_req[i];
+    }
 }
 
 static void app_share_schedule_pump(uint32_t delay_ms)
@@ -963,6 +1180,7 @@ static void app_share_bts_pump(uint16_t message, void *parameter)
     app_share_update_link_status(&links);
     if (desired && links.all_streaming)
     {
+        app_share_wedge_check(&links);
         app_share_pump_records();
         ring_bytes = rt_ringbuffer32_data_len(&g_share_ring);
         app_share_lock();

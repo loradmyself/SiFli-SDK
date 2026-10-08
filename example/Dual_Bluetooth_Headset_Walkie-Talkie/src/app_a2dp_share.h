@@ -49,6 +49,19 @@ typedef struct
     uint16_t sbc_frame_size;
     uint16_t frames_per_packet;
     uint16_t pcm_bytes_per_packet;
+    /* Per-AVDTP-connection media forwarding diagnostics (connection
+     * index order, see bts2_app_av_src.c). req = payloads handed to the
+     * AVDTP layer, nomem = fan-out malloc failures, qos = media actually
+     * moving through the stream, buff = stream buffer fullness (0..10).
+     * A streaming link whose req/qos stall while another link advances
+     * has a wedged media path. */
+    uint8_t media_con_count;
+    uint8_t media_con_active;
+    uint8_t media_con_mac[4][6];
+    uint32_t media_req[4];
+    uint32_t media_nomem[4];
+    uint32_t media_qos[4];
+    uint8_t media_buff[4];
 } app_a2dp_share_status_t;
 
 typedef struct

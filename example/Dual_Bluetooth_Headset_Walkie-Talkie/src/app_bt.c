@@ -15,6 +15,7 @@
 #include "bts2_app_hfp_ag.h"
 #include "bts2_app_inc.h"
 #include "hfp_audio_api.h"
+#include "hci_api.h"
 
 #include "app_a2dp_share.h"
 #include "app_board.h"
@@ -118,6 +119,20 @@
  * with "connection already exists", so keep it short — 10s still
  * absorbs the radio blips of a second-headset connect. */
 #define APP_BT_LINK_SUPERV_TIMEOUT 0x3E80U  /* 10s */
+/* Role-seize watch (S2/S3): the relay must be piconet MASTER for both
+ * headsets — as slave of two headset-masters it time-shares RX slots
+ * across two piconets and the second headset starves silent
+ * ("connected=2 streaming=2" but no audio over the air). A real role
+ * switch completes in milliseconds, but the role itself is only known
+ * AFTER the stack's role discovery (HCI Read Current Role) lands
+ * ~0.5-1s after ACL-up — Connection Complete carries no role field —
+ * so the first check waits APP_BT_ROLE_DISC_MS. If the link is still
+ * slave the seize is sent raw (GAP's switch_role_req is locally
+ * rejected) and the check re-arms for the one disconnect/reconnect
+ * fallback; not-yet-READY links just re-check every 2s. */
+#define APP_BT_ROLE_DISC_MS 1500U
+#define APP_BT_ROLE_RECHECK_MS 3000U
+#define APP_BT_ROLE_NOT_READY_RETRY_MS 2000U
 
 typedef enum
 {
@@ -140,6 +155,7 @@ typedef enum
     APP_BT_CMD_RECONNECT,
     APP_BT_CMD_MEDIA_RECOVER,
     APP_BT_CMD_HFP_TIMEOUT,
+    APP_BT_CMD_ROLE_RECHECK,
 } app_bt_internal_event_id_t;
 
 typedef enum
@@ -230,6 +246,11 @@ typedef struct
      * re-arming used to wedge any_connect_pending forever and block all
      * manual connects. */
     uint8_t gate_waits;
+    /* Role-seize: raw HCI Switch Role sent for this ACL (relay must be
+     * master). policy_frozen latches the post-stream DISB_ALL_LM_MODES
+     * write that stops the remote flipping the link back to slave. */
+    bool role_seize_sent;
+    bool policy_frozen;
     /* When the current outgoing attempt started: a duplicate manual
      * connect within 2s of this is a double-press, not a wedged attempt
      * worth taking over (the takeover cancelled an in-flight Create
@@ -294,6 +315,13 @@ static rt_timer_t g_disconnect_timers[APP_HEADSET_COUNT];
 static uint8_t g_disconnect_timer_slot_ids[APP_HEADSET_COUNT];
 static rt_timer_t g_hfp_timers[APP_HEADSET_COUNT];
 static uint8_t g_hfp_timer_slot_ids[APP_HEADSET_COUNT];
+static rt_timer_t g_role_timers[APP_HEADSET_COUNT];
+static uint8_t g_role_timer_slot_ids[APP_HEADSET_COUNT];
+/* S3 fallback memory: one disconnect/reconnect bounce per headset per
+ * boot. Kept as MACs (not slot flags) — the reconnected headset may
+ * land in the other slot. */
+static bt_notify_device_mac_t g_role_bounce_used[APP_HEADSET_COUNT];
+static uint8_t g_role_bounce_count;
 static app_bt_discovery_t g_discovered[APP_BT_MAX_DISCOVERED];
 static app_bt_slot_t g_slots[APP_HEADSET_COUNT];
 static uint8_t g_discovered_count;
@@ -333,6 +361,15 @@ static uint8_t g_reconnect_retry[APP_BT_RECONNECT_QUEUE_SIZE];
 static rt_tick_t g_reconnect_next_try[APP_BT_RECONNECT_QUEUE_SIZE];
 static bool g_reconnect_active;
 static rt_tick_t g_reconnect_boot_deadline;
+/* Wedged-media-path bounce state (see app_bt_bounce_media_link). */
+#define APP_BT_WEDGE_BOUNCE_MAX 3U
+#define APP_BT_WEDGE_BOUNCE_COOLDOWN_MS 30000U
+static rt_tick_t g_wedge_bounce_tick[APP_HEADSET_COUNT];
+static uint8_t g_wedge_bounce_count[APP_HEADSET_COUNT];
+/* Brief window in which auto-reconnect may page a headset back even
+ * while the other headset keeps media active (set when a wedged link
+ * is bounced and must come straight back). */
+static rt_tick_t g_reconnect_media_bypass_until;
 /* MACs that reached A2DP at least once since this boot — used to tell
  * "reset recovery of a headset that never came up yet" (may page during
  * playback inside the boot window) apart from "user powered off a
@@ -353,6 +390,8 @@ static int app_bt_post_volume_command(app_volume_target_t target,
 static void app_bt_abort_connection(int slot_index);
 static void app_bt_hfp_timer_start(int slot_index, uint32_t timeout_ms);
 static void app_bt_hfp_timer_stop(int slot_index);
+static void app_bt_role_timer_start(int slot_index, uint32_t timeout_ms);
+static void app_bt_role_timer_stop(int slot_index);
 static int app_bt_find_slot_by_mac(const bt_notify_device_mac_t *mac);
 static void app_bt_reconnect_enqueue(const bt_notify_device_mac_t *mac);
 static void app_bt_reconnect_try_next(void);
@@ -868,6 +907,7 @@ static void app_bt_clear_slot(int slot_index)
         g_slots[slot_index].disconnect_generation;
 
     app_bt_hfp_timer_stop(slot_index);
+    app_bt_role_timer_stop(slot_index);
     memset(&g_slots[slot_index], 0, sizeof(g_slots[slot_index]));
     g_slots[slot_index].disconnect_generation = disconnect_generation;
     g_slots[slot_index].talk_volume_level = g_talk_volume_level;
@@ -1153,6 +1193,43 @@ static void app_bt_hfp_timeout(void *parameter)
                                      0U) != RT_EOK))
     {
         rt_kprintf("[intercom] failed to queue HFP timeout\n");
+    }
+}
+
+/* Role-seize timers are per-slot one-shots, independent of the connect
+ * timer (they run while the slot may already be READY). First tick reads
+ * the discovered role and fires the raw Switch Role; later ticks are the
+ * "still slave?" re-check before the one disconnect/reconnect fallback. */
+static void app_bt_role_timer_start(int slot_index, uint32_t timeout_ms)
+{
+    rt_tick_t ticks = rt_tick_from_millisecond(timeout_ms);
+
+    if (g_role_timers[slot_index] == RT_NULL)
+    {
+        return;
+    }
+    rt_timer_stop(g_role_timers[slot_index]);
+    rt_timer_control(g_role_timers[slot_index], RT_TIMER_CTRL_SET_TIME, &ticks);
+    rt_timer_start(g_role_timers[slot_index]);
+}
+
+static void app_bt_role_timer_stop(int slot_index)
+{
+    if (g_role_timers[slot_index] != RT_NULL)
+    {
+        rt_timer_stop(g_role_timers[slot_index]);
+    }
+}
+
+static void app_bt_role_timeout(void *parameter)
+{
+    uint8_t slot_id = *(uint8_t *)parameter;
+
+    if ((slot_id < APP_HEADSET_COUNT) &&
+            (app_bt_post_timer_event(APP_BT_CMD_ROLE_RECHECK, (int8_t)slot_id,
+                                     0U) != RT_EOK))
+    {
+        rt_kprintf("[intercom] failed to queue role re-check\n");
     }
 }
 
@@ -2405,6 +2482,12 @@ static void app_bt_handle_acl_connected(const bt_notify_device_acl_conn_info_t *
          * connect) and the A2DP stream later played silent. */
         bt_interface_wr_link_policy_setting(info->mac.addr, 0x01);
         bt_interface_exit_sniff_mode(info->mac.addr);
+        /* Role-seize watch (S2/S3): Connection Complete carries no role
+         * and bt_cm's info.role still defaults to master here — the real
+         * role only lands with the stack's role discovery ~0.5-1s later.
+         * Arm a re-check instead of deciding now; outgoing links (pager
+         * = always master) make the check a no-op. */
+        app_bt_role_timer_start(slot_index, APP_BT_ROLE_DISC_MS);
         /* Page time must not eat the pairing/profile budget: the watchdog
          * started at the connect command, so an 8s page left only 2s for
          * SSP + AVDTP and the attempt was aborted 355ms after the fresh
@@ -2559,21 +2642,77 @@ static bool app_bt_acl_creating(const bt_notify_device_mac_t *mac)
            (connection->state == BT_CM_ACL_STATE_CONNECTING);
 }
 
-static void app_bt_prepare_acl_for_audio(const bt_notify_device_mac_t *mac)
+static bool app_bt_role_bounce_used(const bt_notify_device_mac_t *mac)
 {
-    bt_cm_device_manager_t *manager = bt_cm_get_env();
-    BTS2S_BD_ADDR address;
-    bt_cm_dev_acl_info_t *connection;
+    uint8_t i;
 
-    if (bt_addr_convert_to_bts((bd_addr_t *)mac, &address) != 0U)
+    for (i = 0U; i < g_role_bounce_count; i++)
     {
-        return;
+        if (app_bt_mac_equal(&g_role_bounce_used[i], mac))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void app_bt_role_bounce_mark(const bt_notify_device_mac_t *mac)
+{
+    if (g_role_bounce_count < APP_HEADSET_COUNT)
+    {
+        g_role_bounce_used[g_role_bounce_count] = *mac;
+        g_role_bounce_count++;
+    }
+}
+
+/* S2: post-hoc master seize for a link that came up as slave.
+ *
+ * bt_send_switch_role() (gap_switch_role_req) never reaches the air on
+ * these links: gap_dm_switch_role_msg_hdl locally rejects the request
+ * (its ACL cache reads the slave link's cached role as "already master",
+ * and req_role == cur_role quick-fails) and the app's ROLE_SWITCH_CFM
+ * returns res:1 in the SAME millisecond — a real LMP role switch needs
+ * at least one 1.25ms baseband slot, so that CFM is provably local.
+ * Send the raw HCI Switch Role instead — the exact command GAP itself
+ * issues when its cache is right. Completion returns as
+ * BTS2MU_GAP_ROLE_SWITCH_IND (GAP has no pending request to answer with
+ * a CFM) and bt_cm updates connection->info.role from it. */
+static bool app_bt_seize_master_role(int slot_index, const char *why)
+{
+    app_bt_slot_t *slot = &g_slots[slot_index];
+    bt_cm_device_manager_t *manager = bt_cm_get_env();
+    bt_cm_dev_acl_info_t *connection;
+    BTS2S_BD_ADDR address;
+
+    if (!slot->used || !slot->acl_connected)
+    {
+        return false;
     }
     if (manager == RT_NULL)
     {
-        return;
+        return false;
+    }
+    if (bt_addr_convert_to_bts((bd_addr_t *)&slot->mac, &address) != 0U)
+    {
+        return false;
     }
     connection = bt_cm_get_conn_by_addr(manager, &address);
+    if ((connection == RT_NULL) || (connection->info.role != BT_LINK_SLAVE))
+    {
+        return false;
+    }
+    hcia_switch_role(&address, 0, RT_NULL);
+    slot->role_seize_sent = true;
+    rt_kprintf("[intercom] headset %u master seize sent (%s)\n",
+               slot_index + 1U, why);
+    app_bt_role_timer_start(slot_index, APP_BT_ROLE_RECHECK_MS);
+    return true;
+}
+
+static void app_bt_prepare_acl_for_audio(const bt_notify_device_mac_t *mac)
+{
+    int slot_index = app_bt_find_slot_by_mac(mac);
+
     /* Audio link policy: role-switch ONLY (0x01). This used to write
      * 0x05 = role-switch|SNIFF — i.e. it explicitly ALLOWED the sniff
      * the headset then slid into after reconnect, and the stream went
@@ -2583,9 +2722,9 @@ static void app_bt_prepare_acl_for_audio(const bt_notify_device_mac_t *mac)
      * the old slave-only guard left master links unprotected. */
     bt_interface_wr_link_policy_setting((unsigned char *)mac->addr, 0x01);
     bt_interface_exit_sniff_mode((unsigned char *)mac->addr);
-    if ((connection != RT_NULL) && (connection->info.role == BT_LINK_SLAVE))
+    if (slot_index >= 0)
     {
-        bt_send_switch_role(&address, 0);
+        app_bt_seize_master_role(slot_index, "A2DP ready");
     }
 }
 
@@ -3871,6 +4010,78 @@ static void app_bt_handle_internal(const app_bt_event_t *event)
             app_bt_hfp_send_request(slot_index, "retry");
         }
         break;
+    case APP_BT_CMD_ROLE_RECHECK:
+        if ((event->data.timer.slot >= 0) &&
+                ((uint8_t)event->data.timer.slot < APP_HEADSET_COUNT))
+        {
+            int slot_index = event->data.timer.slot;
+            app_bt_slot_t *slot = &g_slots[slot_index];
+            bt_cm_device_manager_t *manager;
+            bt_cm_dev_acl_info_t *connection;
+            BTS2S_BD_ADDR address;
+            app_mode_t mode = app_state_get_mode();
+
+            if (!slot->used || !slot->acl_connected)
+            {
+                break;
+            }
+            if (app_bt_is_talk_mode(mode) || (mode == APP_MODE_ERROR))
+            {
+                /* Bouncing now would kill SCO / error cleanup. */
+                app_bt_role_timer_start(slot_index,
+                                        APP_BT_ROLE_NOT_READY_RETRY_MS);
+                break;
+            }
+            manager = bt_cm_get_env();
+            if ((manager == RT_NULL) ||
+                    (bt_addr_convert_to_bts((bd_addr_t *)&slot->mac,
+                                            &address) != 0U))
+            {
+                break;
+            }
+            connection = bt_cm_get_conn_by_addr(manager, &address);
+            if ((connection == RT_NULL) ||
+                    (connection->info.role != BT_LINK_SLAVE))
+            {
+                /* Master confirmed — star topology, done. */
+                break;
+            }
+            if (!slot->role_seize_sent)
+            {
+                /* First look at a slave role: try the raw seize and give
+                 * it a whole window to land before considering the
+                 * fallback. */
+                app_bt_seize_master_role(slot_index, "role re-check");
+                break;
+            }
+            if (slot->connection_stage != APP_BT_CONN_READY)
+            {
+                /* Seize already sent but profiles still settling —
+                 * keep watching. */
+                app_bt_role_timer_start(slot_index,
+                                        APP_BT_ROLE_NOT_READY_RETRY_MS);
+                break;
+            }
+            if (!app_bt_role_bounce_used(&slot->mac))
+            {
+                app_bt_role_bounce_mark(&slot->mac);
+                rt_kprintf("[intercom] headset %u still slave after role seize; bouncing ACL for outgoing (master) reconnect\n",
+                           slot_index + 1U);
+                /* release_pending stays false on purpose: the ACL-down
+                 * handler then re-queues this headset and the reconnect
+                 * is outgoing — an outgoing connect is ALWAYS master
+                 * (pager role), no role switch involved. One bounce per
+                 * headset per boot; if the new link is slave again the
+                 * topology is kept as-is so the other headset is not
+                 * disturbed. */
+                if (app_bt_issue_disconnect(slot_index) != 0)
+                {
+                    rt_kprintf("[intercom] headset %u role-bounce disconnect failed\n",
+                               slot_index + 1U);
+                }
+            }
+        }
+        break;
     case APP_BT_CMD_CONNECT_TIMEOUT:
         if ((event->data.timer.slot >= 0) &&
                 ((uint8_t)event->data.timer.slot < APP_HEADSET_COUNT))
@@ -4280,6 +4491,60 @@ static void app_bt_manager_thread(void *parameter)
     }
 }
 
+/* S4: once a master link is streaming, freeze its link policy to
+ * DISB_ALL_LM_MODES (0x0000) so the remote cannot flip the relay back
+ * to slave (or into sniff) mid-stream — the double-slave scatternet is
+ * exactly the "connected=2 streaming=2 but second headset silent"
+ * failure. Called on every AVDTP START event because the stream-
+ * (re)start path writes 0x0001 just before START (its sniff block),
+ * which would otherwise re-open role switching on every resume. */
+static void app_bt_freeze_master_policies(void)
+{
+    bt_cm_device_manager_t *manager = bt_cm_get_env();
+    uint8_t index;
+
+    if (manager == RT_NULL)
+    {
+        return;
+    }
+    for (index = 0U; index < APP_HEADSET_COUNT; index++)
+    {
+        app_bt_slot_t *slot = &g_slots[index];
+        bt_cm_dev_acl_info_t *connection;
+        BTS2S_BD_ADDR address;
+
+        if (!slot->used || !slot->acl_connected)
+        {
+            continue;
+        }
+        if (bt_addr_convert_to_bts((bd_addr_t *)&slot->mac, &address) != 0U)
+        {
+            continue;
+        }
+        connection = bt_cm_get_conn_by_addr(manager, &address);
+        if ((connection == RT_NULL) ||
+                (connection->info.role != BT_LINK_MASTER))
+        {
+            /* Never freeze a slave link: a pending/future role seize
+             * would be rejected ("role change not allowed") by the very
+             * policy meant to protect the stream. */
+            continue;
+        }
+        if (bt_interface_get_a2dp_stream_state(&slot->mac) !=
+                APP_A2DP_STREAM_PLAYING)
+        {
+            continue;
+        }
+        bt_interface_wr_link_policy_setting(slot->mac.addr, 0x0000);
+        if (!slot->policy_frozen)
+        {
+            slot->policy_frozen = true;
+            rt_kprintf("[intercom] headset %u link policy frozen (master, streaming)\n",
+                       index + 1U);
+        }
+    }
+}
+
 static int app_bt_event_callback(uint16_t type, uint16_t event_id,
                                  uint8_t *data, uint16_t data_len)
 {
@@ -4311,6 +4576,13 @@ static int app_bt_event_callback(uint16_t type, uint16_t event_id,
         if (!drop_from_unconnected)
         {
             app_a2dp_share_on_a2dp_event(event_id);
+        }
+        if ((event_id == BT_NOTIFY_A2DP_START_CFM) ||
+                (event_id == BT_NOTIFY_A2DP_START_IND))
+        {
+            /* Stream is (re)starting — re-assert the master link-policy
+             * freeze after bt_av_start_stream's 0x0001 sniff block. */
+            app_bt_freeze_master_policies();
         }
     }
 
@@ -4560,18 +4832,58 @@ static void app_bt_mark_seen(const bt_notify_device_mac_t *mac)
     }
 }
 
-static bool app_bt_was_seen(const bt_notify_device_mac_t *mac)
+/* ---- wedged media-path recovery ---------------------------------
+ * The A2DP share watchdog (app_a2dp_share.c) calls this when a link
+ * reports streaming but its media stops being delivered: the AVDTP
+ * media path of that one stream is wedged and never recovers on its
+ * own -- teardown + reconnect is the proven heal. Bounce = drop the ACL
+ * with release_pending left clear so the existing unexpected-drop path
+ * re-queues the headset and auto-reconnect brings it back as our own
+ * outgoing connect (the path proven to deliver audio). Rate limited
+ * per headset so a link that keeps wedging cannot loop the radio. */
+bool app_bt_bounce_media_link(const unsigned char *mac)
 {
-    uint8_t i;
+    bt_notify_device_mac_t addr;
+    int slot_index;
+    app_mode_t mode;
+    rt_tick_t now = rt_tick_get();
 
-    for (i = 0; i < g_reconnect_seen_count; i++)
+    memset(&addr, 0, sizeof(addr));
+    memcpy(addr.addr, mac, sizeof(addr.addr));
+    slot_index = app_bt_find_slot_by_mac(&addr);
+    if ((slot_index < 0) || (slot_index >= APP_HEADSET_COUNT) ||
+            !g_slots[slot_index].used ||
+            !g_slots[slot_index].acl_connected ||
+            g_slots[slot_index].release_pending)
     {
-        if (app_bt_mac_equal(&g_reconnect_seen[i], mac))
-        {
-            return true;
-        }
+        return false;
     }
-    return false;
+    mode = app_state_get_mode();
+    if (app_bt_is_talk_mode(mode) || (mode == APP_MODE_ERROR))
+    {
+        return false; /* never disturb an active call */
+    }
+    if (g_wedge_bounce_count[slot_index] >= APP_BT_WEDGE_BOUNCE_MAX)
+    {
+        return false;
+    }
+    if ((g_wedge_bounce_tick[slot_index] != 0U) &&
+            ((now - g_wedge_bounce_tick[slot_index]) <
+             rt_tick_from_millisecond(APP_BT_WEDGE_BOUNCE_COOLDOWN_MS)))
+    {
+        return false;
+    }
+    g_wedge_bounce_tick[slot_index] = now;
+    g_wedge_bounce_count[slot_index]++;
+    /* Let auto-reconnect page this headset straight back even though
+     * the other headset keeps media active -- the silence gate would
+     * otherwise hold the queue until playback stops. */
+    g_reconnect_media_bypass_until =
+        now + rt_tick_from_millisecond(APP_BT_WEDGE_BOUNCE_COOLDOWN_MS);
+    rt_kprintf("[intercom] headset %u media wedged; bouncing link (%u/%u)\n",
+               slot_index + 1U, g_wedge_bounce_count[slot_index],
+               (unsigned int)APP_BT_WEDGE_BOUNCE_MAX);
+    return bt_interface_disconnect_req(addr.addr) == 0;
 }
 
 static bool app_bt_mac_in_queue(const bt_notify_device_mac_t *mac)
@@ -4731,6 +5043,20 @@ static void app_bt_reconnect_stop(void)
     rt_timer_stop(g_reconnect_timer);
 }
 
+static bool app_bt_one_headset_up(void)
+{
+    uint8_t index;
+
+    for (index = 0U; index < APP_HEADSET_COUNT; index++)
+    {
+        if (g_slots[index].used && app_bt_slot_has_link(&g_slots[index]))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 static void app_bt_reconnect_try_next(void)
 {
     app_mode_t mode = app_state_get_mode();
@@ -4759,26 +5085,18 @@ static void app_bt_reconnect_try_next(void)
         return; /* a connection attempt is already in progress */
     }
 
-    /* Outgoing paging steals radio time from the live A2DP link and
-     * glitches the healthy headset's audio. While media is streaming on
-     * an established link, stay quiet — with ONE deliberate exception:
-     * inside the boot/reset recovery window, if the queued headset
-     * never reached A2DP this boot (it does not self-page after OUR
-     * reset, so without paging it stays lost while the first headset
-     * auto-plays). A headset the user powered OFF after being up this
-     * boot is "seen": strict silence applies, it pages us itself when
-     * powered back on. */
-    if (app_bt_media_active() && (app_bt_a2dp_count() > 0U))
+    /* One headset is already up: never page the rest of the queue. A
+     * powered-off headset cannot answer anyway, the failed page steals
+     * radio time from the live link, and the stack logs that attempt as
+     * "link connect failed" noise. The remaining headsets page US when
+     * they are ready (powered on / back in range) and come up clean on
+     * the incoming path. The wedge-bounce path opens a short bypass
+     * window so its own headset is paged straight back despite this
+     * gate. */
+    if (app_bt_one_headset_up() &&
+            (rt_tick_get() >= g_reconnect_media_bypass_until))
     {
-        bool never_up_this_boot = !app_bt_was_seen(
-                                       &g_reconnect_queue[0]);
-        bool inside_boot_window = (rt_tick_get() <
-                                   g_reconnect_boot_deadline);
-
-        if (!never_up_this_boot || !inside_boot_window)
-        {
-            return;
-        }
+        return;
     }
 
     mac = &g_reconnect_queue[0];
@@ -4990,6 +5308,21 @@ static int app_bt_post_volume_command(app_volume_target_t target,
     return rt_mq_send(g_bt_event_queue, &event, sizeof(event));
 }
 
+/* Incoming ACL accept role (overrides bt_cm's __WEAK default of
+ * BT_LINK_SLAVE). The relay is the A2DP source for TWO headsets: when a
+ * headset pages us after a reset the accept must request "become master"
+ * (HCI Accept_Connection_Request role = 0x00) so both headsets end up as
+ * slaves in OUR single piconet. Accepted as slave they keep their own
+ * piconets and the relay time-shares RX slots across two masters — the
+ * second headset then gets starved and goes silent ("connected=2
+ * streaming=2" but no audio over the air). Outgoing connects are already
+ * master (pager role), so this makes both directions converge on the same
+ * star topology. */
+uint8_t bt_get_acpt_link_role(void)
+{
+    return BT_LINK_MASTER;
+}
+
 int app_bt_init(void)
 {
     rt_thread_t manager_thread;
@@ -5085,6 +5418,19 @@ int app_bt_init(void)
                                   RT_TIMER_FLAG_ONE_SHOT |
                                   RT_TIMER_FLAG_SOFT_TIMER);
     }
+    for (index = 0; index < APP_HEADSET_COUNT; index++)
+    {
+        const char *name = (index == 0U) ? "btrole0" : "btrole1";
+
+        g_role_timer_slot_ids[index] = index;
+        g_role_timers[index] = rt_timer_create(
+                                   name, app_bt_role_timeout,
+                                   &g_role_timer_slot_ids[index],
+                                   rt_tick_from_millisecond(
+                                       APP_BT_ROLE_DISC_MS),
+                                   RT_TIMER_FLAG_ONE_SHOT |
+                                   RT_TIMER_FLAG_SOFT_TIMER);
+    }
     if ((g_bt_event_queue == RT_NULL) || (g_bt_ready_mailbox == RT_NULL) ||
             (g_bt_lock == RT_NULL) ||
             (g_talk_timer == RT_NULL) ||
@@ -5095,7 +5441,9 @@ int app_bt_init(void)
             (g_disconnect_timers[0] == RT_NULL) ||
             (g_disconnect_timers[1] == RT_NULL) ||
             (g_hfp_timers[0] == RT_NULL) ||
-            (g_hfp_timers[1] == RT_NULL))
+            (g_hfp_timers[1] == RT_NULL) ||
+            (g_role_timers[0] == RT_NULL) ||
+            (g_role_timers[1] == RT_NULL))
     {
         return -RT_ENOMEM;
     }
@@ -5513,6 +5861,28 @@ void app_bt_print_status(void)
                share_status.prefill_target, share_stats.records_pumped,
                share_stats.queue_drops, share_stats.ring_drops,
                share_stats.kick_count);
+    {
+        uint8_t i;
+
+        for (i = 0U; i < share_status.media_con_count; i++)
+        {
+            bt_notify_device_mac_t mac;
+
+            if ((share_status.media_con_active & (uint8_t)(1U << i)) == 0U)
+            {
+                continue;
+            }
+            memset(&mac, 0, sizeof(mac));
+            memcpy(mac.addr, share_status.media_con_mac[i], sizeof(mac.addr));
+            rt_kprintf("  media-tx[%u]: ", i);
+            app_bt_print_mac(&mac);
+            rt_kprintf(" req=%u nomem=%u qos=%u buff=%u\n",
+                       (unsigned int)share_status.media_req[i],
+                       (unsigned int)share_status.media_nomem[i],
+                       (unsigned int)share_status.media_qos[i],
+                       share_status.media_buff[i]);
+        }
+    }
     rt_kprintf("  heap: used=%u max-used=%u total=%u free-now=%u\n",
                used_memory, max_used_memory, total_memory,
                (used_memory <= total_memory) ? total_memory - used_memory : 0U);
