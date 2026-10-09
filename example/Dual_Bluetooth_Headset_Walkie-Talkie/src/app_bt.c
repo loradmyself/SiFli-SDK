@@ -119,17 +119,17 @@
  * with "connection already exists", so keep it short — 10s still
  * absorbs the radio blips of a second-headset connect. */
 #define APP_BT_LINK_SUPERV_TIMEOUT 0x3E80U  /* 10s */
-/* Role-seize watch (S2/S3): the relay must be piconet MASTER for both
- * headsets — as slave of two headset-masters it time-shares RX slots
- * across two piconets and the second headset starves silent
- * ("connected=2 streaming=2" but no audio over the air). A real role
- * switch completes in milliseconds, but the role itself is only known
- * AFTER the stack's role discovery (HCI Read Current Role) lands
- * ~0.5-1s after ACL-up — Connection Complete carries no role field —
- * so the first check waits APP_BT_ROLE_DISC_MS. If the link is still
- * slave the seize is sent raw (GAP's switch_role_req is locally
- * rejected) and the check re-arms for the one disconnect/reconnect
- * fallback; not-yet-READY links just re-check every 2s. */
+/* Role-seize watch (S2): one non-destructive attempt to flip a slave link
+ * to master. The role itself is only known AFTER the stack's role
+ * discovery (HCI Read Current Role) lands ~0.5-1s after ACL-up —
+ * Connection Complete carries no role field — so the first check waits
+ * APP_BT_ROLE_DISC_MS. If the link is still slave the seize is sent raw
+ * (GAP's switch_role_req is locally rejected); not-yet-READY links just
+ * re-check every 2s. The old S3 fallback (bounce the ACL for an outgoing
+ * master reconnect) is gone: it cost one headset voice prompt
+ * ("disconnected/connected") per headset per boot for a topology theory
+ * that test disproved (links already come up master via accept-as-master,
+ * and the second-headset silence survived the master switch). */
 #define APP_BT_ROLE_DISC_MS 1500U
 #define APP_BT_ROLE_RECHECK_MS 3000U
 #define APP_BT_ROLE_NOT_READY_RETRY_MS 2000U
@@ -142,6 +142,12 @@ typedef enum
      * bond for the target before connecting. Distinct from APP_BT_CMD_
      * CONNECT (auto-reconnect), which must keep the bond. */
     APP_BT_CMD_CONNECT_MANUAL,
+    /* A known headset's incoming page was declined at HCI level to
+     * convert it into our own outgoing connect (see
+     * bt_should_accept_incoming_conn). Queues the target and drains the
+     * reconnect queue immediately, serialized behind any in-flight
+     * attempt. */
+    APP_BT_CMD_CONVERT_INCOMING,
     APP_BT_CMD_DISCONNECT,
     APP_BT_CMD_TALK_START,
     APP_BT_CMD_TALK_STOP,
@@ -317,11 +323,6 @@ static rt_timer_t g_hfp_timers[APP_HEADSET_COUNT];
 static uint8_t g_hfp_timer_slot_ids[APP_HEADSET_COUNT];
 static rt_timer_t g_role_timers[APP_HEADSET_COUNT];
 static uint8_t g_role_timer_slot_ids[APP_HEADSET_COUNT];
-/* S3 fallback memory: one disconnect/reconnect bounce per headset per
- * boot. Kept as MACs (not slot flags) — the reconnected headset may
- * land in the other slot. */
-static bt_notify_device_mac_t g_role_bounce_used[APP_HEADSET_COUNT];
-static uint8_t g_role_bounce_count;
 static app_bt_discovery_t g_discovered[APP_BT_MAX_DISCOVERED];
 static app_bt_slot_t g_slots[APP_HEADSET_COUNT];
 static uint8_t g_discovered_count;
@@ -364,12 +365,35 @@ static rt_tick_t g_reconnect_boot_deadline;
 /* Wedged-media-path bounce state (see app_bt_bounce_media_link). */
 #define APP_BT_WEDGE_BOUNCE_MAX 3U
 #define APP_BT_WEDGE_BOUNCE_COOLDOWN_MS 30000U
+/* Page-to-outgoing-connect conversion (see bt_should_accept_incoming_conn).
+ * After this many failed converted attempts stop declining the headset's
+ * pages — accept its next incoming page instead so a headset that will
+ * not answer our page can never be locked out. */
+#define APP_BT_CONVERT_MAX_ATTEMPTS 2U
+#define APP_BT_CONVERT_BYPASS_MS 30000U
+/* Freshness window of the accept/convert decision: a page that lands
+ * this soon after a stream (re)START is converted (declined + re-dialed
+ * outgoing) because a second stream whose START lands within ~1s of the
+ * first wedges its media path silent (2026-10-08 reset-reconnect log).
+ * Later pages are the proven-good re-establishment against a settled
+ * stream and are accepted untouched. */
+#define APP_BT_CONVERT_SETTLE_MS 1000U
+/* Delay of the converted outgoing connect. 0 = right away, the same
+ * immediacy a manual `intercom connect` gets (2026-10-09 request).
+ * If the second headset ever goes silent again and the log shows
+ * "media wedged; bouncing link", the two stream STARTs are landing too
+ * close together — set this to 8000 to re-space them (2026-10-08 log:
+ * STARTs 0.8-1.2s apart wedged the second stream, 8s+ apart healed). */
+#define APP_BT_CONVERT_DIAL_DELAY_MS 0U
 static rt_tick_t g_wedge_bounce_tick[APP_HEADSET_COUNT];
 static uint8_t g_wedge_bounce_count[APP_HEADSET_COUNT];
 /* Brief window in which auto-reconnect may page a headset back even
  * while the other headset keeps media active (set when a wedged link
  * is bounced and must come straight back). */
 static rt_tick_t g_reconnect_media_bypass_until;
+/* When a stream last (re)started (AVDTP START_CFM/IND). Anchors the
+ * media-settle window used by the page-to-outgoing conversion. */
+static volatile rt_tick_t g_last_stream_start_tick;
 /* MACs that reached A2DP at least once since this boot — used to tell
  * "reset recovery of a headset that never came up yet" (may page during
  * playback inside the boot window) apart from "user powered off a
@@ -395,6 +419,7 @@ static void app_bt_role_timer_stop(int slot_index);
 static int app_bt_find_slot_by_mac(const bt_notify_device_mac_t *mac);
 static void app_bt_reconnect_enqueue(const bt_notify_device_mac_t *mac);
 static void app_bt_reconnect_try_next(void);
+static void app_bt_handle_convert_incoming(const bt_notify_device_mac_t *mac);
 static void app_bt_reconnect_load_bonded(void);
 static void app_bt_drop_residual_links(void);
 static void app_bt_reconnect_stop(void);
@@ -1198,8 +1223,8 @@ static void app_bt_hfp_timeout(void *parameter)
 
 /* Role-seize timers are per-slot one-shots, independent of the connect
  * timer (they run while the slot may already be READY). First tick reads
- * the discovered role and fires the raw Switch Role; later ticks are the
- * "still slave?" re-check before the one disconnect/reconnect fallback. */
+ * the discovered role and fires the raw Switch Role; later ticks give the
+ * switch a window to land and keep watching until READY. */
 static void app_bt_role_timer_start(int slot_index, uint32_t timeout_ms)
 {
     rt_tick_t ticks = rt_tick_from_millisecond(timeout_ms);
@@ -2482,7 +2507,7 @@ static void app_bt_handle_acl_connected(const bt_notify_device_acl_conn_info_t *
          * connect) and the A2DP stream later played silent. */
         bt_interface_wr_link_policy_setting(info->mac.addr, 0x01);
         bt_interface_exit_sniff_mode(info->mac.addr);
-        /* Role-seize watch (S2/S3): Connection Complete carries no role
+        /* Role-seize watch (S2): Connection Complete carries no role
          * and bt_cm's info.role still defaults to master here — the real
          * role only lands with the stack's role discovery ~0.5-1s later.
          * Arm a re-check instead of deciding now; outgoing links (pager
@@ -2640,29 +2665,6 @@ static bool app_bt_acl_creating(const bt_notify_device_mac_t *mac)
     connection = bt_cm_get_conn_by_addr(manager, &address);
     return (connection != RT_NULL) &&
            (connection->state == BT_CM_ACL_STATE_CONNECTING);
-}
-
-static bool app_bt_role_bounce_used(const bt_notify_device_mac_t *mac)
-{
-    uint8_t i;
-
-    for (i = 0U; i < g_role_bounce_count; i++)
-    {
-        if (app_bt_mac_equal(&g_role_bounce_used[i], mac))
-        {
-            return true;
-        }
-    }
-    return false;
-}
-
-static void app_bt_role_bounce_mark(const bt_notify_device_mac_t *mac)
-{
-    if (g_role_bounce_count < APP_HEADSET_COUNT)
-    {
-        g_role_bounce_used[g_role_bounce_count] = *mac;
-        g_role_bounce_count++;
-    }
 }
 
 /* S2: post-hoc master seize for a link that came up as slave.
@@ -3857,6 +3859,9 @@ static void app_bt_handle_internal(const app_bt_event_t *event)
     case APP_BT_CMD_CONNECT_MANUAL:
         app_bt_handle_connect_command(event);
         break;
+    case APP_BT_CMD_CONVERT_INCOMING:
+        app_bt_handle_convert_incoming(&event->data.command_device.mac);
+        break;
     case APP_BT_CMD_DISCONNECT:
         app_bt_handle_disconnect_command(event);
         break;
@@ -4062,24 +4067,12 @@ static void app_bt_handle_internal(const app_bt_event_t *event)
                                         APP_BT_ROLE_NOT_READY_RETRY_MS);
                 break;
             }
-            if (!app_bt_role_bounce_used(&slot->mac))
-            {
-                app_bt_role_bounce_mark(&slot->mac);
-                rt_kprintf("[intercom] headset %u still slave after role seize; bouncing ACL for outgoing (master) reconnect\n",
-                           slot_index + 1U);
-                /* release_pending stays false on purpose: the ACL-down
-                 * handler then re-queues this headset and the reconnect
-                 * is outgoing — an outgoing connect is ALWAYS master
-                 * (pager role), no role switch involved. One bounce per
-                 * headset per boot; if the new link is slave again the
-                 * topology is kept as-is so the other headset is not
-                 * disturbed. */
-                if (app_bt_issue_disconnect(slot_index) != 0)
-                {
-                    rt_kprintf("[intercom] headset %u role-bounce disconnect failed\n",
-                               slot_index + 1U);
-                }
-            }
+            /* Still slave with the seize already spent: leave the link as
+             * it is and stop watching. The old S3 fallback bounced the ACL
+             * (disconnect + outgoing reconnect) to force pager-master, but
+             * master/slave was disproven as the audio-silence root cause
+             * and the extra disconnect made headsets play "disconnected/
+             * connected" voice prompts on every boot. */
         }
         break;
     case APP_BT_CMD_CONNECT_TIMEOUT:
@@ -4581,7 +4574,10 @@ static int app_bt_event_callback(uint16_t type, uint16_t event_id,
                 (event_id == BT_NOTIFY_A2DP_START_IND))
         {
             /* Stream is (re)starting — re-assert the master link-policy
-             * freeze after bt_av_start_stream's 0x0001 sniff block. */
+             * freeze after bt_av_start_stream's 0x0001 sniff block, and
+             * start the media-settle clock the page-to-outgoing conversion
+             * is scheduled against (bt_should_accept_incoming_conn). */
+            g_last_stream_start_tick = rt_tick_get();
             app_bt_freeze_master_policies();
         }
     }
@@ -4975,6 +4971,47 @@ static void app_bt_reconnect_enqueue(const bt_notify_device_mac_t *mac)
     }
 }
 
+/* A known headset's incoming page was declined at HCI level to convert it
+ * into our own outgoing connect (bt_should_accept_incoming_conn). The
+ * page is the trigger: the headset is powered and in range right now, so
+ * queue it (skip the drop-wait gap), dial out at once with the same
+ * immediacy a manual `intercom connect` gets, and open the quiet-gate
+ * bypass so the queue drains even while the other headset is up. The
+ * in-flight gate in try_next keeps the attempt serialized behind any
+ * connection already being built. */
+static void app_bt_handle_convert_incoming(const bt_notify_device_mac_t *mac)
+{
+    uint8_t i;
+
+    rt_kprintf("[intercom] converting incoming page to outgoing connect: ");
+    app_bt_print_mac(mac);
+    rt_kprintf("\n");
+    app_bt_reconnect_enqueue(mac);
+    for (i = 0U; i < g_reconnect_len; i++)
+    {
+        if (app_bt_mac_equal(&g_reconnect_queue[i], mac))
+        {
+            if (g_reconnect_retry[i] == 0U)
+            {
+                /* Manual-style immediacy: dial right now — the page just
+                 * proved the headset is powered and in range. The connect
+                 * itself is the same call `intercom connect` makes (the
+                 * auto path keeps the bond; only the manual command's
+                 * bond wipe is deliberately not copied). APP_BT_CONVERT_
+                 * DIAL_DELAY_MS re-spaces the attempt if the media race
+                 * ever wedges the second stream again. */
+                g_reconnect_next_try[i] = rt_tick_get() +
+                                         rt_tick_from_millisecond(
+                                             APP_BT_CONVERT_DIAL_DELAY_MS);
+            }
+            break;
+        }
+    }
+    g_reconnect_media_bypass_until =
+        rt_tick_get() + rt_tick_from_millisecond(APP_BT_CONVERT_BYPASS_MS);
+    app_bt_reconnect_try_next();
+}
+
 static void app_bt_reconnect_remove_at(uint8_t idx)
 {
     uint8_t i;
@@ -5321,6 +5358,116 @@ static int app_bt_post_volume_command(app_volume_target_t target,
 uint8_t bt_get_acpt_link_role(void)
 {
     return BT_LINK_MASTER;
+}
+
+/* Attempts already posted for a queued headset (conversion valve:
+ * APP_BT_CONVERT_MAX_ATTEMPTS). */
+static uint8_t app_bt_queue_retry_of(const bt_notify_device_mac_t *mac)
+{
+    uint8_t i;
+
+    for (i = 0U; i < g_reconnect_len; i++)
+    {
+        if (app_bt_mac_equal(&g_reconnect_queue[i], mac))
+        {
+            return g_reconnect_retry[i];
+        }
+    }
+    return 0U;
+}
+
+/* True when at least one stream is PLAYING and no stream has (re)started
+ * within APP_BT_CONVERT_SETTLE_MS — the shared media paths have settled
+ * and one more stream may establish against them (the pattern every
+ * successful re-establishment followed). Runs in the BT task: reads one
+ * tick and the share's lock-copied status snapshot (the share lock is
+ * only ever held for bookkeeping, never across calls into the BT task). */
+static bool app_bt_streams_settled(void)
+{
+    app_a2dp_share_status_t status;
+
+    if ((rt_tick_get() - g_last_stream_start_tick) <
+            rt_tick_from_millisecond(APP_BT_CONVERT_SETTLE_MS))
+    {
+        return false;
+    }
+    app_a2dp_share_get_status(&status);
+    return (status.streaming_count > 0U);
+}
+
+/* Incoming ACL accept policy (overrides bt_cm's __WEAK default of
+ * "always accept"); runs in the BT task at connect-request time. Keep it
+ * read-only plus a single mq post, and never take g_bt_lock here (the
+ * app thread holds that lock across bt_interface calls into this task).
+ *
+ * Low-risk conversion rules:
+ *  - Only the SECOND headset is converted (one headset already up); the
+ *    first inbound page is accepted as-is (fastest recovery).
+ *  - A page that arrives while the other stream has been PLAYING for
+ *    APP_BT_CONVERT_SETTLE_MS is the proven-good "single re-establishment
+ *    against a settled live stream" — untouched. Inside that settle
+ *    window the two streams' media paths race and the second one wedges
+ *    silent (2026-10-08 log), so the page is converted into our own
+ *    outgoing connect instead (dial immediately, manual-style).
+ *  - A device we are already connecting to / linked to / releasing is
+ *    accepted (keeps the "incoming ACL won the race" recovery).
+ *  - After APP_BT_CONVERT_MAX_ATTEMPTS posted converted attempts further
+ *    pages are accepted again — a headset that will not answer our page
+ *    can never be locked out.
+ *  - Unknown devices and talk/scan/error modes keep today's behavior.
+ * Declining the page posts APP_BT_CMD_CONVERT_INCOMING so the app starts
+ * its own outgoing connect — the path proven to deliver audio. */
+uint8_t bt_should_accept_incoming_conn(BTS2S_BD_ADDR *bd)
+{
+    bt_notify_device_mac_t mac;
+    app_mode_t mode = app_state_get_mode();
+    int slot;
+
+    memset(&mac, 0, sizeof(mac));
+    if (bt_addr_convert_to_general(bd, (bd_addr_t *)&mac) != 0U)
+    {
+        return 1U;
+    }
+    if (!app_bt_one_headset_up() || app_bt_streams_settled())
+    {
+        return 1U;
+    }
+    if (app_bt_is_talk_mode(mode) || (mode == APP_MODE_ERROR) ||
+            (mode == APP_MODE_SCANNING))
+    {
+        return 1U;
+    }
+    if (!app_bt_is_bonded_earphone(&mac) && !app_bt_mac_in_queue(&mac))
+    {
+        return 1U;
+    }
+    slot = app_bt_find_slot_by_mac(&mac);
+    if ((slot >= 0) &&
+            ((g_slots[slot].connection_stage != APP_BT_CONN_IDLE) ||
+             app_bt_slot_has_link(&g_slots[slot]) ||
+             g_slots[slot].release_pending ||
+             g_connect_timer_armed[slot]))
+    {
+        return 1U;
+    }
+    if (app_bt_queue_retry_of(&mac) >= APP_BT_CONVERT_MAX_ATTEMPTS)
+    {
+        return 1U;
+    }
+    /* Decline alone is only half the conversion: post the command so the
+     * app dials this headset straight back out. Without the post the page
+     * is rejected and nobody ever follows up (2026-10-09 log: "declined
+     * incoming page" and then silence until a manual `intercom connect`).
+     * The handler owns every state change; this is the single mq post the
+     * policy is allowed. */
+    if (app_bt_post_command(APP_BT_CMD_CONVERT_INCOMING, &mac,
+                            "page-converted") != RT_EOK)
+    {
+        rt_kprintf("[intercom] page conversion dropped (queue full): ");
+        app_bt_print_mac(&mac);
+        rt_kprintf("\n");
+    }
+    return 0U;
 }
 
 int app_bt_init(void)
