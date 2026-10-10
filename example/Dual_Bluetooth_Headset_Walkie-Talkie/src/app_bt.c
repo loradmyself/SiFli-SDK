@@ -400,6 +400,14 @@ static volatile rt_tick_t g_last_stream_start_tick;
  * headset that WAS up" (strict silence, always). */
 static bt_notify_device_mac_t g_reconnect_seen[APP_HEADSET_COUNT];
 static uint8_t g_reconnect_seen_count;
+/* Manual (re)pair window: `intercom connect` deliberately wipes the stored
+ * bond first (KEYMISSING protection), so until pairing completes the target
+ * is bonded=0 and was paged into no queue — an incoming page from it in that
+ * window was rejected as "unassigned" (log 5 16:22:26). Remember the address
+ * being (re)paired so its racing incoming ACL is accepted instead of kicked. */
+#define APP_BT_PAIR_WINDOW_MS 60000U
+static bt_notify_device_mac_t g_pair_pending_mac;
+static rt_tick_t g_pair_pending_tick;
 
 static int app_bt_post_simple_event(uint16_t event_id, uint32_t token);
 static int app_bt_post_timer_event(uint16_t event_id, int8_t slot,
@@ -441,6 +449,44 @@ static bool app_bt_incoming_acceptable(void)
            !g_scanning;
 }
 
+/* True while the manual-(re)pair window covers this MAC (see
+ * g_pair_pending_mac). */
+static bool app_bt_is_pair_pending(const bt_notify_device_mac_t *mac)
+{
+    if (g_pair_pending_tick == 0U)
+    {
+        return false;
+    }
+    if ((rt_tick_get() - g_pair_pending_tick) >
+            rt_tick_from_millisecond(APP_BT_PAIR_WINDOW_MS))
+    {
+        return false;
+    }
+    return memcmp(mac->addr, g_pair_pending_mac.addr, sizeof(mac->addr)) == 0;
+}
+
+/* Discovery-cache name lookup: MAC-targeted connects and auto-reconnect
+ * carry no name (only `intercom connect <scan-index>` does), so status
+ * prints used to show <unknown> even when a scan had just seen the device.
+ * Returns NULL when the cache has nothing for this MAC.
+ * Caller must hold g_bt_lock (both call sites run inside the event/status
+ * lock regions). */
+static const char *app_bt_discovered_name(const bt_notify_device_mac_t *mac)
+{
+    uint8_t i;
+
+    for (i = 0U; (i < g_discovered_count) && (i < APP_BT_MAX_DISCOVERED); i++)
+    {
+        if ((g_discovered[i].name[0] != '\0') &&
+                (memcmp(mac->addr, g_discovered[i].mac.addr,
+                        sizeof(mac->addr)) == 0))
+        {
+            return g_discovered[i].name;
+        }
+    }
+    return RT_NULL;
+}
+
 /* A queued (or at least previously bonded earphone) device may page us
  * during reconnection and must not be rejected as "unassigned". A device
  * with an assigned slot counts too: while a manual connect is in flight
@@ -452,6 +498,12 @@ static bool app_bt_may_accept_incoming(const bt_notify_device_mac_t *mac)
     int slot_index = app_bt_find_slot_by_mac(mac);
 
     if (app_bt_mac_in_queue(mac) || app_bt_is_bonded_earphone(mac))
+    {
+        return true;
+    }
+    /* Freshly (re)pairing target: its bond was just wiped by a manual
+     * connect, so a racing incoming page must still count as ours. */
+    if (app_bt_is_pair_pending(mac))
     {
         return true;
     }
@@ -2083,17 +2135,25 @@ static void app_bt_handle_scan_command(void)
     /* An in-flight page to an absent headset must not block the operator's
      * scan (after a reset with headsets in their case this was "scan
      * rejected: device is not ready or is busy" for minutes). Abort the
-     * link-less attempts — the reconnect queue re-pages them once the
-     * scan finishes (reconnect_try_next defers while mode == SCANNING). */
+     * link-less attempts — but RE-QUEUE them so the reconnect queue really
+     * re-pages them once the scan finishes (reconnect_try_next defers while
+     * mode == SCANNING). The re-queue is load-bearing for manual connects:
+     * their path removes the MAC from the queue (operator takeover), so a
+     * scan that aborted a manual page left it with no retry at all (log 5
+     * 16:22:26: `intercom connect` page killed by `intercom scan`, then
+     * nothing ever dialed again). */
     for (i = 0U; i < APP_HEADSET_COUNT; i++)
     {
         if (g_connect_timer_armed[i] && !app_bt_slot_has_link(&g_slots[i]))
         {
+            bt_notify_device_mac_t resume_mac = g_slots[i].mac;
+
             rt_kprintf("[intercom] deferring headset %u auto-connect for scan\n",
                        i + 1U);
             app_bt_abort_connection(i);
             app_bt_disconnect_timer_cancel(i);
             app_bt_clear_slot(i);
+            app_bt_reconnect_enqueue(&resume_mac);
         }
     }
     app_bt_refresh_leds();
@@ -2256,6 +2316,12 @@ static void app_bt_handle_connect_command(const app_bt_event_t *event)
         rt_kprintf("[intercom] cleared stored bond for ");
         app_bt_print_mac(&event->data.command_device.mac);
         rt_kprintf("\n");
+        /* The target is now bonded=0 and (removed above) out of the
+         * reconnect queue — open the pair window so an incoming page
+         * racing our outgoing one is accepted, not rejected as an
+         * "unassigned ACL device". */
+        g_pair_pending_mac = event->data.command_device.mac;
+        g_pair_pending_tick = rt_tick_get();
     }
 
     {
@@ -2274,9 +2340,22 @@ static void app_bt_handle_connect_command(const app_bt_event_t *event)
             strncpy(slot->name, event->data.command_device.name,
                     sizeof(slot->name) - 1U);
         }
-        else
+        else if (saved_name[0] != '\0')
         {
             strncpy(slot->name, saved_name, sizeof(slot->name) - 1U);
+        }
+        else
+        {
+            /* MAC-targeted connect / auto-reconnect carry no name — take
+             * the one the last scan learned before settling for
+             * <unknown>. */
+            const char *discovered = app_bt_discovered_name(
+                                         &event->data.command_device.mac);
+
+            if (discovered != RT_NULL)
+            {
+                strncpy(slot->name, discovered, sizeof(slot->name) - 1U);
+            }
         }
     }
 
@@ -2408,6 +2487,18 @@ static void app_bt_handle_acl_connected(const bt_notify_device_acl_conn_info_t *
         {
             bt_notify_device_mac_t mac = info->mac;
 
+            if (info->res != HCI_SUCC)
+            {
+                /* A FAILED connection complete lands here too (cancelled
+                 * page, page timeout, ...). Nothing was accepted and
+                 * nothing gets kicked — do NOT print "rejecting", which
+                 * made our own aborted outgoing page look like the app
+                 * kicking its own headset (log 5 16:22:26 res=2). */
+                rt_kprintf("[intercom] unassigned ACL connect failed: ");
+                app_bt_print_mac(&info->mac);
+                rt_kprintf(" (res=%u)\n", info->res);
+                return;
+            }
             rt_kprintf("[intercom] rejecting unassigned ACL device: ");
             app_bt_print_mac(&info->mac);
             rt_kprintf(" (in_queue=%d bonded=%d acceptable=%d res=%u)\n",
@@ -5931,9 +6022,39 @@ void app_bt_print_status(void)
             rt_kprintf("unassigned\n");
             continue;
         }
+        /* Name + profile flags are a "connected" report. Until a profile
+         * is actually up the headset may be off / out of range and the
+         * pending page can still fail (2026-10-09 19:01:49 printed
+         * "<unknown> ACL=0 ..." for a headset that was already powered
+         * off and read as "connected"). Print a state-only line instead:
+         * the slot stays visible (never hide a stuck connect/teardown)
+         * but carries no device info until the link is confirmed. */
+        if (!(slot->a2dp_connected || slot->hfp_connected ||
+                slot->avrcp_connected || app_bt_sco_is_pending(slot)))
+        {
+            app_bt_print_mac(&slot->mac);
+            if (slot->release_pending ||
+                    (slot->connection_stage == APP_BT_CONN_ABORTING))
+            {
+                rt_kprintf("  not connected (releasing)\n");
+            }
+            else if (g_connect_timer_armed[index] ||
+                     (slot->connection_stage != APP_BT_CONN_IDLE) ||
+                     app_bt_slot_has_link(slot))
+            {
+                rt_kprintf("  not connected (connecting)\n");
+            }
+            else
+            {
+                rt_kprintf("  not connected\n");
+            }
+            continue;
+        }
         app_bt_print_mac(&slot->mac);
         rt_kprintf("  %s  ACL=%u A2DP=%u HFP=%u(ch=%u session=%lu) AVRCP=%u SCO=%u phase=%s request=%lu relay=%u barrier=%u",
-                   slot->name[0] ? slot->name : "<unknown>",
+                   slot->name[0] ? slot->name :
+                   (app_bt_discovered_name(&slot->mac) ?
+                    app_bt_discovered_name(&slot->mac) : "<unknown>"),
                    slot->acl_connected, slot->a2dp_connected,
                    slot->hfp_connected, slot->hfp_channel,
                    (unsigned long)slot->hfp_session_generation,
