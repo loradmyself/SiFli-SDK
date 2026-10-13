@@ -35,7 +35,7 @@ static const LCDC_InitTypeDef lcdc_int_cfg_edp_16bit =
             .SDMODE = 0, //Source driver mode
             .SDCLK_polarity = 0, //Source driver clock polarity
             .GDSP_polarity = 0,
-            .GDCLK_polarity = 0, //Gate clock polarity
+            .GDCLK_polarity = 1, //Gate clock polarity
 
             .LSL = 4, //Line start length
             .LBL = 10, //Line begin length

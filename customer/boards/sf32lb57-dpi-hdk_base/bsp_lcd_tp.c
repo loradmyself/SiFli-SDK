@@ -126,25 +126,12 @@ void BSP_LCD_PowerUp(void)
 #elif defined(BSP_LCDC_USING_DIRECT_EPD)
     // BSP_GPIO_Set(EPD_VDD33_EN, 1, 1);
     // BSP_GPIO_Set(CTP_VDD33_EN, 1, 1);
-    // BSP_GPIO_Set(41, 1, 1);
-    // BSP_GPIO_Set(40, 1, 1);
+
     HAL_PIN_Set(PAD_PA41, LCDC1_TCON_GDSP,   PIN_NOPULL, 1);  //STV \ SPV
     HAL_PIN_Set(PAD_PA40, LCDC1_TCON_GDCLK,  PIN_NOPULL, 1);  //CKV  CPV
     // Set the pin driver strength to 2mA?
-    // HAL_PIN_Set_DS0(PAD_PA40, 1, 0);
-    // HAL_PIN_Set_DS1(PAD_PA40, 1, 0);
-    BSP_GPIO_Set(28, 1, 1);
-    BSP_GPIO_Set(29, 1, 1);
-    BSP_GPIO_Set(30, 1, 1);
-    BSP_GPIO_Set(31, 1, 1);
-    BSP_GPIO_Set(32, 1, 1);
-    BSP_GPIO_Set(33, 1, 1);
-    BSP_GPIO_Set(37, 1, 1);
-    BSP_GPIO_Set(38, 1, 1);
-    // BSP_GPIO_Set(24, 1, 1);
-    // BSP_GPIO_Set(25, 1, 1);
-    // BSP_GPIO_Set(26, 1, 1);
-    // BSP_GPIO_Set(27, 1, 1);
+    HAL_PIN_Set_DS0(PAD_PA40, 1, 0);
+    HAL_PIN_Set_DS1(PAD_PA40, 1, 0);
 
     HAL_PIN_Set(PAD_PA24, LCDC1_TCON_SDCLK,  PIN_NOPULL, 1);
     HAL_PIN_Set(PAD_PA25, LCDC1_TCON_SDLE,   PIN_NOPULL, 1);
@@ -160,13 +147,11 @@ void BSP_LCD_PowerUp(void)
     HAL_PIN_Set(PAD_PA38, LCDC1_TCON_SDAT7, PIN_NOPULL, 1);
 
     HAL_PIN_Set(PAD_PA00 + 39, GPIO_A0 + 39, PIN_NOPULL, 1);  //GMODE
-
+    BSP_GPIO_Set(39, 0, 1);
     HAL_PIN_Set(PAD_PA11, GPTIM1_CH4, PIN_NOPULL, 1);   // LCDC1_BL_PWM_CTRL, LCD backlight PWM
 
     //TPS chip control pins
-    BSP_GPIO_Set(42, 1, 1);
-    BSP_GPIO_Set(43, 1, 1);
-    BSP_GPIO_Set(44, 1, 1);
+
     HAL_PIN_Set(PAD_PA00 + 42, GPIO_A0 + 42, PIN_NOPULL, 1);
     HAL_PIN_Set(PAD_PA00 + 43, GPIO_A0 + 43, PIN_NOPULL, 1);
     HAL_PIN_Set(PAD_PA00 + 44, GPIO_A0 + 44, PIN_NOPULL, 1);
@@ -196,7 +181,7 @@ void BSP_LCD_PowerUp(void)
 
 void BSP_LCD_GMODE_Set(uint8_t high1_low0)
 {
-    BSP_GPIO_Set(EPD_GMODE_PIN, high1_low0, 1);
+    BSP_GPIO_Set(39, high1_low0, 1);
 }
 
 

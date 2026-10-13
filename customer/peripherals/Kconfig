@@ -79,6 +79,10 @@ config TSC_USING_GT911
     bool
     default n
 
+config TSC_USING_GTW623
+    bool
+    default n
+
 # LCD driver of LCD module
 config LCD_USING_ST7735
     bool 

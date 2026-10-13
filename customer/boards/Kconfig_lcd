@@ -13,7 +13,7 @@ if BSP_USING_BUILTIN_LCD
         config LCD_USING_ED_LB55DSI17801
             bool "1.78 rect DSI LCD(ED-LB55DSI17801)"
             depends on BSP_SUPPORT_DSI
-            select TSC_USING_TMA525B if BSP_USING_TOUCHD
+            select TSC_USING_GTW623 if BSP_USING_TOUCHD
             select LCD_USING_RM69090
             select BSP_LCDC_USING_DSI
             if LCD_USING_ED_LB55DSI17801
@@ -24,7 +24,7 @@ if BSP_USING_BUILTIN_LCD
 
         config LCD_USING_ED_LB55DSI17801_QADSPI
             bool "1.78 rect QAD-SPI LCD(ED-LB55DSI17801)"
-            select TSC_USING_TMA525B if BSP_USING_TOUCHD
+            select TSC_USING_GTW623 if BSP_USING_TOUCHD
             select LCD_USING_RM69090
             select BSP_LCDC_USING_QADSPI
             if LCD_USING_ED_LB55DSI17801_QADSPI
@@ -35,7 +35,7 @@ if BSP_USING_BUILTIN_LCD
 
         config LCD_USING_ED_LB55SPI17801
             bool "1.78 rect QAD-SPI LCD(ED-LB55SPI17801)"
-            select TSC_USING_FT3168 if BSP_USING_TOUCHD
+            select TSC_USING_GTW623 if BSP_USING_TOUCHD
             select LCD_USING_RM69090
             select BSP_LCDC_USING_QADSPI
             if LCD_USING_ED_LB55SPI17801
@@ -162,11 +162,9 @@ if BSP_USING_BUILTIN_LCD
 
         config LCD_USING_ED_LB55DSI_ICN3311
             bool "round DSI LCD(ED_LB55DSI_ICN3311)"
-            depends on BSP_SUPPORT_DSI
             select TSC_USING_CST918_0x15 if BSP_USING_TOUCHD
             select LCD_USING_ICN3311
-            select BSP_LCDC_USING_DSI
-            select BSP_USING_ROUND_TYPE_LCD
+            select BSP_LCDC_USING_DBI
             if LCD_USING_ED_LB55DSI_ICN3311
                config LCD_ICN3311_VSYNC_ENABLE
                     bool "Enable LCD VSYNC (TE signal)"
