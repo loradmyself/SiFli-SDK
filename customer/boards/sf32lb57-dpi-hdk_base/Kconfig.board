@@ -35,19 +35,15 @@ config EPD_TPS_I2C_DEVICE_NAME
 
 config EPD_TPS_WAKEUP_PIN
     int
-    default 42
+    default 20
 
 config EPD_TPS_PWRCOM_PIN
     int
-    default 43
+    default 24
 
 config EPD_TPS_PWRUP_PIN
     int
-    default 44
-
-config EPD_TPS_GOOD_PIN
-    int
-    default 52
+    default 26
 
 
 
