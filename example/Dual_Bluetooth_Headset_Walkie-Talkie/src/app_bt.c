@@ -75,25 +75,39 @@
  * measured on Redmi Buds 4 Pro, its HF starts SLC ~2.3s after AVDTP, and
  * firing our AG→HF connect into that in-flight attempt collides ("conn
  * rej psm 19" / AG res 19) and wedges the link until it drops. Anyka OWS
- * T700 opens its own SLC ~3s after AVDTP and spends ~2s in CONFIG — a 5s
- * defer landed our request right inside that window and every attempt
- * came back AG res 19. If the remote stays silent past the window we
- * request HFP ourselves, and on failure quietly retry every
- * APP_BT_HFP_RETRY_INTERVAL_MS — never tearing down a link that is
- * already playing music. */
-#define APP_BT_HFP_DEFER_GRACE_MS 8000U
+ * T700 opens its own SLC ~3s after AVDTP and spends ~2s in CONFIG. 5s
+ * clears the observed self-open range, and a request that still lands
+ * inside a live remote SLC is suppressed by the middleware collision
+ * guard (BT_ERROR_IN_PROGRESS) and simply retried — the old 8s margin is
+ * no longer needed. 8s is actively harmful on the flip side: a remote
+ * that opened the RFCOMM DLC and then went silent must be taken over,
+ * torn down and re-connected before the 10s link supervision kills the
+ * ACL, and at 8s the fresh connect has no time to land. */
+#define APP_BT_HFP_DEFER_GRACE_MS 5000U
 #define APP_BT_HFP_RETRY_INTERVAL_MS 5000U
 #define APP_BT_HFP_RETRY_MAX 10U
 /* A failed attempt (AG res 19 = collision with the remote's own SLC)
  * clears the way for a clean retry — come back quickly instead of
  * sitting out a full retry interval. */
 #define APP_BT_HFP_RETRY_FAST_MS 3000U
+/* Middleware just tore down a stalled remote SLC (it opened the RFCOMM
+ * DLC and then never spoke AT). Come back almost immediately: the fresh
+ * connect must land while the ACL is still alive (10s supervision). */
+#define APP_BT_HFP_TEARDOWN_RETRY_MS 500U
 /* AVDTP flap recovery: a headset that closes and re-opens AVDTP around
  * its own SLC bring-up must not cost us the whole ACL (dropping it there
  * killed the remote's in-flight SLC and left its AVDTP wedged for
  * minutes). Re-send AVDTP a couple of times before giving up. */
 #define APP_BT_AV_RESEND_MAX 2U
 #define APP_BT_AV_RESEND_DELAY_MS 1500U
+/* Incoming-stall takeover: after the first A2DP success (signaling only),
+ * the media-transport open — the "duplicate" A2DP success — normally
+ * lands within a couple hundred ms and disarms this watchdog. If it never
+ * does, the remote parked the AVDTP setup mid-way (opened signaling but
+ * never sent set-config) and will sit there until the 10s supervision
+ * timeout kills the link. Take over the discover/set-config chain
+ * ourselves instead of waiting for it forever. */
+#define APP_BT_AV_STALL_DRIVE_MS 5000U
 /* A queued `intercom talk start` stays valid this long: the command is
  * accepted even while a headset's HFP is still connecting and talk then
  * starts by itself the moment both headsets are ready. */
@@ -235,6 +249,10 @@ typedef struct
     /* Incoming-accept flow: AVDTP not sent yet, waiting out the grace
      * window for the headset to open AVDTP first. */
     bool av_deferred;
+    /* A2DP signaling is up and we are waiting out the media-transport
+     * open (the "duplicate" success). Its watchdog drives the stalled
+     * setup ourselves. */
+    bool av_stall_watch;
     /* A2DP is up; HFP acquisition is running in the background — waiting
      * out the defer grace for the remote to open SLC before requesting
      * HFP ourselves (then quiet retries). */
@@ -1338,6 +1356,17 @@ static void app_bt_hfp_send_request(int slot_index, const char *why)
         app_bt_hfp_timer_start(slot_index, APP_BT_HFP_RETRY_FAST_MS);
         return;
     }
+    if (error == (bt_err_t)BT_ERROR_TIMEOUT)
+    {
+        /* Middleware tore down a stalled remote SLC (opened the RFCOMM
+         * DLC and then never spoke AT). Come back fast: the fresh connect
+         * must land while the ACL is still alive. */
+        rt_kprintf("[intercom] headset %u stalled remote SLC torn down (%s); reconnecting fresh\n",
+                   slot_index + 1U, why);
+        slot->hfp_deferred = true;
+        app_bt_hfp_timer_start(slot_index, APP_BT_HFP_TEARDOWN_RETRY_MS);
+        return;
+    }
     if (error != BT_EOK)
     {
         rt_kprintf("[intercom] headset %u HFP request failed: %d (%s)\n",
@@ -1397,6 +1426,7 @@ static int app_bt_begin_a2dp_connect(int slot_index)
     slot->connection_generation = app_bt_next_connection_generation();
     slot->connection_stage = APP_BT_CONN_A2DP_PENDING;
     slot->av_deferred = false;
+    slot->av_stall_watch = false;
     slot->av_resend_tries = 0U;
     slot->gate_waits = 0U;
     slot->connect_attempt_tick = rt_tick_get();
@@ -2654,6 +2684,7 @@ static void app_bt_handle_acl_disconnected(const bt_notify_device_base_info_t *i
     g_slots[slot_index].connection_stage = APP_BT_CONN_IDLE;
     g_slots[slot_index].acl_connected = false;
     g_slots[slot_index].a2dp_connected = false;
+    g_slots[slot_index].av_stall_watch = false;
     g_slots[slot_index].hfp_connected = false;
     g_slots[slot_index].avrcp_connected = false;
     g_slots[slot_index].avrcp_connect_requested = false;
@@ -3082,6 +3113,11 @@ static void app_bt_handle_a2dp(uint16_t event_id,
             if ((slot->connection_stage == APP_BT_CONN_READY) &&
                     slot->a2dp_connected)
             {
+                /* The media transport channel just opened (the MUT/MTU
+                 * indication re-announces the profile): stream setup is
+                 * done, disarm the stall watchdog. */
+                slot->av_stall_watch = false;
+                app_bt_connect_timer_stop(slot_index);
                 rt_kprintf("[intercom] duplicate A2DP success for headset %u ignored\n",
                            slot_index + 1U);
                 return;
@@ -3118,7 +3154,13 @@ static void app_bt_handle_a2dp(uint16_t event_id,
              * SLC often arrives seconds later). */
             slot->connection_stage = APP_BT_CONN_READY;
             app_bt_prepare_acl_for_audio(&info->mac);
-            app_bt_connect_timer_stop(slot_index);
+            /* Not a plain stop: this success is signaling-level only. The
+             * media transport open re-announces the profile within a few
+             * hundred ms on a healthy remote and the duplicate branch
+             * above disarms the watchdog; if it never does, the timeout
+             * handler drives the stalled setup itself. */
+            slot->av_stall_watch = true;
+            app_bt_connect_timer_start(slot_index, APP_BT_AV_STALL_DRIVE_MS);
             slot->restore_media_after_connect = false;
             rt_kprintf("[intercom] headset %u A2DP Source connected\n",
                        slot_index + 1U);
@@ -3187,6 +3229,8 @@ static void app_bt_handle_a2dp(uint16_t event_id,
             return;
         }
         slot->a2dp_connected = false;
+        slot->av_stall_watch = false;
+        app_bt_connect_timer_stop(slot_index);
         rt_kprintf("[intercom] headset %u A2DP disconnected (res=%u)\n",
                    slot_index + 1U, (unsigned int)info->res);
         if (talk_affected)
@@ -4179,6 +4223,33 @@ static void app_bt_handle_internal(const app_bt_event_t *event)
             {
                 /* A newer connect attempt owns this slot's watchdog; this
                  * event is its stale predecessor's. */
+                break;
+            }
+            if (slot->av_stall_watch)
+            {
+                /* Armed on the first (signaling-level) A2DP success and
+                 * normally disarmed by the media-transport open. Firing
+                 * means the remote parked the AVDTP setup mid-way: it
+                 * opened signaling but never sent set-config (incoming
+                 * conns never get the automatic discover chain). Take
+                 * over instead of waiting out the supervision timeout.
+                 * Note: READY is not "connection pending", so this must
+                 * run before the stale-clear below. */
+                BTS2S_BD_ADDR addr;
+                int drive_res;
+
+                slot->av_stall_watch = false;
+                app_bt_connect_timer_stop(slot_index);
+                if (slot->a2dp_connected && slot->acl_connected &&
+                        !slot->release_pending &&
+                        (slot->connection_stage == APP_BT_CONN_READY) &&
+                        (bt_addr_convert_to_bts((bd_addr_t *)slot->mac.addr,
+                                                &addr) == 0U))
+                {
+                    drive_res = bt_av_drive_stream_setup(&addr);
+                    rt_kprintf("[intercom] headset %u stream setup stalled on the remote; driving discover/set-config ourselves (%d)\n",
+                               slot_index + 1U, drive_res);
+                }
                 break;
             }
             if (!app_bt_connection_pending(slot))

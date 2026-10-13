@@ -26,7 +26,7 @@
 
 static const LCDC_InitTypeDef lcdc_int_cfg_edp_16bit =
 {
-    .lcd_itf = LCDC_INTF_EPD_16BIT,
+    .lcd_itf = LCDC_INTF_EPD_8BIT,
     .freq = 24 * 1000 * 1000, //sclk frequnecy
     .color_mode = LCDC_PIXEL_FORMAT_F2_SWAP,
 
@@ -39,7 +39,7 @@ static const LCDC_InitTypeDef lcdc_int_cfg_edp_16bit =
 
             .LSL = 4, //Line start length
             .LBL = 10, //Line begin length
-            .LDL = (LCD_HOR_RES_MAX ) >> 3, //Line data length (1216/8=152 for 16bit mode)
+            .LDL = (LCD_HOR_RES_MAX ) >> 2, //Line data length (1216/8=152 for 16bit mode)
                                    .LEL =8, //Line end length
 
                                    .GSTA = 7, //Gate STA length
@@ -88,7 +88,7 @@ static void LCD_Init(LCDC_HandleTypeDef *hlcdc)
 
     HAL_LCDC_SetROIArea(hlcdc, 0, 0, LCD_HOR_RES_MAX - 1, LCD_VER_RES_MAX - 1);
 
-    tps_init(1000); //-1.5V
+    tps_init(2100); //-1.5V
     tps_exit_sleep();
 }
 
