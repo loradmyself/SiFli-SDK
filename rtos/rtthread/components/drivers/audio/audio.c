@@ -24,6 +24,16 @@
     #define AUDIO_DBG(...)
 #endif
 
+#ifndef CFG_AUDIO_RECORD_PIPE_MULT
+/* Depth of pdm/i2s record pipes in units of CFG_AUDIO_RECORD_PIPE_SIZE.
+ * A 2-unit pipe (~3.7 ms at 44.1 kHz stereo 16-bit) overflows whenever
+ * the draining thread is stalled for a few ms (connect/pairing storms),
+ * which splices stale PCM into the stream. Override from Kconfig
+ * (CFG_AUDIO_RECORD_PIPE_MULT) if the application needs a deeper pipe;
+ * larger values cost RAM but never change behaviour of a healthy path. */
+#define CFG_AUDIO_RECORD_PIPE_MULT 2
+#endif
+
 
 static rt_err_t _audio_send_replay_frame(struct rt_audio_device *audio)
 {
@@ -166,7 +176,7 @@ static rt_err_t _audio_dev_open(struct rt_device *dev, rt_uint16_t oflag)
 
                 if (rt_strstr(audio->dev_name, "pdm") || rt_strstr(audio->dev_name, "i2s"))
                 {
-                    pipe_size = CFG_AUDIO_RECORD_PIPE_SIZE * 2;
+                    pipe_size = CFG_AUDIO_RECORD_PIPE_SIZE * CFG_AUDIO_RECORD_PIPE_MULT;
                 }
 
                 AUDIO_DBG("audio_pipe name:%s dev=%s pipe_size=%d\n", pipe_name, audio->dev_name, pipe_size);

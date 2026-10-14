@@ -699,6 +699,91 @@ MUT 则超时分支调用本函数（在 `!app_bt_connection_pending` 陈旧清�
 
 ---
 
+### 1.5 未提交（2026-10-14）「连接期电流音修复：SBC 编码器互斥 + 发送侧平滑」
+
+针对「A 播音乐时连 B，A 出现电流音」的修复。机制分析见 `project/log`
+分析结论：连接风暴期间 BT 任务的 `rt_enter_critical` 包住多毫秒 SBC
+编码（调度器锁死 → i2srx 线程无法排空录音 pipe → PCM 截断拼接），
+producer 线程优先级又低于 BT 任务被饿死（share ring 永久排空 →
+"buffer empty"），再叠加发送侧 0ms 双发、负延迟转 U32 巨定时器、
+`bmalloc` 失败整包丢弃。修复全部为通用缺陷修复，无耳机特定逻辑。
+
+#### 1.5.1 `bts2_app_av_src.c / .h` — 导出 SBC 编码器互斥锁
+
+SBC 编码器是全局状态、不可重入（`av_sbc_api.h`）。原保护是
+`rt_enter_critical`（调度器锁）+ producer 优先级低于 BT 任务的"靠
+优先级串行"。前者会阻塞 i2srx 排空录音 pipe（PCM 丢弃的根因），故
+改为真正的互斥：
+
+- 新增 `g_sbc_lock`（`rt_mutex`，递归，懒初始化关中断自保护）与
+  导出接口 `bt_avsrc_sbc_lock()` / `bt_avsrc_sbc_unlock()`（头文件
+  同步声明）；
+- 三个编码器调用点全部包锁：`bt_avsrc_prepare_sbc` 的
+  `bts2_sbc_encode_cfg`、`bt_avsrc_hdl_disc_handler` 的
+  `bts2_sbc_encode_completed`、休眠路径 `bt_avsrc_send_data` 编码环。
+
+应用侧（`app_a2dp_share.c`）编码调用点同步换锁，因此 producer 优先
+级可以提到 BT 任务之上而无重入竞争。
+
+#### 1.5.2 `bts2_app_av_src.c` — sharing 发送侧平滑（`bt_avsrc_sharing`）
+
+- **负延迟地板**：空路径下 `m_sec_time_4_next_pkt`（S32）为负时按
+  0 转 U32 会得到巨定时器、发送停摆（对应 227ms 级断流）；钳到最小
+  1ms；
+- **追赶下限**：`bts2_timer_ev_add(0, ...)` 0ms 双发抖动 → 改 1ms；
+- **去 `bmalloc`**：每包 `bmalloc(pkt_len)` 失败即静默整包丢（所有
+  耳机一起卡）→ 改静态暂存缓冲 `s_share_pkt_buf[1024]`，配
+  `pkt_len` 合法性检查，失败仅跳帧不再丢分配；
+- **限频日志**："buffer empty" 每 16 次打 1 条，避免风暴期间刷屏。
+
+#### 1.5.3 应用侧配合（`app_a2dp_share.c`，不属子模块）
+
+- producer 内 `rt_enter_critical` 包编码 → 换 `bt_avsrc_sbc_lock`；
+- producer 提优先级 13 → 11（`RT_THREAD_PRIORITY_HIGH - 1`：高于
+  BT 任务 12 不被风暴饿死，低于 i2srx 10 保证排空 pipe）；
+- mq→share ring 的搬运从 BT 任务定时器移到 producer 线程（ring 唯
+  一写者 SPSC；put 加短临界区防 BT 任务 get 撕裂环回簿记）；
+- 3 处 `rt_ringbuffer32_reset` 包临界区；discard 改独立暂存缓冲
+  `g_discard_record`，与 pump 互不踩。
+
+#### 1.5.4 录音 pipe 加深（`rtos/.../audio.c` + Kconfig，不属子模块）
+
+pdm/i2s 录音 pipe 从 `CFG_AUDIO_RECORD_PIPE_SIZE * 2`（约 3.7ms）改
+为可配置倍数 `CFG_AUDIO_RECORD_PIPE_MULT`（Kconfig，默认 2 保持其它
+产品不变），本工程 `proj.conf` 设 16（约 29ms）以扛住连接风暴期间
+约 25ms 的调度停顿。只花 RAM，健康路径行为不变。
+
+### 1.6 未提交（2026-10-14）「HFP 后台采集断开误回滚修复」（`app_bt.c`，不属子模块）
+
+现象（日志 `窗口2_COM30_(2026-10-14-17-42-57)_ui.log`）：出向连接
+后 A2DP 已放歌但 HFP=0；远端开 RFCOMM DLC 后不发 AT（SLC 卡死），
+中间层 4s 窗口按设计拆除僵尸 SLC，拆除产生的 `HFP AG disconnected`
+事件被 `app_bt_handle_hfp` 的"未完成连接回滚"分支（原 app_bt.c:3465）
+误判为连接失败，对健康放歌链路执行 `app_bt_abort_connection`
+（ACL reason 22）——即"播放中主动断开"，并且精确掐死前一行刚排好的
+500ms 重连（"reconnecting fresh"）。两次回滚后耳机需重启才能回连。
+
+修复（通用，仅 app_bt.c 两处，不碰 middleware 子模块）：
+- DISCONNECTED 分支入口先取 `had_hfp = slot->hfp_connected`（清位之前）；
+- 回滚条件前新增分支：`stage == READY && a2dp_connected && !had_hfp &&
+  used && !release_pending`（HFP 从未连上、只是后台采集被拆/被远端
+  丢弃）→ 不回滚，打印 "background HFP closed (never connected); keeping
+  A2DP link"，仅在无在途重试时补排 500ms 重试；其余情形（真·未完成
+  连接、HFP 曾连上后掉线、talk/SCO 受影响、ERROR 模式）行为全部不变。
+  与 `APP_BT_CMD_HFP_TIMEOUT` 的既有设计一致："Never tear down a link
+  that is playing music"，重试超 10 次自动落到 music-only 兜底。
+
+预期：不再出现"播放中主动断开"；HFP 由 500ms 重试 + 远端迟来 SLC
+补齐；耳机不再被拆到需重启。已知边界：若远端在每次拆除后 500ms 内
+反复重开又卡死的僵尸 SLC，重试循环不计数（与改前 suppress/teardown
+语义一致），代价为日志噪声而非断流。
+
+附带观察（未改）：入向连接时远端自发 AVDTP 每 ~500ms 被 L2CAP 拒
+（`conn rej psm: 19, flag: 0, idx 255`，字符串在预编译 bts2 库）×10
+直到 8s grace 到期由我方主动连才建通；"等远端自开 AVDTP"的等待实际
+纯付 8s。方向待下次复现配 btsnoop 定论，暂不动 grace（它是为双方同
+开会两败俱伤的真实案例加的）。
+
 ## 2. 累计改动清单（按主题）
 
 ### 2.1 ACL / 连接管理器（`bt_connection_manager.c`，净 +112/−15）
@@ -824,4 +909,4 @@ bt_cm 状态缓存（#2/#14）、扇出循环内计数（#10）、HFP 守卫（#
 
 ---
 
-*文档对应版本：middleware/bluetooth `33f31a8`（基线 `437d7da`）。*
+*文档对应版本：middleware/bluetooth `33f31a8`（基线 `437d7da`）+ 未提交的 1.5 电流音修复 + 1.6 HFP 误回滚修复。*

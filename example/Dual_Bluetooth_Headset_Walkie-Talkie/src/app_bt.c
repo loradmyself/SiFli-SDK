@@ -3409,6 +3409,11 @@ static void app_bt_handle_hfp(uint16_t event_id,
                              (mode == APP_MODE_ERROR);
         uint16_t closed_handle = app_bt_sco_has_handle(slot) ?
                                  slot->sco_primary.para.sco_hdl : 0U;
+        /* Whether HFP had reached CONNECTED before this event. The
+         * middleware tearing down its own stalled remote SLC also emits
+         * this disconnect; that must not be confused with a real session
+         * dropping on a connected link. */
+        bool had_hfp = slot->hfp_connected;
 
         if (talk_affected)
         {
@@ -3461,6 +3466,25 @@ static void app_bt_handle_hfp(uint16_t event_id,
         else if (mode == APP_MODE_TALK_STOPPING)
         {
             app_bt_schedule_talk_stop_completion();
+        }
+        else if ((slot->connection_stage == APP_BT_CONN_READY) &&
+                 slot->a2dp_connected && !had_hfp && slot->used &&
+                 !slot->release_pending)
+        {
+            /* Background HFP acquisition ended without ever connecting
+             * (our own teardown of a stalled remote SLC, or the remote
+             * dropping its half-open SLC). A2DP is up and possibly playing:
+             * never tear that link down for this — see "Never tear down a
+             * link that is playing music" in APP_BT_CMD_HFP_TIMEOUT. Keep
+             * the link and re-acquire HFP in the background; the retry
+             * already scheduled by the stall teardown is left untouched. */
+            rt_kprintf("[intercom] headset %u background HFP closed (never connected); keeping A2DP link\n",
+                       slot_index + 1U);
+            if (!slot->hfp_deferred)
+            {
+                slot->hfp_deferred = true;
+                app_bt_hfp_timer_start(slot_index, APP_BT_HFP_TEARDOWN_RETRY_MS);
+            }
         }
         else if ((slot->connection_stage != APP_BT_CONN_ABORTING) &&
                  (connection_failed || app_bt_slot_has_link(slot)))

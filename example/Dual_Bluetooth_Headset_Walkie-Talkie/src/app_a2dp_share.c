@@ -128,6 +128,9 @@ ALIGN(4) static uint8_t
 g_pcm_buffer[APP_SHARE_MAX_PCM_BYTES + APP_I2S_DMA_HALF_SIZE];
 ALIGN(4) static app_share_record_t g_producer_record;
 ALIGN(4) static app_share_record_t g_pump_record;
+/* Separate staging buffer for the stop-path drain so the producer's
+ * pump and the BT task's discard cannot scribble on each other. */
+ALIGN(4) static app_share_record_t g_discard_record;
 
 static app_a2dp_share_status_t g_status;
 static app_a2dp_share_stats_t g_stats;
@@ -157,6 +160,7 @@ static uint8_t g_resync_phase;
 static rt_tick_t g_resync_last_tick;
 
 static void app_share_bts_pump(uint16_t message, void *parameter);
+static void app_share_pump_records(void);
 
 static void app_share_lock(void)
 {
@@ -689,7 +693,10 @@ static int app_share_start_producer(
     app_share_lock();
     generation = g_encoder_generation;
     app_share_unlock();
-    rt_enter_critical();
+    /* Shared SBC encoder lock (not rt_enter_critical): encoding must not
+     * stop the scheduler or the I2S RX thread cannot drain the driver
+     * record pipe and PCM gets dropped mid-stream. */
+    bt_avsrc_sbc_lock();
     bts2_sbc_encode_completed();
     frame_size = bts2_sbc_encode_cfg(snapshot->sbc.chnl_mode,
                                      snapshot->sbc.alloc_method,
@@ -697,7 +704,7 @@ static int app_share_start_producer(
                                      snapshot->sbc.blocks,
                                      snapshot->sbc.subbands,
                                      snapshot->sbc.bit_pool);
-    rt_exit_critical();
+    bt_avsrc_sbc_unlock();
     if ((frame_size == 0U) || (frame_size != snapshot->sbc.frmsize))
     {
         return -RT_ERROR;
@@ -766,9 +773,9 @@ static void app_share_stop_producer(void)
 
     app_i2s_set_rx_enabled(false);
     g_pcm_used = 0U;
-    rt_enter_critical();
+    bt_avsrc_sbc_lock();
     bts2_sbc_encode_completed();
-    rt_exit_critical();
+    bt_avsrc_sbc_unlock();
     if (was_active || cleanup_pending)
     {
         app_share_lock();
@@ -817,11 +824,11 @@ static int app_share_encode_record(const uint8_t *pcm,
     uint16_t frames = 0U;
 
     memset(record->packet, 0, APP_SHARE_PACKET_HEADER_SIZE);
-    rt_enter_critical();
+    bt_avsrc_sbc_lock();
     app_share_collect_links(&links);
     if (!links.config_valid || !app_share_config_equal(config, &links.sbc))
     {
-        rt_exit_critical();
+        bt_avsrc_sbc_unlock();
         return -RT_EBUSY;
     }
     while (source_remaining > 0U)
@@ -838,7 +845,7 @@ static int app_share_encode_record(const uint8_t *pcm,
                 (stream.dst_len_used > destination_remaining) ||
                 ((stream.dst_len_used % config->frmsize) != 0U))
         {
-            rt_exit_critical();
+            bt_avsrc_sbc_unlock();
             return -RT_ERROR;
         }
 
@@ -848,7 +855,7 @@ static int app_share_encode_record(const uint8_t *pcm,
         destination_remaining -= stream.dst_len_used;
         frames += stream.dst_len_used / config->frmsize;
     }
-    rt_exit_critical();
+    bt_avsrc_sbc_unlock();
 
     if ((frames == 0U) || (frames != config->frms_per_payload) ||
             (frames > UINT8_MAX))
@@ -886,7 +893,9 @@ static void app_share_complete_stop_if_ready(void)
     if (can_reset_locally)
     {
         rt_mq_control(&g_record_queue, RT_IPC_CMD_RESET, RT_NULL);
+        rt_enter_critical();
         rt_ringbuffer32_reset(&g_share_ring);
+        rt_exit_critical();
         app_share_lock();
         g_status.ring_bytes = 0U;
         g_bts_quiesced = true;
@@ -1095,6 +1104,13 @@ static void app_share_producer(void *parameter)
                 g_stats.packet_bytes += g_producer_record.packet_length;
                 app_share_unlock();
             }
+            /* Move records into the share ring here instead of on the BT
+             * task: during connect storms the BT task is busy and the ring
+             * drained to "buffer empty" between pump runs. The producer
+             * thread is the single ring writer (SPSC); the short critical
+             * section in app_share_pump_records makes the put atomic
+             * versus the BT task's get. */
+            app_share_pump_records();
 
             g_pcm_used -= g_active_config.bytes_to_rd;
             if (g_pcm_used > 0U)
@@ -1109,8 +1125,8 @@ static void app_share_producer(void *parameter)
 
 static void app_share_discard_queue(void)
 {
-    while (rt_mq_recv(&g_record_queue, &g_pump_record,
-                      sizeof(g_pump_record), 0) == RT_EOK)
+    while (rt_mq_recv(&g_record_queue, &g_discard_record,
+                      sizeof(g_discard_record), 0) == RT_EOK)
     {
         app_share_lock();
         g_stats.ring_drops++;
@@ -1140,14 +1156,23 @@ static void app_share_pump_records(void)
         }
         record_length = sizeof(g_pump_record.packet_length) +
                         g_pump_record.packet_length;
-        if (rt_ringbuffer32_put(&g_share_ring,
-                                (const uint8_t *)&g_pump_record,
-                                record_length) != record_length)
+        /* The BT task reads the ring from a timer callback and can preempt
+         * this (lower priority) thread mid-copy; keep the put atomic so the
+         * ringbuffer32 wrap bookkeeping is never observed half-updated. */
         {
-            app_share_lock();
-            g_stats.ring_drops++;
-            app_share_unlock();
-            break;
+            rt_size_t put_length;
+            rt_enter_critical();
+            put_length = rt_ringbuffer32_put(&g_share_ring,
+                                             (const uint8_t *)&g_pump_record,
+                                             record_length);
+            rt_exit_critical();
+            if (put_length != record_length)
+            {
+                app_share_lock();
+                g_stats.ring_drops++;
+                app_share_unlock();
+                break;
+            }
         }
         app_share_lock();
         g_stats.records_pumped++;
@@ -1181,7 +1206,8 @@ static void app_share_bts_pump(uint16_t message, void *parameter)
     if (desired && links.all_streaming)
     {
         app_share_wedge_check(&links);
-        app_share_pump_records();
+        /* Records are pumped by the producer thread now (see
+         * app_share_producer); only sample the ring level here. */
         ring_bytes = rt_ringbuffer32_data_len(&g_share_ring);
         app_share_lock();
         g_status.ring_bytes = ring_bytes;
@@ -1336,7 +1362,9 @@ resync_skip:
         {
             rt_tick_t now = rt_tick_get();
 
+            rt_enter_critical();
             rt_ringbuffer32_reset(&g_share_ring);
+            rt_exit_critical();
             app_share_lock();
             g_status.ring_bytes = 0U;
             if (g_stop_needs_settle)
@@ -1432,10 +1460,13 @@ int app_a2dp_share_init(app_a2dp_share_callback_t callback, void *user_data)
     }
     rt_ringbuffer32_init(&g_share_ring, g_share_ring_pool,
                          sizeof(g_share_ring_pool));
+    /* Priority 11: above the BT task (12) so pairing/connect storms cannot
+     * starve the encoder (that starved the share ring and the media cadence)
+     * but below the I2S RX thread (10) so pipe draining stays highest. */
     error = rt_thread_init(&g_producer_thread, "a2dps",
                            app_share_producer, RT_NULL,
                            g_producer_stack, sizeof(g_producer_stack),
-                           RT_THREAD_PRIORITY_HIGH + 1,
+                           RT_THREAD_PRIORITY_HIGH - 1,
                            RT_THREAD_TICK_DEFAULT);
     if (error != RT_EOK)
     {
@@ -1484,7 +1515,9 @@ int app_a2dp_share_start(void)
         return -RT_EBUSY;
     }
     rt_mq_control(&g_record_queue, RT_IPC_CMD_RESET, RT_NULL);
+    rt_enter_critical();
     rt_ringbuffer32_reset(&g_share_ring);
+    rt_exit_critical();
     g_status.desired = true;
     g_status.producer_active = false;
     g_status.config_valid = false;
