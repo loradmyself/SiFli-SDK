@@ -128,8 +128,8 @@ static void app_share_collect_links(app_share_link_snapshot_t *snapshot)
                 (snapshot->media_req[index] != 0U) ||
                 (snapshot->media_qos[index] != 0U))
         {
-            bt_addr_convert(&connection->av_rmt_addr,
-                            snapshot->media_mac[index]);
+            (void)bt_addr_convert((BTS2S_BD_ADDR *)&connection->av_rmt_addr,
+                                  snapshot->media_mac[index]);
             snapshot->media_con_active |= (uint8_t)(1U << index);
         }
 
@@ -546,6 +546,7 @@ void app_a2dp_share_set_phone_connected(bool connected)
     if (!connected)
     {
         g_status.phone_streaming = false;
+        g_status.producer_active = false;
     }
     rt_exit_critical();
 
@@ -563,6 +564,7 @@ void app_a2dp_share_set_phone_streaming(bool streaming)
     if (!streaming)
     {
         g_status.kicked = false;
+        g_status.producer_active = false;
     }
     rt_exit_critical();
 
@@ -625,6 +627,7 @@ void app_a2dp_share_on_media_data(const bt_notify_a2dp_data_t *media)
 
     g_stats.phone_packets++;
     g_stats.packet_bytes += media->data_length;
+    g_stats.packets_relayed++;
     g_status.ring_bytes = rt_ringbuffer32_data_len(&g_share_ring);
     g_status.producer_active = true;
     if (!g_status.kicked &&
