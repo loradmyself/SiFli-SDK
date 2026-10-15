@@ -1,4 +1,4 @@
-/*
+﻿/*
  * SPDX-FileCopyrightText: 2026 SiFli Technologies(Nanjing) Co., Ltd
  *
  * SPDX-License-Identifier: Apache-2.0
@@ -10,11 +10,12 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "bts2_app_interface_type.h"
+
 typedef enum
 {
     APP_A2DP_SHARE_STATE_UNINITIALIZED = 0,
     APP_A2DP_SHARE_STATE_IDLE,
-    APP_A2DP_SHARE_STATE_STARTING,
     APP_A2DP_SHARE_STATE_PREFILLING,
     APP_A2DP_SHARE_STATE_RUNNING,
     APP_A2DP_SHARE_STATE_STOPPING,
@@ -32,6 +33,8 @@ typedef struct
 {
     bool initialized;
     bool desired;
+    bool phone_connected;
+    bool phone_streaming;
     bool producer_active;
     bool config_valid;
     bool kicked;
@@ -49,12 +52,6 @@ typedef struct
     uint16_t sbc_frame_size;
     uint16_t frames_per_packet;
     uint16_t pcm_bytes_per_packet;
-    /* Per-AVDTP-connection media forwarding diagnostics (connection
-     * index order, see bts2_app_av_src.c). req = payloads handed to the
-     * AVDTP layer, nomem = fan-out malloc failures, qos = media actually
-     * moving through the stream, buff = stream buffer fullness (0..10).
-     * A streaming link whose req/qos stall while another link advances
-     * has a wedged media path. */
     uint8_t media_con_count;
     uint8_t media_con_active;
     uint8_t media_con_mac[4][6];
@@ -68,19 +65,14 @@ typedef struct
 {
     uint32_t start_requests;
     uint32_t stop_requests;
-    uint32_t producer_starts;
-    uint32_t producer_stops;
-    uint32_t pcm_bytes;
-    uint32_t pcm_read_timeouts;
-    uint32_t sbc_frames;
-    uint32_t packets_encoded;
+    uint32_t phone_packets;
+    uint32_t packets_relayed;
     uint32_t packet_bytes;
-    uint32_t queue_drops;
+    uint32_t invalid_packets;
     uint32_t ring_drops;
-    uint32_t records_pumped;
     uint32_t kick_count;
-    uint32_t config_errors;
-    uint32_t encode_errors;
+    uint32_t start_errors;
+    uint32_t bounce_count;
 } app_a2dp_share_stats_t;
 
 typedef void (*app_a2dp_share_callback_t)(app_a2dp_share_event_t event,
@@ -93,10 +85,10 @@ int app_a2dp_share_stop(uint32_t sequence);
 int app_a2dp_share_set_volume(uint8_t level);
 uint8_t app_a2dp_share_get_volume(void);
 
-/* Call this directly from the application's BT_NOTIFY_A2DP callback. */
+void app_a2dp_share_set_phone_connected(bool connected);
+void app_a2dp_share_set_phone_streaming(bool streaming);
+void app_a2dp_share_on_media_data(const bt_notify_a2dp_data_t *media);
 void app_a2dp_share_on_a2dp_event(uint16_t event_id);
-
-/* Reconcile open/streaming Source links with the current start/stop request. */
 void app_a2dp_share_reconcile_streams(void);
 
 bool app_a2dp_share_is_stopped(void);
