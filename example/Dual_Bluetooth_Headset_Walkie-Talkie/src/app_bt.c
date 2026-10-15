@@ -2472,10 +2472,12 @@ static void app_bt_handle_acl_connected(const bt_notify_device_acl_conn_info_t *
     int slot_index = app_bt_find_slot_by_mac(&info->mac);
     app_bt_slot_t *slot;
 
-    /* An incoming page escapes a running inquiry and the completion event
-     * never arrives — drop the stale scan flag here so `intercom scan`
-     * keeps working. */
-    if (g_scanning)
+    /* An incoming page that LANDS escapes a running inquiry and the
+     * completion event never arrives — drop the stale scan flag here so
+     * `intercom scan` keeps working. A FAILED connect complete (cancelled
+     * page, page timeout) does not abort the inquiry: clearing the flag
+     * there made INQUIRY_CMP skip the result summary entirely. */
+    if (g_scanning && (info->res == HCI_SUCC))
     {
         g_scanning = false;
         app_bt_update_activity_state();

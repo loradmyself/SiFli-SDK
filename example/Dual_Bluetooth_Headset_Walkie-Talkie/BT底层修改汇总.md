@@ -784,6 +784,41 @@ pdm/i2s 录音 pipe 从 `CFG_AUDIO_RECORD_PIPE_SIZE * 2`（约 3.7ms）改
 纯付 8s。方向待下次复现配 btsnoop 定论，暂不动 grace（它是为双方同
 开会两败俱伤的真实案例加的）。
 
+### 1.7 未提交（2026-10-14）「扫描结果列表扩到 20 条 + 扫描汇总丢失修复」
+
+现象（日志 `窗口3_COM14_(2026-10-14-15-34-58)_ui.log`）：`intercom scan`
+后 `[intercom] inquiry complete: N device(s)` 及编号列表一次都没打印；
+协议栈侧 `>> inquiry finished` 后的 `<< idx: NN--address` dump 也只剩
+1 条（11 台被扫到却只回显 1 台）。
+
+根因两处：
+1. 协议栈结果表 `inquiry_list[]` 容量 `MAX_DISCOV_RESS = 10`
+   （`bts2_app_demo.h`），且写入计数器满后**归零重填**（原
+   `bts2_app_generic.c:1440`）——第 11 台起从 idx 00 覆盖旧条目，完成
+   dump 只打后段残留（正好 20/10 台填满时计数归 0，dump 一条不打）；
+   实现就在可见源码里，不在预编译核内（预编译核只逐台投递
+   `BTS2MU_GAP_DISCOV_RES_IND`）。
+2. `app_bt.c` ACL 连接完成处理里**无条件**清 `g_scanning`（原 2475）：
+   `intercom scan` 发起时恰有一路 auto-reconnect page 在途，其**失败**
+   的 connect-complete（res=2）落在 inquiry 启动后 ~3ms，把
+   SCANNING→IDLE；10s 后 `INQUIRY_CMP` 因 `!g_scanning` 跳过
+   `app_bt_dump_discovery()`，应用侧 20 条编号列表整个被吞。
+
+修复（通用）：
+- `bts2_app_demo.h`：`MAX_DISCOV_RESS` 10 → 20（`inquiry_list`/`bd_list`
+  各多 10×~8B，约 +160B 静态内存）；
+- `bts2_app_generic.c`：写入计数回绕 → **饱和保留前 20 条**（第 21 台起
+  不再入表、不再覆盖），完成 dump 与实收条数一致；
+- `app_bt.c`：清 `g_scanning` 的条件收紧为 `info->res == HCI_SUCC`
+  ——只有**真建链成功**（入向 page 落地、inquiry 确被吞）才清扫描标志，
+  失败/取消的 page 不再打断扫描。其余入连/拒连路径不动。
+
+预期：`intercom scan` 后两份列表（协议栈 `<< idx` dump + 应用
+`[intercom] inquiry complete` 编号列表）各最多 20 条、完整打印；扫描
+期间在途 page 失败不再吞汇总。回归面：≤10 条结果时协议栈行为与改前
+逐条一致（idx 编号、打印格式不变）；真·入向建链仍会清扫描（原防挂死
+语义保留），且扫描命令入口的 stale-scan 自愈仍在兜底。
+
 ## 2. 累计改动清单（按主题）
 
 ### 2.1 ACL / 连接管理器（`bt_connection_manager.c`，净 +112/−15）
@@ -827,6 +862,8 @@ pdm/i2s 录音 pipe 从 `CFG_AUDIO_RECORD_PIPE_SIZE * 2`（约 3.7ms）改
 | --- | --- | --- | --- |
 | 21 | `__WEAK bt_get_acpt_link_role()` | accept 角色策略点（默认 slave） | f45f101 |
 | 22 | `__WEAK bt_should_accept_incoming_conn()` | 入向 accept/reject 策略点（默认 accept） | 6d247a5 |
+| 23 | `MAX_DISCOV_RESS` 10→20（`bts2_app_demo.h`） | 扫描结果表 20 条 | 未提交 1.7 |
+| 24 | inquiry_list 写入回绕→饱和 | 满表不再覆盖旧条目，dump 完整 | 未提交 1.7 |
 
 产品策略均在应用层覆写：`app_bt.c:5520` 返回 `BT_LINK_MASTER`；
 `app_bt.c:5582` 实现"转外连"判定并投递 `APP_BT_CMD_CONVERT_INCOMING`。
@@ -909,4 +946,4 @@ bt_cm 状态缓存（#2/#14）、扇出循环内计数（#10）、HFP 守卫（#
 
 ---
 
-*文档对应版本：middleware/bluetooth `33f31a8`（基线 `437d7da`）+ 未提交的 1.5 电流音修复 + 1.6 HFP 误回滚修复。*
+*文档对应版本：middleware/bluetooth `33f31a8`（基线 `437d7da`）+ 未提交的 1.5 电流音修复 + 1.6 HFP 误回滚修复 + 1.7 扫描列表 20 条/汇总丢失修复。*
