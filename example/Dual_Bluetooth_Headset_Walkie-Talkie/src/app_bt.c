@@ -4994,8 +4994,9 @@ static int app_bt_event_callback(uint16_t type, uint16_t event_id,
             }
             return RT_EOK;
         }
-        if ((event_id == BT_NOTIFY_A2DP_START_IND) ||
-                (event_id == BT_NOTIFY_A2DP_SUSPEND_IND))
+        if (((event_id == BT_NOTIFY_A2DP_START_IND) ||
+                (event_id == BT_NOTIFY_A2DP_SUSPEND_IND)) &&
+                (data != RT_NULL) && (data_len >= sizeof(uint8_t)))
         {
             uint8_t stream_handle = *(uint8_t *)data;
 
@@ -5171,8 +5172,10 @@ static int app_bt_event_callback(uint16_t type, uint16_t event_id,
                         (source->res == BTS2_SUCC))
                 {
                     event.data.avrcp.role_result =
-                        bt_interface_set_avrcp_role_ext(
-                            &event.data.avrcp.profile.mac, AVRCP_TG);
+                        bt_interface_set_avrcp_role_ext(&event.data.avrcp.profile.mac,
+                            app_bt_is_phone_mac(
+                                &event.data.avrcp.profile.mac) ?
+                            AVRCP_CT : AVRCP_TG);
                 }
             }
             break;
