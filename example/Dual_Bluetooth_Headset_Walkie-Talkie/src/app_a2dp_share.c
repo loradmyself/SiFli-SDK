@@ -40,8 +40,10 @@
     (APP_SHARE_QUEUE_NODE_SIZE * APP_SHARE_RECORD_QUEUE_DEPTH)
 #define APP_SHARE_THREAD_STACK_SIZE 3072U
 #define APP_SHARE_CONTROL_EVENT (1UL << 0)
+#define APP_SHARE_PUMP_EVENT (1UL << 1)
 #define APP_SHARE_PUMP_ACTIVE_MS 5U
 #define APP_SHARE_PUMP_WAIT_MS 10U
+#define APP_SHARE_PUMP_STACK_SIZE 2048U
 #define APP_SHARE_STOP_SETTLE_MS 100U
 #define APP_SHARE_PCM_READ_TIMEOUT_MS 20U
 #define APP_SHARE_VOLUME_RAMP_MS 10U
@@ -106,8 +108,10 @@ typedef struct
 
 static struct rt_mutex g_share_lock;
 static struct rt_event g_control_event;
+static struct rt_event g_pump_event;
 static struct rt_messagequeue g_record_queue;
 static struct rt_thread g_producer_thread;
+static struct rt_thread g_pump_thread;
 static struct rt_ringbuffer32 g_share_ring;
 
 /* Per-connection tick of the last bt_av_start_stream() attempt (0 = none
@@ -123,6 +127,7 @@ static rt_uint32_t
 g_record_queue_pool[(APP_SHARE_QUEUE_POOL_SIZE + sizeof(uint32_t) - 1U) /
                     sizeof(uint32_t)];
 ALIGN(4) static rt_uint8_t g_producer_stack[APP_SHARE_THREAD_STACK_SIZE];
+ALIGN(4) static rt_uint8_t g_pump_stack[APP_SHARE_PUMP_STACK_SIZE];
 ALIGN(4) static uint8_t g_i2s_block[APP_I2S_DMA_HALF_SIZE];
 ALIGN(4) static uint8_t
 g_pcm_buffer[APP_SHARE_MAX_PCM_BYTES + APP_I2S_DMA_HALF_SIZE];
@@ -144,6 +149,7 @@ static bool g_stop_callback_pending;
 static bool g_bts_quiesced;
 static bool g_stop_needs_settle;
 static bool g_pump_scheduled;
+static rt_int32_t g_pump_delay_ticks;
 static bool g_encoder_cleanup_pending;
 static rt_tick_t g_stop_settle_deadline;
 static uint32_t g_encoder_generation;
@@ -159,7 +165,8 @@ static int32_t g_sync_encode_delay_us;
 static uint8_t g_resync_phase;
 static rt_tick_t g_resync_last_tick;
 
-static void app_share_bts_pump(uint16_t message, void *parameter);
+static void app_share_bts_pump(void);
+static void app_share_pump_thread(void *parameter);
 static void app_share_pump_records(void);
 
 static void app_share_lock(void)
@@ -635,18 +642,65 @@ static void app_share_wedge_check(const app_share_link_snapshot_t *links)
 static void app_share_schedule_pump(uint32_t delay_ms)
 {
     bool schedule = false;
+    rt_int32_t ticks = (rt_int32_t)rt_tick_from_millisecond(delay_ms);
+
+    /* bts2 timers are starved by signaling storms (see "a2dptx" in
+     * bts2_app_av_src.c); the control pump runs on its own thread and is
+     * woken through g_pump_event instead. */
+    if (ticks < 1)
+    {
+        ticks = 1;
+    }
 
     app_share_lock();
     if (g_status.initialized && !g_pump_scheduled)
     {
         g_pump_scheduled = true;
+        g_pump_delay_ticks = ticks;
         schedule = true;
     }
     app_share_unlock();
 
     if (schedule)
     {
-        bts2_timer_ev_add(delay_ms, app_share_bts_pump, 0U, RT_NULL);
+        rt_event_send(&g_pump_event, APP_SHARE_PUMP_EVENT);
+    }
+}
+
+static void app_share_pump_thread(void *parameter)
+{
+    (void)parameter;
+
+    while (1)
+    {
+        rt_uint32_t events = 0U;
+        rt_err_t err;
+        bool scheduled;
+        rt_int32_t ticks;
+
+        app_share_lock();
+        scheduled = g_pump_scheduled;
+        ticks = g_pump_delay_ticks;
+        app_share_unlock();
+
+        if (!scheduled)
+        {
+            rt_event_recv(&g_pump_event, APP_SHARE_PUMP_EVENT,
+                          RT_EVENT_FLAG_OR | RT_EVENT_FLAG_CLEAR,
+                          RT_WAITING_FOREVER, &events);
+            continue;
+        }
+
+        err = rt_event_recv(&g_pump_event, APP_SHARE_PUMP_EVENT,
+                            RT_EVENT_FLAG_OR | RT_EVENT_FLAG_CLEAR,
+                            ticks, &events);
+        if (err == RT_EOK)
+        {
+            /* Rescheduled with a new delay before the old one expired. */
+            continue;
+        }
+
+        app_share_bts_pump();
     }
 }
 
@@ -1180,7 +1234,7 @@ static void app_share_pump_records(void)
     }
 }
 
-static void app_share_bts_pump(uint16_t message, void *parameter)
+static void app_share_bts_pump(void)
 {
     app_share_link_snapshot_t links;
     bool desired;
@@ -1191,8 +1245,6 @@ static void app_share_bts_pump(uint16_t message, void *parameter)
     uint32_t next_delay = APP_SHARE_PUMP_WAIT_MS;
     rt_size_t ring_bytes;
 
-    (void)message;
-    (void)parameter;
     app_share_lock();
     g_pump_scheduled = false;
     desired = g_status.desired;
@@ -1326,29 +1378,42 @@ resync_skip:
             g_sync_encode_delay_us = 0;
         }
 
-        if (!kicked && links.config_valid && producer_active &&
-                (prefill_target > 0U) &&
-                ((ring_bytes >= prefill_target) ||
-                 /* Force-kick after timeout: when a second sink joins and
-                  * drains the ring, the buffer may never reach the prefill
-                  * target — without this the share stays in PREFILLING
-                  * forever and there is no audio. */
-                 ((g_prefill_start_tick != 0U) &&
-                  ((rt_tick_get() - g_prefill_start_tick) >=
-                   rt_tick_from_millisecond(APP_SHARE_PREFILL_TIMEOUT_MS)))))
+        /* First kick: prefill reached (or timed out). Re-kick: the send
+         * chain went idle mid-stream (suspend gate swallowed the last
+         * rearm, or a brief conn gap) and the ring holds data again. */
+        if (links.config_valid && producer_active && (prefill_target > 0U) &&
+                ((!kicked &&
+                  ((ring_bytes >= prefill_target) ||
+                   /* Force-kick after timeout: when a second sink joins and
+                    * drains the ring, the buffer may never reach the prefill
+                    * target — without this the share stays in PREFILLING
+                    * forever and there is no audio. */
+                   ((g_prefill_start_tick != 0U) &&
+                    ((rt_tick_get() - g_prefill_start_tick) >=
+                     rt_tick_from_millisecond(APP_SHARE_PREFILL_TIMEOUT_MS))))) ||
+                 (kicked && !bt_avsrc_sharing_armed() && (ring_bytes > 0U))))
         {
-            app_share_lock();
-            g_status.kicked = true;
-            g_status.state = APP_A2DP_SHARE_STATE_RUNNING;
-            g_started_callback_pending = true;
-            g_stats.kick_count++;
-            app_share_unlock();
-            bt_avsrc_sharing(&g_share_ring);
+            if (!kicked)
+            {
+                app_share_lock();
+                g_status.kicked = true;
+                g_status.state = APP_A2DP_SHARE_STATE_RUNNING;
+                g_started_callback_pending = true;
+                g_stats.kick_count++;
+                app_share_unlock();
+            }
+            /* Arm the "a2dptx" thread instead of calling bt_avsrc_sharing()
+             * here: sends must run on the TX thread (single ring reader)
+             * and must not depend on this thread's scheduling latency. */
+            bt_avsrc_sharing_sched(&g_share_ring, 1U);
             ring_bytes = rt_ringbuffer32_data_len(&g_share_ring);
             app_share_lock();
             g_status.ring_bytes = ring_bytes;
             app_share_unlock();
-            rt_event_send(&g_control_event, APP_SHARE_CONTROL_EVENT);
+            if (!kicked)
+            {
+                rt_event_send(&g_control_event, APP_SHARE_CONTROL_EVENT);
+            }
         }
         should_reschedule = true;
         next_delay = APP_SHARE_PUMP_ACTIVE_MS;
@@ -1449,11 +1514,19 @@ int app_a2dp_share_init(app_a2dp_share_callback_t callback, void *user_data)
         rt_mutex_detach(&g_share_lock);
         return error;
     }
+    error = rt_event_init(&g_pump_event, "a2dppe", RT_IPC_FLAG_FIFO);
+    if (error != RT_EOK)
+    {
+        rt_event_detach(&g_control_event);
+        rt_mutex_detach(&g_share_lock);
+        return error;
+    }
     error = rt_mq_init(&g_record_queue, "a2dpsq",
                        g_record_queue_pool, sizeof(app_share_record_t),
                        sizeof(g_record_queue_pool), RT_IPC_FLAG_FIFO);
     if (error != RT_EOK)
     {
+        rt_event_detach(&g_pump_event);
         rt_event_detach(&g_control_event);
         rt_mutex_detach(&g_share_lock);
         return error;
@@ -1471,6 +1544,24 @@ int app_a2dp_share_init(app_a2dp_share_callback_t callback, void *user_data)
     if (error != RT_EOK)
     {
         rt_mq_detach(&g_record_queue);
+        rt_event_detach(&g_pump_event);
+        rt_event_detach(&g_control_event);
+        rt_mutex_detach(&g_share_lock);
+        return error;
+    }
+    /* Control pump on its own thread at the BT task's priority: timeslice
+     * rotation keeps it alive during signaling storms (a bts2 timer here
+     * starved like the send timer did), without preempting encoder/I2S. */
+    error = rt_thread_init(&g_pump_thread, "a2dpp",
+                           app_share_pump_thread, RT_NULL,
+                           g_pump_stack, sizeof(g_pump_stack),
+                           RT_THREAD_PRIORITY_HIGH,
+                           RT_THREAD_TICK_DEFAULT);
+    if (error != RT_EOK)
+    {
+        rt_thread_detach(&g_producer_thread);
+        rt_mq_detach(&g_record_queue);
+        rt_event_detach(&g_pump_event);
         rt_event_detach(&g_control_event);
         rt_mutex_detach(&g_share_lock);
         return error;
@@ -1486,8 +1577,22 @@ int app_a2dp_share_init(app_a2dp_share_callback_t callback, void *user_data)
     if (error != RT_EOK)
     {
         g_status.initialized = false;
+        rt_thread_detach(&g_pump_thread);
         rt_thread_detach(&g_producer_thread);
         rt_mq_detach(&g_record_queue);
+        rt_event_detach(&g_pump_event);
+        rt_event_detach(&g_control_event);
+        rt_mutex_detach(&g_share_lock);
+        return error;
+    }
+    error = rt_thread_startup(&g_pump_thread);
+    if (error != RT_EOK)
+    {
+        g_status.initialized = false;
+        rt_thread_detach(&g_pump_thread);
+        rt_thread_detach(&g_producer_thread);
+        rt_mq_detach(&g_record_queue);
+        rt_event_detach(&g_pump_event);
         rt_event_detach(&g_control_event);
         rt_mutex_detach(&g_share_lock);
         return error;
@@ -1653,8 +1758,9 @@ void app_a2dp_share_on_a2dp_event(uint16_t event_id)
     app_share_unlock();
     if (active)
     {
-        /* The notification runs on the BTS task; the timer preserves that
-         * context for all sharing-ring writes and the initial sender kick. */
+        /* Runs on the BTS task; schedule_pump hands the work to the "a2dpp"
+         * thread (bts2 timers starve during signaling storms). Ring writes
+         * stay in the producer, the sender kick arms "a2dptx". */
         app_share_schedule_pump(1U);
     }
     rt_event_send(&g_control_event, APP_SHARE_CONTROL_EVENT);

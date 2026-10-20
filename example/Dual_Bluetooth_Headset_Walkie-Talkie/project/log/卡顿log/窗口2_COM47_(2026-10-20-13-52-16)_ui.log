@@ -1,0 +1,199 @@
+10-20 13:52:16:872    [32m[1327434] I/btapp_ag bts: hfp ag msg *msg_type 8002 inst_data->st 2
+10-20 13:52:16:874    [0m[32m[1327444] I/btapp_ag bts: hfp_ag device state: 1 res: 0 type 32770 mux_id:255
+10-20 13:52:16:875    [0m[32m[1327454] I/btapp_ag bts: BTS2MU_AG_CONN_CFM state: 1 res: 0 type 32770
+10-20 13:52:16:875    [0m[intercom] headset 1 HFP request 1/10 sent (retry)
+10-20 13:52:17:013    VpG9A+L2h3hL
+10-20 13:52:17:153    [32m[1330233] I/btapp_ag bts: hfp ag msg *msg_type 800d inst_data->st 2
+10-20 13:52:17:156    [0m[32m[1330244] I/btapp_ag bts: bt_hfp_ag_app_at_cmd_hdl 14 ?
+10-20 13:52:17:156    [0m[32m[1330256] I/btapp_ag bts: hfp ag msg *msg_type 800e inst_data->st 2
+10-20 13:52:17:157    [0m[32m[1330266] I/btapp_ag bts: hfp ag msg *msg_type 800e inst_data->st 2
+10-20 13:52:17:157    [0m
+10-20 13:52:17:188    [32m[1330611] I/btapp_ag bts: hfp ag msg *msg_type 8002 inst_data->st 2
+10-20 13:52:17:189    [0m[32m[1330620] I/btapp_ag bts: hfp_ag device state: 3 res: 0 type 32770 mux_id:0
+10-20 13:52:17:190    [0m[32m[1330630] I/btapp_ag bts: BTS2MU_AG_CONN_CFM state: 3 res: 0 type 32770
+10-20 13:52:17:191    [0m[intercom] headset 1 HFP AG connected, channel=0
+10-20 13:52:17:216    [32m[1330815] I/btapp_ag bts: hfp ag msg *msg_type 8002 inst_data->st 2
+10-20 13:52:17:217    [0m[32m[1330824] I/btapp_ag bts: hfp_ag device state: 3 res: 0 type 32770 mux_id:0
+10-20 13:52:17:217    [0m[32m[1330834] I/btapp_ag bts: BTS2MU_AG_CONN_CFM state: 3 res: 0 type 32770
+10-20 13:52:17:218    [0m
+10-20 13:52:17:280    [32m[1331478] I/btapp_ag bts: hfp ag msg *msg_type 800d inst_data->st 2
+10-20 13:52:17:280    [0m[32m[1331487] I/btapp_ag bts: bt_hfp_ag_app_at_cmd_hdl 19 0
+10-20 13:52:17:281    [0m
+10-20 13:52:17:341    [32m[1332046] I/btapp_ag bts: hfp ag msg *msg_type 800d inst_data->st 2
+10-20 13:52:17:342    [0m[32m[1332055] I/btapp_ag bts: bt_hfp_ag_app_at_cmd_hdl 7 15
+10-20 13:52:17:342    [0m
+10-20 13:52:17:379    [32m[1332335] I/btapp_ag bts: hfp ag msg *msg_type 800d inst_data->st 2
+10-20 13:52:17:381    [0m[32m[1332344] I/btapp_ag bts: bt_hfp_ag_app_at_cmd_hdl 8 15
+10-20 13:52:17:382    [0m
+10-20 13:52:17:423    [32m[1332948] I/btapp_ag bts: hfp ag msg *msg_type 800d inst_data->st 2
+10-20 13:52:17:424    [0m[32m[1332958] I/btapp_ag bts: bt_hfp_ag_app_at_cmd_hdl 32 	 D
+10-20 13:52:17:425    [0m
+10-20 13:52:20:150    ?
+10-20 13:52:20:151    uTKSv0Rq?uTts: bt_hfp_ag_app_at_cmd_hdl 32 	 D
+10-20 13:52:20:152    y}vv2k>c
+10-20 13:52:20:152    ?
+10-20 13:52:20:152    SNp)[Cm?]R\??[r&>hf+
+10-20 13:52:20:152    
+10-20 13:52:20:154    Ia
+10-20 13:52:20:154    gZ?cBqfm"=:
+10-20 13:52:20:154    
+10-20 13:52:20:155    :7E"G6*&R"=:
+10-20 13:52:20:155    n465e95:	
+10-20 13:52:20:156    65e95:	
+10-20 13:52:20:156    
+10-20 13:52:20:156    IlH8oY]¢p;cVSF§»m8?
+10-20 13:52:20:157    
+10-20 13:52:20:157    ^$/sU??_A O@.D~	%e*
+10-20 13:52:20:157    
+10-20 13:52:20:158    ?
+10-20 13:52:20:158    %cI
+10-20 13:52:20:159    xtP$S"a_A O@.D~	%e*
+10-20 13:52:20:159    R9@Pn
+10-20 13:52:20:160    ?
+10-20 13:52:20:160    
+10-20 13:52:20:161    9yR&RJB]a4gbfZ?,?[*[*
+10-20 13:52:20:161    ?
+10-20 13:52:20:162    6A?60:y1B4R-S0T&?U?,
+10-20 13:52:22:241    WG
+10-20 13:52:22:243    ?
+10-20 13:52:22:243    
+10-20 13:52:22:244    V6KRM'UeV?m)aows
+10-20 13:52:22:244    V6KRM'UeV?m)aows
+10-20 13:52:22:245    9Kd%R5qDdl/^9\???
+10-20 13:52:22:245    ?
+10-20 13:52:22:246    ?h)rb~5H,imVtUX|{#I:R.#(G?G
+10-20 13:52:22:246    ?
+10-20 13:52:22:246    M8vDM#QL4m*jY r
+10-20 13:52:22:247    ?
+10-20 13:52:22:247    
+10-20 13:52:22:247    ?G5^DAK{Dlm:(9)j['0??
+10-20 13:52:22:248    ?
+10-20 13:52:22:248    hhtdt{l>Ad":nM??
+10-20 13:52:22:248    ?
+10-20 13:52:22:249    dg7sv4u
+10-20 13:52:22:250    mNiM?`jU^I
+10-20 13:52:22:250    ?
+10-20 13:52:22:250    ql(GHxg3I
+10-20 13:52:22:251     sgOHtGyOK)C?8
+10-20 13:52:22:251    ?
+10-20 13:52:22:251    =j&,?1]j{<!S(,-
+10-20 13:52:32:313    {vdV?Om$8M-
+10-20 13:52:32:315    
+10-20 13:52:32:315    ?
+10-20 13:52:32:315    *jq?C)mP?BQw<4M?V)?r
+10-20 13:52:32:316    
+10-20 13:52:32:316    tkB2!6?Ui9<h4W@H?M.3'
+10-20 13:52:32:316    
+10-20 13:52:32:317    ?
+10-20 13:52:32:317    
+10-20 13:52:32:317    ?¦¶eKLD[@i	
+10-20 13:52:32:318    0?
+10-20 13:52:32:318    ?
+10-20 13:52:32:318    
+10-20 13:52:32:319    H	Py?PL="CZwV?#abR5p
+10-20 13:52:32:319    ?
+10-20 13:52:32:319    
+10-20 13:52:32:320    i*a9C2KgsDM?
+10-20 13:52:32:320    ?
+10-20 13:52:32:320    
+10-20 13:52:32:321    ZZS=215KpS|Q1z9QM?
+10-20 13:52:32:321    Y}Y)Q
+10-20 13:52:32:322    ?
+10-20 13:52:32:322    
+10-20 13:52:32:322    M‰¬K]~u?fK|yrPC?6
+10-20 13:52:32:323    ?
+10-20 13:52:32:323    "
+10-20 13:52:32:323    ((?q.6"Y?MLre59RqkH
+10-20 13:52:33:062 TX:intercom disconnect B2:D4:0D:2B:42:41
+10-20 13:52:33:091    intercom disconnect B2:D4:0D:2B:42:41
+10-20 13:52:33:120    [intercom] forgetting headset [32m[1488940] I/btapp_ge bts: << Unpair with device: 4142:2B:0DD4B2
+10-20 13:52:33:122    [0mB2:D4:0D:2B:42:41
+10-20 13:52:33:122    [intercom] disconnect requested for headset 2
+10-20 13:52:33:122    [32m[1488985] I/NO_TAG bts: DM_ACL_DIS_CONN_STATUS
+10-20 13:52:33:123    [0m[intercom] disconnect accepted
+10-20 13:52:33:124    msh />
+10-20 13:52:33:124    msh />
+10-20 13:52:33:184    [32m[1489701] I/NO_TAG bts: link dis-connected 81 22 process:2
+10-20 13:52:33:185    [0m[32m[1489710] I/NO_TAG bts: bd addr 4142-2b-dd4b2
+10-20 13:52:33:186    [0m[32m[1489720] I/btapp_ag bts: hfp ag msg *msg_type 8005 inst_data->st 2
+10-20 13:52:33:187    [0m[32m[1489730] I/btapp_ag bts: hfp_ag device state: 0 res: 6 type 32773 mux_id:1
+10-20 13:52:33:188    [0m[32m[1489740] I/btapp_ag bts: BTS2MU_AG_DISC_IND state: 0 res: 6 type 32773
+10-20 13:52:33:189    [0m[32m[1489751] I/btapp.av bts: << (d1)av indicate to disconnect to remote device
+10-20 13:52:33:190    [0m[32m[1489761] I/btapp.av bts: << urc av disc
+10-20 13:52:33:191    [0m[32m[1489771] I/audio_avrcp bts: bd : dd4b2 4142   2b
+10-20 13:52:33:193    [0m[32m[1489778] I/audio_avrcp bts: << avrcp indicate to disconnect with remote device
+10-20 13:52:33:194    [0m[32m[1489796] I/audio_avrcp bts: << urc AVRCP disc
+10-20 13:52:33:198    [0m[32m[1489809] I/btapp_ge bts: << Wailed to write link policy!
+10-20 13:52:33:198    [0m[intercom] headset 2 ACL disconnected, reason=22
+10-20 13:52:33:199    [32m[1489843] I/btapp_ge bts: << Write scan enable success
+10-20 13:52:33:199    [0m
+10-20 13:52:33:200    [32m[1489861] I/btapp_ge bts: << Scan mode: 3
+10-20 13:52:33:201    [0m[32m[1489867] I/btapp_ge bts: <<            Inquiry scan enbd.
+10-20 13:52:33:201    <<            Page scan enbd.
+10-20 13:52:33:202    [0m
+10-20 13:52:37:232 TX:intercom connect B2:D4:0D:2B:42:41
+10-20 13:52:37:241    intercom connect B2:D4:0D:2B:42:41
+10-20 13:52:37:241    [intercom] connecting while music is playing; brief audio interruption expected
+10-20 13:52:37:242    [intercom] cleared stored bond for B2:D4:0D:2B:42:41
+10-20 13:52:37:242    [32m[1530009] I/btapp_intf btmgr: bt_interface_set_scan_mode target_scan_mode:0 scan_mode:3 fsm:0 0 
+10-20 13:52:37:242    [0m[32m[1530029] I/btapp.av btmgr:  -- av conn rmt device... peer_role:1 local_role:0
+10-20 13:52:37:243    [0m[32m[1530043] I/btapp_ge bts: << Write scan enable success
+10-20 13:52:37:244    [0m[32m[1530055] I/btapp.av btmgr:  -- address: 4142:2B:0DD4B2
+10-20 13:52:37:245    [0m[32m[1530065] I/btapp_ge bts: << Scan mode: 0
+10-20 13:52:37:246    [0m[32m[1530090] I/btapp_ge bts: <<            No scans enbd.
+10-20 13:52:37:247    [0mcon_id = 4
+10-20 13:52:37:247    [intercom] state: media -> connecting
+10-20 13:52:37:248    [intercom] headset 2 A2DP connect requested: [32m[1530121] I/NO_TAG bts: DM_ACL_CREATE_CONN_STATUS
+10-20 13:52:37:249    [0mB2:D4:0D:2B:42:41
+10-20 13:52:37:249    [intercom] connect accepted
+10-20 13:52:37:250    msh />
+10-20 13:52:37:250    msh />
+10-20 13:52:38:545    [32m[1543007] I/NO_TAG bts: link connected COD:0 Incoming:0 hdl 129 res 0
+10-20 13:52:38:548    [0m[32m[1543016] I/NO_TAG bts: bd addr 4142-2b-dd4b2
+10-20 13:52:38:549    [0m[32m[1543024] I/NO_TAG bts: bt_cm_hci_acl_connect_complete_event_hdl conn:2000db88
+10-20 13:52:38:550    [0m[intercom] headset 2 ACL connected
+10-20 13:52:38:562    [32m[1543056] I/btapp_ge bts: << Write link supvisn timeout successful!
+10-20 13:52:38:562    [0m
+10-20 13:52:38:563    [32m[1543109] I/btapp_ge bts: device address: 4142:2B:0DD4B2
+10-20 13:52:38:563    [0m[32m[1543119] I/btapp_ge bts:     role: master
+10-20 13:52:38:563    [0m[32m[1543128] I/btapp_ge bts: << Write scan enable success
+10-20 13:52:38:564    [0m
+10-20 13:52:38:564    [32m[1543151] I/btapp_ge bts: res = 0,page_num = 1,max_page_num = 2
+10-20 13:52:38:564    [0m[32m[1543160] I/btapp_ge bts: ext_lmp_featr[0] = 0x1,ext_lmp_featr[1] = 0x0,ext_lmp_featr[2] = 0x0,ext_lmp_featr[3] = 0x0
+10-20 13:52:38:565    [0m[32m[1543178] I/btapp_ge bts: << Write link supvisn timeout successful!
+10-20 13:52:38:565    [0m
+10-20 13:52:38:566    [32m[1543219] I/btapp_ge bts: << Scan mode: 0
+10-20 13:52:38:567    [0m[32m[1543228] I/btapp_ge bts: <<            No scans enbd.
+10-20 13:52:38:568    [0m
+10-20 13:52:38:625    [32m[1543731] I/btapp_ge bts: -- Remote device haven't display and input capability
+10-20 13:52:38:626    [0m
+10-20 13:52:39:369    [32m[1551162] I/btapp_ge bts: >> The Numeric_Value is:405883
+10-20 13:52:39:372    [0m
+10-20 13:52:39:890    [32m[1556213] I/NO_TAG bts: BTS2S_SC_PAIR_IND cod:0x 0
+10-20 13:52:39:935    [0m[32m[1556405] I/btapp_ge bts: -- Pair with device: 4142:2B:0DD4B2
+10-20 13:52:39:937    [0m
+10-20 13:52:40:032    [32m[1557757] I/btapp_ge bts: BTS2MU_GAP_ENCRYPTION_IND
+10-20 13:52:40:033    [0m
+10-20 13:52:40:081    [32m[1558168] I/btapp.av bts: << (d1)av connect success,cfg = 0
+10-20 13:52:40:081    [0m[intercom] headset 2 A2DP Source connected
+10-20 13:52:40:082    [intercom] state: connecting -> media
+10-20 13:52:40:082    [intercom] headset 2 remote name requested
+10-20 13:52:40:082    [intercom] headset 2 HFP deferred 5000ms; waiting for the remote to open SLC first
+10-20 13:52:40:158    [32m[1558618] I/btapp_ge bts: << remote device name: X8 RUNNER PRO
+10-20 13:52:40:161    [0m[intercom] headset 2 remote name: X8 RUNNER PRO
+10-20 13:52:40:367    [intercom] duplicate A2DP success for headset 2 ignored
+10-20 13:52:40:368    [32m[1561081] I/btapp.av bts: >> (1)start the av stream
+10-20 13:52:40:369    [0mbefore start stream should prohibit sniff mode!
+10-20 13:52:40:399    [32m[1561396] I/btapp.av bts: >> (d1)peer device accept to start stream 
+10-20 13:52:40:399    [0m[intercom] headset 1 link policy frozen (master, streaming)
+10-20 13:52:40:400    [32m[1561415] I/audio_avrcp bts: play status play_status_notify0 play_status1 
+10-20 13:52:40:400    [0m
+10-20 13:52:40:600    [32m[1563410] I/audio_avrcp bts: << avrcp indicate to connect with remote device
+10-20 13:52:40:602    [0m[intercom] headset 2 AVRCP Target connected
+10-20 13:52:40:602    [intercom] headset 2 AVRCP play status -> PLAYING
+10-20 13:52:40:631    [32m[1563714] I/audio_avrcp bts: << register play status changed 1
+10-20 13:52:40:632    [0m
+10-20 13:52:40:632    [32m[1563738] I/audio_avrcp bts: << register notificaiton volume changed 20
+10-20 13:52:40:633    [0m
+10-20 13:52:40:647    [intercom] AVRCP volume event: level=8/15
+10-20 13:52:40:709    [intercom] headset 2 music volume requested: 5/15 (AVRCP=45/127)

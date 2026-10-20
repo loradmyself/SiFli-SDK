@@ -819,6 +819,56 @@ pdm/i2s 录音 pipe 从 `CFG_AUDIO_RECORD_PIPE_SIZE * 2`（约 3.7ms）改
 逐条一致（idx 编号、打印格式不变）；真·入向建链仍会清扫描（原防挂死
 语义保留），且扫描命令入口的 stale-scan 自愈仍在兜底。
 
+### 1.8 未提交（2026-10-20）「连接第二副耳机时转发卡顿：媒体泵迁出 bts2 定时器」
+
+现象（Frontline `窗口2_COM47_(2026-10-20-13-50-03).pcap`）：A 转发
+播放中连接 B，A 的媒体流出现① 360ms 空窗（13:51:18.851→19.211，
+恢复后 seq 168/169 以 1ms 间距追发）② 连接窗口（34.4–37.0s）内
+47–78ms 发包间隔抖动 ③ seq 556 整包消失。需求：连接全程不暂停、不
+卡顿（1.5 之前的"先停流再连"策略已废弃）。
+
+根因（①，本次修复目标）：媒体泵 `bt_avsrc_sharing_cb` 是 bts2 定时
+器回调，与 L2CAP/RFCOMM/AVDTP/HFP 信令共用 "bts" 任务。反汇编
+`lib_bt_gcc.a` 的 `bts2_task_run`：派发顺序为**先清空全部消息队列、
+再派发到期定时器**，期间消息不断则不回头——HFP SLC 建链让队列持续
+非空，29ms 发包定时器被结构性饿死 360ms。空窗期间信令 ACL 一直在
+发（`av_stream_data_req` 的消息通路全程存活），发送能力在、只是定时
+器没被调度；1ms 追发是饥饿签名而非成因。Frontline 的
+"ACL credits: -1" 是控制器 4 个 ACL 缓冲持续打满的边界视图，非独立
+根因。
+
+修复（通用）：
+- `bts2_app_av_src.c / .h`：新增 **"a2dptx" 线程**（优先级
+  `HIGH-1`=11，高于 bts 12）承接媒体节奏：按 `m_sec_time_4_next_pkt`
+  时刻睡眠 → 调 `bt_avsrc_sharing()` → 自重排。可行性依据：反汇编确
+  认 `av_stream_data_req` = `bt_mem_alloc` + `bts2_msg_put`（其
+  `BTS2_ENTER_CRITICAL` 为 `os_mutex_take`），任意线程可调；实际
+  L2CAP 发送仍在 bts 任务消息优先级执行——**预编译核零改动**。原 5 处
+  `bts2_timer_ev_add(..., bt_avsrc_sharing_cb, ...)` 重排点全部改
+  `bt_avsrc_sharing_rearm()`，回调删除；追赶步长 1ms → 5ms 限速；新增
+  `bt_avsrc_sharing_sched/cancel/armed`，audio close / A2DP_CMD_PAUSE /
+  disc handler 三处停泵点配套 cancel（`stop_req` 粘滞，在途泵不再自
+  续）；
+- `bt_avsrc_tx_lock`（照抄 `g_sbc_lock` 懒初始化模式）包住
+  `bt_avsrc_sharing` 与 `bt_avsrc_send_data` 全体（对 `src_data` 节拍
+  字段读改写互斥），锁序恒为 tx_lock → sbc_lock。**对 AVDTP 状态机的
+  `st/cfg/suspend_pending/stream_hdl` 写不加锁**（与 1.x 惯例不同，提
+  前说明）：均为单字原子写，竞争最坏结果是状态转换瞬间多发/少发一包
+  （协议栈丢弃），而包锁会经应用回调引入死锁面，收益不成比例；
+- 应用侧（`app_a2dp_share.c`，不属子模块）：控制泵迁到自有线程
+  "a2dpp"（优先级 12，与 bts 时间片轮转，风暴下有前向进度）；踢泵改
+  `bt_avsrc_sharing_sched`（"a2dptx" 成为 share ring 唯一读者，
+  `s_share_pkt_buf` 免跨线程锁）；新增断链重踢
+  （`kicked && !armed && ring>0`）——suspend 门吞掉最后一次重排后 5ms
+  内自愈，顺带修掉旧实现"kicked 后链死无人再踢"的隐患。
+
+预期：① 类信令风暴空窗消除；暂停/关闭/断开停泵语义不变；官方
+`example/bt/a2dp_sharing` 直接调 `bt_avsrc_sharing()` 的用法经包装函
+数兼容并同样受益。未覆盖（后续项）：② seq 556 是 per-sink
+`bmalloc(pkt_len)` 失败整包静默丢（`s_media_nomem` 计数可证，应改预
+分配池）；③ 连接窗口抖动是 page/SSP 空口争用 + 4 ACL 缓冲打满，需连
+接编排与耳机侧 jitter buffer。
+
 ## 2. 累计改动清单（按主题）
 
 ### 2.1 ACL / 连接管理器（`bt_connection_manager.c`，净 +112/−15）
@@ -946,4 +996,4 @@ bt_cm 状态缓存（#2/#14）、扇出循环内计数（#10）、HFP 守卫（#
 
 ---
 
-*文档对应版本：middleware/bluetooth `33f31a8`（基线 `437d7da`）+ 未提交的 1.5 电流音修复 + 1.6 HFP 误回滚修复 + 1.7 扫描列表 20 条/汇总丢失修复。*
+*文档对应版本：middleware/bluetooth `33f31a8`（基线 `437d7da`）+ 未提交的 1.5 电流音修复 + 1.6 HFP 误回滚修复 + 1.7 扫描列表 20 条/汇总丢失修复 + 1.8 媒体泵迁出 bts2 定时器。*

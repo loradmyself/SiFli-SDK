@@ -1,0 +1,309 @@
+10-20 13:54:02:574    [32m[2378536] I/btapp_intf btmgr: bt_interface_set_scan_mode target_scan_mode:2 scan_mode:2 fsm:1 2 
+10-20 13:54:02:579    [0m
+10-20 13:54:02:638    [32m[2379514] I/btapp.av btmgr:  -- av conn rmt device... peer_role:1 local_role:0
+10-20 13:54:02:639    [0m[32m[2379525] I/btapp.av btmgr:  -- address: 4142:2B:0DD4B2
+10-20 13:54:02:640    [0mcon_id = 4
+10-20 13:54:02:654    [intercom] headset 2 remote AVDTP grace expired; initiating A2DP ourselves
+10-20 13:54:02:894    %,l.¦¨Iw
+10-20 13:54:02:896    |w,O;^W9vg
+10-20 13:54:02:896     
+10-20 13:54:02:897    gDb7)uc#};n7v~lNGED~
+10-20 13:54:02:897    XXpeX!n7v~lNGED~
+10-20 13:54:02:897    
+10-20 13:54:02:898    @?E]h{[HtaX TfQ;fng A2DP ourselves
+10-20 13:54:02:898    
+10-20 13:54:02:898    
+10-20 13:54:02:899    ?`K}+{CkhV§¤R\d9j?
+10-20 13:54:02:899    
+10-20 13:54:02:899    `K}+{CkhV§¤R\d9j?
+10-20 13:54:02:900    dmj^yvC4BM/h)dSAVPX+]r2
+10-20 13:54:02:900    mj^yvC4BM/h)dSAVPX+]r2
+10-20 13:54:02:900     
+10-20 13:54:02:901    (*,(fJF?ulyf+:F\)bNSi=oNY*M:Y
+10-20 13:54:02:901     
+10-20 13:54:02:901    BKqICV"bj?/UPPN<
+10-20 13:54:02:902    ?
+10-20 13:54:02:902    ,P[GuCb`Q-=y5'M'<\f2T?T
+10-20 13:54:02:902    ?
+10-20 13:54:02:903    ;ZqAsfZX'1vGM*-L
+10-20 13:54:02:903    ?
+10-20 13:54:02:904    /R"\3nt?Zqnd22D?si
+10-20 13:54:03:475    Zpel4#RWj=x
+10-20 13:54:03:478    
+10-20 13:54:03:479    ?
+10-20 13:54:03:479    K.5Pa
+10-20 13:54:03:479    iB.}IUulV&mZ%]epX
+10-20 13:54:03:480    B.}IUulV&mZ%]epX
+10-20 13:54:03:480    
+10-20 13:54:03:481    B{Wt	8r>/6;WFMYn
+10-20 13:54:03:481    
+10-20 13:54:03:481    zbR?5k51(&W[tc
+10-20 13:54:03:481    h<-gc@b{=
+10-20 13:54:03:482    ?
+10-20 13:54:03:482    ne\!efVUjc9:5â¢Vd#
+10-20 13:54:03:482    
+10-20 13:54:03:483    ?
+10-20 13:54:03:483    &e.j%?cs=U<J4[
+10-20 13:54:03:483    ?
+10-20 13:54:03:484    
+10-20 13:54:03:484    BMq9]V*[V Z&*R-H&M{?
+10-20 13:54:03:484    
+10-20 13:54:03:485    ;?HqFq-1q@IaP16g	n0§Ö
+10-20 13:54:03:485    
+10-20 13:54:03:485    ?
+10-20 13:54:03:485    !(*P)8?{W
+10-20 13:54:03:486    1sY_8?{W
+10-20 13:54:03:487    2aZ
+10-20 13:54:05:577    [32m[2408555] I/btapp_intf btmgr: bt_interface_set_scan_mode target_scan_mode:2 scan_mode:2 fsm:1 2 
+10-20 13:54:05:579    [0m
+10-20 13:54:08:569    [32m[2438399] I/btapp_intf btmgr: bt_interface_set_scan_mode target_scan_mode:2 scan_mode:2 fsm:1 2 
+10-20 13:54:08:572    [0m
+10-20 13:54:09:400    [32m[2446807] I/NO_TAG bts: link dis-connected 82 11 process:2
+10-20 13:54:09:404    [0m[32m[2446817] I/NO_TAG bts: bd addr 4142-2b-dd4b2
+10-20 13:54:09:404    [0m[32m[2446826] I/btapp.av bts:  -- a2dp connect failed 97
+10-20 13:54:09:404    [0m[intercom] headset 2 ACL disconnected, reason=11
+10-20 13:54:09:405    [intercom] state: connecting -> media
+10-20 13:54:09:406    [32m[2446856] I/btapp_ge bts: << Write scan enable success
+10-20 13:54:09:407    [0m
+10-20 13:54:09:407    [32m[2446873] I/btapp_ge bts: << Scan mode: 3
+10-20 13:54:09:408    [0m[32m[2446879] I/btapp_ge bts: <<            Inquiry scan enbd.
+10-20 13:54:09:408    <<            Page scan enbd.
+10-20 13:54:09:409    [0m
+10-20 13:54:09:495    [32m[2447744] I/NO_TAG bts: dev_cls 0x240404 0x240400
+10-20 13:54:09:497    [0m[32m[2447753] I/NO_TAG bts: BT_NOTIFY_COMMON_ACL_CONNECT_IND
+10-20 13:54:09:510    [0m
+10-20 13:54:09:512    [32m[2447796] I/NO_TAG bts: DM_ACL_ACPT_CONN_STATUS
+10-20 13:54:09:512    [0m
+10-20 13:54:09:868    [32m[2451318] I/NO_TAG bts: link connected COD:2360324 Incoming:1 hdl 129 res 0
+10-20 13:54:09:873    [0m[32m[2451329] I/NO_TAG bts: bd addr 4142-2b-dd4b2
+10-20 13:54:09:873    [0m[32m[2451336] I/NO_TAG bts: bt_cm_hci_acl_connect_complete_event_hdl conn:2000db88
+10-20 13:54:09:873    [0m[intercom] accepting incoming ACL from queued headset: B2:D4:0D:2B:42:41
+10-20 13:54:09:874    [intercom] state: media -> connecting
+10-20 13:54:09:874    [intercom] headset 2 ACL up; waiting for remote AVDTP first (8000ms grace)
+10-20 13:54:09:874    [32m[2451417] I/btapp_ge bts: device address: 4142:2B:0DD4B2
+10-20 13:54:09:875    [0m[32m[2451427] I/btapp_ge bts:     role: slave
+10-20 13:54:09:875    [0m[32m[2451436] I/btapp_ge bts: << Write scan enable success
+10-20 13:54:09:875    [0m[intercom] headset 2 ACL up; waiting for remote AVDTP first (8000ms grace)
+10-20 13:54:09:876    [32m[2451465] I/btapp_ge bts: res = 0,page_num = 1,max_page_num = 2
+10-20 13:54:09:877    [0m[32m[2451475] I/btapp_ge bts: ext_lmp_featr[0] = 0x1,ext_lmp_featr[1] = 0x0,ext_lmp_featr[2] = 0x0,ext_lmp_featr[3] = 0x0
+10-20 13:54:09:877    [0m[32m[2451494] I/btapp_ge bts: << Scan mode: 0
+10-20 13:54:09:878    [0m[32m[2451500] I/btapp_ge bts: <<            No scans enbd.
+10-20 13:54:09:878    [0m[intercom] headset 2 ACL connected
+10-20 13:54:10:470    [32m[2457370] I/btapp_ge bts: BTS2MU_GAP_ENCRYPTION_IND
+10-20 13:54:10:473    [0m
+10-20 13:54:11:576    [32m[2468333] I/btapp_intf btmgr: bt_interface_set_scan_mode target_scan_mode:2 scan_mode:0 fsm:0 2 
+10-20 13:54:11:578    [0m
+10-20 13:54:11:581    [32m[2468356] I/btapp_ge bts: << Write scan enable success
+10-20 13:54:11:581    [0m
+10-20 13:54:11:582    [32m[2468371] I/btapp_ge bts: << Scan mode: 2
+10-20 13:54:11:582    [0m[32m[2468378] I/btapp_ge bts: <<            Inquiry scan disbd.
+10-20 13:54:11:583    <<           Page scan enbd.
+10-20 13:54:11:583    [0m
+10-20 13:54:14:622    [32m[2498266] I/btapp_intf btmgr: bt_interface_set_scan_mode target_scan_mode:2 scan_mode:2 fsm:0 2 
+10-20 13:54:14:628    [0m
+10-20 13:54:14:752 TX:intercom connect B2:D4:0D:2B:42:41
+10-20 13:54:14:764    intercom connect B2:D4:0D:2B:42:41
+10-20 13:54:14:765    [intercom] connecting while music is playing; brief audio interruption expected
+10-20 13:54:14:766    [intercom] headset 2 taking over stale attempt
+10-20 13:54:14:767    [intercom] state: connecting -> media
+10-20 13:54:14:767    [32m[2500195] I/NO_TAG bts: DM_ACL_DIS_CONN_STATUS
+10-20 13:54:14:783    [0m[32m[2500202] I/btapp_intf btmgr: bt_interface_set_scan_mode target_scan_mode:0 scan_mode:2 fsm:1 2 
+10-20 13:54:14:784    [0m[32m[2500246] I/btapp_ge bts: << Write scan enable success
+10-20 13:54:14:784    [0m[32m[2500283] I/btapp_ge bts: << Scan mode: 0
+10-20 13:54:14:798    [0m[32m[2500290] I/btapp_ge bts: <<            No scans enbd.
+10-20 13:54:14:813    [0m[intercom] connect accepted
+10-20 13:54:14:815    [32m[2500651] I/btapp_ge bts: << Unpair with device: 4142:2B:0DD4B2
+10-20 13:54:14:815    [0mmsh />
+10-20 13:54:14:815    msh />
+10-20 13:54:14:859    [32m[2501049] I/NO_TAG bts: link dis-connected 81 22 process:2
+10-20 13:54:14:861    [0m[32m[2501058] I/NO_TAG bts: bd addr 4142-2b-dd4b2
+10-20 13:54:14:863    [0m
+10-20 13:54:14:863    [32m[2501085] I/btapp_ge bts: << Write scan enable success
+10-20 13:54:14:863    [0m
+10-20 13:54:14:864    [32m[2501101] I/btapp_ge bts: << Scan mode: 3
+10-20 13:54:14:864    [0m[32m[2501108] I/btapp_ge bts: <<            Inquiry scan enbd.
+10-20 13:54:14:864    <<            Page scan enbd.
+10-20 13:54:14:865    [0m
+10-20 13:54:15:110    [intercom] cleared stored bond for B2:D4:0D:2B:42:41
+10-20 13:54:15:112    [32m[2503531] I/btapp_intf btmgr: bt_interface_set_scan_mode target_scan_mode:0 scan_mode:3 fsm:0 0 
+10-20 13:54:15:113    [0m[32m[2503548] I/btapp.av btmgr:  -- av conn rmt device... peer_role:1 local_role:0
+10-20 13:54:15:113    [0m[32m[2503562] I/btapp_ge bts: << Write scan enable success
+10-20 13:54:15:114    [0m[32m[2503573] I/btapp.av btmgr:  -- address: 4142:2B:0DD4B2
+10-20 13:54:15:114    [0m[32m[2503584] I/btapp_ge bts: << Scan mode: 0
+10-20 13:54:15:115    [0m[32m[2503590] I/btapp_ge bts: <<            No scans enbd.
+10-20 13:54:15:115    [0mcon_id = 4
+10-20 13:54:15:115    [intercom] state: media -> connecting
+10-20 13:54:15:116    [intercom] headset 2 A2DP connect requested: [32m[2503621] I/NO_TAG bts: DM_ACL_CREATE_CONN_STATUS
+10-20 13:54:15:116    [0mB2:D4:0D:2B:42:41
+10-20 13:54:15:117    [intercom] headset 2 ACL disconnected, reason=22
+10-20 13:54:15:117    [32m[2503638] I/btapp_intf btmgr: bt_interface_set_scan_mode target_scan_mode:2 scan_mode:0 fsm:0 0 
+10-20 13:54:15:117    [0m[intercom] state: connecting -> media
+10-20 13:54:15:118    [32m[2503664] I/btapp_ge bts: << Write scan enable success
+10-20 13:54:15:118    [0m
+10-20 13:54:15:118    [32m[2503679] I/btapp_ge bts: << Scan mode: 2
+10-20 13:54:15:119    [0m[32m[2503686] I/btapp_ge bts: <<            Inquiry scan disbd.
+10-20 13:54:15:120    <<           Page scan enbd.
+10-20 13:54:15:120    [0m
+10-20 13:54:17:409    [32m[2526395] I/NO_TAG bts: link connected COD:0 Incoming:0 hdl 129 res 0
+10-20 13:54:17:412    [0m[32m[2526406] I/NO_TAG bts: bd addr 4142-2b-dd4b2
+10-20 13:54:17:412    [0m[32m[2526414] I/NO_TAG bts: bt_cm_hci_acl_connect_complete_event_hdl conn:2000db88
+10-20 13:54:17:413    [0m[intercom] accepting incoming ACL from queued headset: [32m[2526451] I/btapp_ge bts: << Write link supvisn timeout successful!
+10-20 13:54:17:413    [0mB2:D4:0D:2B:42:41
+10-20 13:54:17:414    [intercom] state: media -> connecting
+10-20 13:54:17:414    [32m[2526479] I/btapp_ge bts: << Write scan enable success
+10-20 13:54:17:414    [0m[32m[2526490] I/btapp_ge bts: device address: 4142:2B:0DD4B2
+10-20 13:54:17:415    [0m[32m[2526498] I/btapp_ge bts:     role: master
+10-20 13:54:17:415    [0m[intercom] headset 2 ACL up; waiting for remote AVDTP first (8000ms grace)
+10-20 13:54:17:416    [32m[2526525] I/btapp_ge bts: res = 0,page_num = 1,max_page_num = 2
+10-20 13:54:17:416    [0m[32m[2526534] I/btapp_ge bts: ext_lmp_featr[0] = 0x1,ext_lmp_featr[1] = 0x0,ext_lmp_featr[2] = 0x0,ext_lmp_featr[3] = 0x0
+10-20 13:54:17:416    [0m[32m[2526553] I/btapp_ge bts: << Scan mode: 0
+10-20 13:54:17:417    [0m[32m[2526560] I/btapp_ge bts: <<            No scans enbd.
+10-20 13:54:17:418    [0m[intercom] headset 2 ACL up; waiting for remote AVDTP first (8000ms grace)
+10-20 13:54:17:418    [intercom] headset 2 ACL connected
+10-20 13:54:17:425    [32m[2526597] I/btapp_ge bts: << Write link supvisn timeout successful!
+10-20 13:54:17:427    [0m
+10-20 13:54:17:565    [32m[2527911] I/btapp_ge bts: -- Remote device haven't display and input capability
+10-20 13:54:17:567    [0m
+10-20 13:54:18:125    [32m[2533608] I/btapp_intf btmgr: bt_interface_set_scan_mode target_scan_mode:2 scan_mode:0 fsm:0 2 
+10-20 13:54:18:127    [0m
+10-20 13:54:18:129    [32m[2533632] I/btapp_ge bts: << Write scan enable success
+10-20 13:54:18:130    [0m
+10-20 13:54:18:130    [32m[2533650] I/btapp_ge bts: << Scan mode: 2
+10-20 13:54:18:131    [0m[32m[2533656] I/btapp_ge bts: <<            Inquiry scan disbd.
+10-20 13:54:18:131    <<           Page scan enbd.
+10-20 13:54:18:132    [0m
+10-20 13:54:18:319    [32m[2535480] I/btapp_ge bts: >> The Numeric_Value is:838712
+10-20 13:54:18:320    [0m
+10-20 13:54:18:824    [32m[2540270] I/NO_TAG bts: BTS2S_SC_PAIR_IND cod:0x240404
+10-20 13:54:18:839    [0m[32m[2540443] I/btapp_ge bts: -- Pair with device: 4142:2B:0DD4B2
+10-20 13:54:18:839    [0m
+10-20 13:54:18:886    [32m[2541090] I/btapp_ge bts: BTS2MU_GAP_ENCRYPTION_IND
+10-20 13:54:18:886    [0m
+10-20 13:54:21:166    [32m[2563847] I/btapp_intf btmgr: bt_interface_set_scan_mode target_scan_mode:2 scan_mode:2 fsm:0 2 
+10-20 13:54:21:169    [0m
+10-20 13:54:24:204    [32m[2593693] I/btapp_intf btmgr: bt_interface_set_scan_mode target_scan_mode:2 scan_mode:2 fsm:1 2 
+10-20 13:54:24:209    [0m
+10-20 13:54:25:467    [32m[2606622] I/btapp.av btmgr:  -- av conn rmt device... peer_role:1 local_role:0
+10-20 13:54:25:470    [0m[32m[2606633] I/btapp.av btmgr:  -- address: 4142:2B:0DD4B2
+10-20 13:54:25:471    [0mcon_id = 1
+10-20 13:54:25:472    [32m[2606645] I/btapp.av bts:  -- a2dp connect failed 9a
+10-20 13:54:25:472    [0m[intercom] headset 2 remote AVDTP grace expired; initiating A2DP ourselves
+10-20 13:54:25:473    [intercom] headset 2 A2DP conflict 154 ignored; keeping the link
+10-20 13:54:27:213    [32m[2623619] I/btapp_intf btmgr: bt_interface_set_scan_mode target_scan_mode:2 scan_mode:2 fsm:1 2 
+10-20 13:54:27:216    [0m
+10-20 13:54:27:507 TX:intercom disconnect B2:D4:0D:2B:42:41
+10-20 13:54:27:514    intercom disconnect B2:D4:0D:2B:42:41
+10-20 13:54:27:524    [32m[2627028] I/btapp_intf btmgr: bt_interface_set_scan_mode target_scan_mode:0 scan_mode:2 fsm:1 2 
+10-20 13:54:27:527    [0m[32m[2627073] I/btapp_ge bts: << Write scan enable success
+10-20 13:54:27:528    [0m[32m[2627130] I/btapp_ge bts: << Scan mode: 0
+10-20 13:54:27:555    [0m[32m[2627136] I/btapp_ge bts: <<            No scans enbd.
+10-20 13:54:27:572    [0m[intercom] forgetting headset [32m[2627489] I/btapp_ge bts: << Unpair with device: 4142:2B:0DD4B2
+10-20 13:54:27:574    [0mB2:D4:0D:2B:42:41
+10-20 13:54:27:575    [intercom] disconnect requested for headset 2
+10-20 13:54:27:575    [32m[2627513] I/NO_TAG bts: DM_ACL_DIS_CONN_STATUS
+10-20 13:54:27:575    [0m[intercom] disconnect accepted
+10-20 13:54:27:576    msh />
+10-20 13:54:27:576    msh />
+10-20 13:54:27:650    [32m[2628254] I/NO_TAG bts: link dis-connected 81 22 process:2
+10-20 13:54:27:651    [0m[32m[2628281] I/NO_TAG bts: bd addr 4142-2b-dd4b2
+10-20 13:54:27:651    [0m[32m[2628295] I/btapp.av bts:  -- a2dp connect failed 97
+10-20 13:54:27:652    [0m[intercom] headset 2 ACL disconnected, reason=22
+10-20 13:54:27:652    [intercom] state: connecting -> media
+10-20 13:54:27:652    [32m[2628322] I/btapp_ge bts: << Write scan enable success
+10-20 13:54:27:653    [0m
+10-20 13:54:27:653    [32m[2628340] I/btapp_ge bts: << Scan mode: 3
+10-20 13:54:27:653    [0m[32m[2628346] I/btapp_ge bts: <<            Inquiry scan enbd.
+10-20 13:54:27:654    <<            Page scan enbd.
+10-20 13:54:27:654    [0m
+10-20 13:54:28:496    /BF?-tnSJ?huh
+10-20 13:54:28:499    
+10-20 13:54:28:499    9LT?.G$I*;bx3BP=
+10-20 13:54:28:500    
+10-20 13:54:28:500    g
+10-20 13:54:28:500    .*Y'Kej,bE)NR?e^?
+10-20 13:54:28:501    ?
+10-20 13:54:28:501    ¦ÆpvqH~GJ?2zSafFIW Ncj|
+10-20 13:54:28:502    
+10-20 13:54:28:502    EP5X/P?q3N`F%e_>V?\?
+10-20 13:54:28:502    P5X/P?q3N`F%e_>V?\?
+10-20 13:54:28:503    
+10-20 13:54:28:503    .E*k(uHVI?E
+10-20 13:54:28:503    _,h?<x
+10-20 13:54:28:504    ?
+10-20 13:54:28:504    R5b k+x4jr?LVJz?
+10-20 13:54:28:504     
+10-20 13:54:28:505     
+10-20 13:54:28:505    '9NENJA'wBkrX#	(usJ	
+10-20 13:54:28:506    ?
+10-20 13:54:28:506    L3R%"0*Bivl);bd6h!O% ??
+10-20 13:54:28:506    
+10-20 13:54:28:506    W,?hJ2.z	nWZ3V&*&^
+10-20 13:54:28:507    mk
+10-20 13:54:37:243 TX:intercom connect B2:D4:0D:2B:42:41
+10-20 13:54:37:256    intercom connect B2:D4:0D:2B:42:41
+10-20 13:54:37:259    [intercom] connecting while music is playing; brief audio interruption expected
+10-20 13:54:37:259    [intercom] cleared stored bond for B2:D4:0D:2B:42:41
+10-20 13:54:37:260    [32m[2723888] I/btapp_intf btmgr: bt_interface_set_scan_mode target_scan_mode:0 scan_mode:3 fsm:0 0 
+10-20 13:54:37:260    [0m[32m[2723904] I/btapp.av btmgr:  -- av conn rmt device... peer_role:1 local_role:0
+10-20 13:54:37:261    [0m[32m[2723919] I/btapp_ge bts: << Write scan enable success
+10-20 13:54:37:261    [0m[32m[2723933] I/btapp.av btmgr:  -- address: 4142:2B:0DD4B2
+10-20 13:54:37:262    [0m[32m[2723943] I/btapp_ge bts: << Scan mode: 0
+10-20 13:54:37:263    [0m[32m[2723950] I/btapp_ge bts: <<            No scans enbd.
+10-20 13:54:37:263    [0mcon_id = 4
+10-20 13:54:37:263    [intercom] state: media -> connecting
+10-20 13:54:37:264    [intercom] headset 2 A2DP connect requested: [32m[2723981] I/NO_TAG bts: DM_ACL_CREATE_CONN_STATUS
+10-20 13:54:37:264    [0mB2:D4:0D:2B:42:41
+10-20 13:54:37:264    [intercom] connect accepted
+10-20 13:54:37:265    msh />
+10-20 13:54:37:265    msh />
+10-20 13:54:38:802    [32m[2739232] I/NO_TAG bts: link connected COD:0 Incoming:0 hdl 129 res 0
+10-20 13:54:38:805    [0m[32m[2739242] I/NO_TAG bts: bd addr 4142-2b-dd4b2
+10-20 13:54:38:806    [0m[32m[2739249] I/NO_TAG bts: bt_cm_hci_acl_connect_complete_event_hdl conn:2000db88
+10-20 13:54:38:806    [0m[intercom] headset 2 ACL connected
+10-20 13:54:38:807    [32m[2739294] I/btapp_ge bts: << Write link supvisn timeout successful!
+10-20 13:54:38:807    [0m
+10-20 13:54:38:807    [32m[2739319] I/btapp_ge bts: device address: 4142:2B:0DD4B2
+10-20 13:54:38:808    [0m[32m[2739329] I/btapp_ge bts:     role: master
+10-20 13:54:38:808    [0m[32m[2739337] I/btapp_ge bts: << Write scan enable success
+10-20 13:54:38:809    [0m
+10-20 13:54:38:809    [32m[2739367] I/btapp_ge bts: res = 0,page_num = 1,max_page_num = 2
+10-20 13:54:38:809    [0m[32m[2739376] I/btapp_ge bts: ext_lmp_featr[0] = 0x1,ext_lmp_featr[1] = 0x0,ext_lmp_featr[2] = 0x0,ext_lmp_featr[3] = 0x0
+10-20 13:54:38:810    [0m
+10-20 13:54:38:811    [32m[2739405] I/btapp_ge bts: << Write link supvisn timeout successful!
+10-20 13:54:38:812    [0m[32m[2739418] I/btapp_ge bts: << Scan mode: 0
+10-20 13:54:38:817    [0m[32m[2739424] I/btapp_ge bts: <<            No scans enbd.
+10-20 13:54:38:818    [0m
+10-20 13:54:38:962    [32m[2740861] I/btapp_ge bts: -- Remote device haven't display and input capability
+10-20 13:54:38:967    [0m
+10-20 13:54:39:778    [32m[2748954] I/btapp_ge bts: >> The Numeric_Value is:318088
+10-20 13:54:39:781    [0m
+10-20 13:54:40:266    [32m[2753574] I/NO_TAG bts: BTS2S_SC_PAIR_IND cod:0x240404
+10-20 13:54:40:283    [0m[32m[2753788] I/btapp_ge bts: -- Pair with device: 4142:2B:0DD4B2
+10-20 13:54:40:284    [0m
+10-20 13:54:40:335    [32m[2754581] I/btapp_ge bts: BTS2MU_GAP_ENCRYPTION_IND
+10-20 13:54:40:336    [0m
+10-20 13:54:42:118    I/	U?Ce bts: BTS2MU_GAP_ENCRYPTION_IND
+10-20 13:54:42:121    ?
+10-20 13:54:42:121    %L8AUP61gL.2z_ke|"8142:2B:0DD4B2
+10-20 13:54:42:122    ?
+10-20 13:54:42:122    BA
+10-20 13:54:42:123    ?w21hfW?r?
+10-20 13:54:42:123    
+10-20 13:54:42:123    +#u(;n^FfW?r?
+10-20 13:54:42:124    #w;)9zUc??ec
+10-20 13:54:42:124    ?
+10-20 13:54:42:125    f"GK8*9?>%our25PCk[3ff
+10-20 13:54:42:125    "GK8*9?>%our25PCk[3ff
+10-20 13:54:42:126    <o8?F0r	0h3(jY|?k
+10-20 13:54:42:127    
+10-20 13:54:42:128    6Uu)d0?R3m%gbssY
+10-20 13:54:42:128    Uu)d0?R3m%gbssY
+10-20 13:54:42:128    
+10-20 13:54:42:129    ?FOckODai5z5}+{AaZ?&f2
+10-20 13:54:42:129    
+10-20 13:54:42:130    
+10-20 13:54:42:130    !e_tu82OhLWqXo)u
+10-20 13:54:42:131     ?y~6
+10-20 13:54:42:131    
+10-20 13:54:42:132    ?I+F?a2cN^*073k
+10-20 13:54:42:149    J]hF

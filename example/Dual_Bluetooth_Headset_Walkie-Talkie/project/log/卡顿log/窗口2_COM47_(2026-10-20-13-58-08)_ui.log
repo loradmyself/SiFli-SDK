@@ -1,0 +1,216 @@
+10-20 13:58:11:058 TX:intercom connect DC:C6:AB:8D:FC:93
+10-20 13:58:11:064    intercom connect DC:C6:AB:8D:FC:93
+10-20 13:58:11:065    [intercom] connecting while music is playing; brief audio interruption expected
+10-20 13:58:11:066    [intercom] cleared stored bond for DC:C6:AB:8D:FC:93
+10-20 13:58:11:068    [32m[4852025] I/btapp_intf btmgr: bt_interface_set_scan_mode target_scan_mode:0 scan_mode:3 fsm:0 0 
+10-20 13:58:11:069    [0m[32m[4852042] I/btapp.av btmgr:  -- av conn rmt device... peer_role:1 local_role:0
+10-20 13:58:11:070    [0m[32m[4852057] I/btapp_ge bts: << Write scan enable success
+10-20 13:58:11:071    [0m[32m[4852067] I/btapp.av btmgr:  -- address: 93FC:8D:ABC6DC
+10-20 13:58:11:076    [0m[32m[4852078] I/btapp_ge bts: << Scan mode: 0
+10-20 13:58:11:079    [0m[32m[4852084] I/btapp_ge bts: <<            No scans enbd.
+10-20 13:58:11:079    [0mcon_id = 4
+10-20 13:58:11:080    [intercom] state: media -> connecting
+10-20 13:58:11:080    [intercom] headset 2 A2DP connect requested: [32m[4852134] I/NO_TAG bts: DM_ACL_CREATE_CONN_STATUS
+10-20 13:58:11:081    [0mDC:C6:AB:8D:FC:93
+10-20 13:58:11:081    [intercom] connect accepted
+10-20 13:58:11:081    msh />
+10-20 13:58:11:082    msh />
+10-20 13:58:12:946    [32m[4870654] I/NO_TAG bts: link connected COD:0 Incoming:0 hdl 129 res 0
+10-20 13:58:12:949    [0m[32m[4870665] I/NO_TAG bts: bd addr 93fc-8d-abc6dc
+10-20 13:58:12:949    [0m[32m[4870672] I/NO_TAG bts: bt_cm_hci_acl_connect_complete_event_hdl conn:2000db88
+10-20 13:58:12:950    [0m[intercom] headset 2 ACL connected
+10-20 13:58:12:950    [32m[4870713] I/btapp_ge bts: << Write link supvisn timeout successful!
+10-20 13:58:12:951    [0m
+10-20 13:58:12:951    [32m[4870746] I/btapp_ge bts: device address: 93FC:8D:ABC6DC
+10-20 13:58:12:951    [0m[32m[4870756] I/btapp_ge bts:     role: master
+10-20 13:58:12:952    [0m[32m[4870766] I/btapp_ge bts: << Write scan enable success
+10-20 13:58:12:953    [0m
+10-20 13:58:12:953    [32m[4870786] I/btapp_ge bts: res = 0,page_num = 1,max_page_num = 2
+10-20 13:58:12:961    [0m[32m[4870796] I/btapp_ge bts: ext_lmp_featr[0] = 0x1,ext_lmp_featr[1] = 0x0,ext_lmp_featr[2] = 0x0,ext_lmp_featr[3] = 0x0
+10-20 13:58:12:962    [0m
+10-20 13:58:12:962    [32m[4870838] I/btapp_ge bts: << Write link supvisn timeout successful!
+10-20 13:58:12:963    [0m[32m[4870851] I/btapp_ge bts: << Scan mode: 0
+10-20 13:58:12:963    [0m[32m[4870857] I/btapp_ge bts: <<            No scans enbd.
+10-20 13:58:12:964    [0m
+10-20 13:58:13:024    [32m[4871399] I/btapp_ge bts: -- Remote device haven't display and input capability
+10-20 13:58:13:024    [0m
+10-20 13:58:14:132    [32m[4882436] I/btapp_ge bts: >> The Numeric_Value is:384542
+10-20 13:58:14:136    [0m
+10-20 13:58:14:668    [32m[4887580] I/NO_TAG bts: BTS2S_SC_PAIR_IND cod:0x240404
+10-20 13:58:14:698    [0m[32m[4887767] I/btapp_ge bts: -- Pair with device: 93FC:8D:ABC6DC
+10-20 13:58:14:699    [0m[32m[4888088] I/btapp_ge bts: BTS2MU_GAP_ENCRYPTION_IND
+10-20 13:58:14:699    [0m
+10-20 13:58:14:747    [32m[4888626] I/btapp.av bts: << (d1)av connect success,cfg = 0
+10-20 13:58:14:748    [0m[intercom] headset 2 A2DP Source connected
+10-20 13:58:14:749    [intercom] state: connecting -> media
+10-20 13:58:14:750    [intercom] headset 2 remote name requested
+10-20 13:58:14:751    [intercom] headset 2 HFP deferred 5000ms; waiting for the remote to open SLC first
+10-20 13:58:14:871    [32m[4889516] I/btapp_ge bts: << remote device name: Monster Open Ear 200
+10-20 13:58:14:882    [0m[intercom] headset 2 remote name: Monster Open Ear 200
+10-20 13:58:15:012    [intercom] duplicate A2DP success for headset 2 ignored
+10-20 13:58:15:027    [32m[4891308] I/btapp.av bts: >> (1)start the av stream
+10-20 13:58:15:029    [0mbefore start stream should prohibit sniff mode!
+10-20 13:58:15:073    [32m[4891873] I/btapp.av bts: >> (d1)peer device accept to start stream 
+10-20 13:58:15:076    [0m[32m[4891885] I/audio_avrcp bts: play status play_status_notify0 play_status1 
+10-20 13:58:15:076    [0m
+10-20 13:58:15:245    j&"3w?!
+10-20 13:58:15:247    ?
+10-20 13:58:15:248    Hny7K'jC8"gtYh=?3F{Gb%
+10-20 13:58:15:249    ?
+10-20 13:58:15:249    qQ`!Z
+10-20 13:58:15:250    uDQfEWd^"gtYh=?3F{Gb%
+10-20 13:58:15:250    ?1" ?
+10-20 13:58:15:250    ?
+10-20 13:58:15:251    0qJ;p$?>nt|:WX|^N
+10-20 13:58:15:251    TD 
+10-20 13:58:15:252    ?
+10-20 13:58:15:252    S>õ[#pw<?P0LVl1DT8m]?`
+10-20 13:58:15:253    
+10-20 13:58:15:253    !q?;_E*PW?E»Dm<'vM
+10-20 13:58:15:254    ?
+10-20 13:58:15:254    fVasdMA?IF?d )i/-3?f
+10-20 13:58:15:255    ?
+10-20 13:58:15:255    IAN*FlLmQ?[Z8
+10-20 13:58:15:256    ?
+10-20 13:58:15:256    m"N*FlLmQ?[Z8
+10-20 13:58:15:256    r9+[-?	è“*b&TFBD8
+10-20 13:58:16:090    [32m[4901994] I/audio_avrcp bts: << avrcp indicate to connect with remote device
+10-20 13:58:16:093    [0m[intercom] headset 2 AVRCP Target connected
+10-20 13:58:16:093    [intercom] headset 2 AVRCP play status -> PLAYING
+10-20 13:58:16:137    [32m[4902412] I/audio_avrcp bts: << register play status changed 1
+10-20 13:58:16:138    [0m
+10-20 13:58:16:153    [intercom] AVRCP volume event: level=5/15
+10-20 13:58:16:202    [intercom] headset 2 music volume requested: 5/15 (AVRCP=45/127)
+10-20 13:58:19:781    [32m[4938734] I/btapp_ag bts: hfp ag msg *msg_type 8002 inst_data->st 2
+10-20 13:58:19:783    [0m[32m[4938744] I/btapp_ag bts: hfp_ag device state: 1 res: 0 type 32770 mux_id:255
+10-20 13:58:19:784    [0m[32m[4938754] I/btapp_ag bts: BTS2MU_AG_CONN_CFM state: 1 res: 0 type 32770
+10-20 13:58:19:786    [0m[intercom] headset 2 HFP request 1/10 sent (retry)
+10-20 13:58:19:929    ~FL=?<\S
+10-20 13:58:20:102    [32m[4941926] I/btapp_ag bts: hfp ag msg *msg_type 800d inst_data->st 2
+10-20 13:58:20:105    [0m[32m[4941935] I/btapp_ag bts: bt_hfp_ag_app_at_cmd_hdl 14 ?
+10-20 13:58:20:105    [0m[32m[4941946] I/btapp_ag bts: hfp ag msg *msg_type 800e inst_data->st 2
+10-20 13:58:20:107    [0m[32m[4941977] I/btapp_ag bts: hfp ag msg *msg_type 800e inst_data->st 2
+10-20 13:58:20:107    [0m
+10-20 13:58:20:130    [32m[4942221] I/btapp_ag bts: hfp ag msg *msg_type 8002 inst_data->st 2
+10-20 13:58:20:134    [0m[32m[4942231] I/btapp_ag bts: hfp_ag device state: 3 res: 0 type 32770 mux_id:1
+10-20 13:58:20:135    [0m[32m[4942259] I/btapp_ag bts: BTS2MU_AG_CONN_CFM state: 3 res: 0 type 32770
+10-20 13:58:20:136    [0m[intercom] headset 2 HFP AG connected, channel=1
+10-20 13:58:20:149    [32m[4942321] I/btapp_ag bts: hfp ag msg *msg_type 8002 inst_data->st 2
+10-20 13:58:20:150    [0m[32m[4942330] I/btapp_ag bts: hfp_ag device state: 3 res: 0 type 32770 mux_id:1
+10-20 13:58:20:151    [0m[32m[4942341] I/btapp_ag bts: BTS2MU_AG_CONN_CFM state: 3 res: 0 type 32770
+10-20 13:58:20:151    [0m
+10-20 13:58:20:307    [32m[4943953] I/btapp_ag bts: hfp ag msg *msg_type 800d inst_data->st 2
+10-20 13:58:20:325    [0m[32m[4943962] I/btapp_ag bts: bt_hfp_ag_app_at_cmd_hdl 19 0
+10-20 13:58:20:326    [0m
+10-20 13:58:20:338    [32m[4944245] I/btapp_ag bts: hfp ag msg *msg_type 800d inst_data->st 2
+10-20 13:58:20:339    [0m[32m[4944255] I/btapp_ag bts: bt_hfp_ag_app_at_cmd_hdl 7 15
+10-20 13:58:20:339    [0m
+10-20 13:58:20:368    [32m[4944585] I/btapp_ag bts: hfp ag msg *msg_type 800d inst_data->st 2
+10-20 13:58:20:369    [0m[32m[4944595] I/btapp_ag bts: bt_hfp_ag_app_at_cmd_hdl 8 15
+10-20 13:58:20:370    [0m
+10-20 13:58:20:421    [32m[4945111] I/btapp_ag bts: hfp ag msg *msg_type 800d inst_data->st 2
+10-20 13:58:20:431    [0m[32m[4945120] I/btapp_ag bts: bt_hfp_ag_app_at_cmd_hdl 32   
+10-20 13:58:20:433    [0m
+10-20 13:58:20:872    zWg?/Wu
+10-20 13:58:20:874    ÈA
+10-20 13:58:20:876    eo7$VTz\QN@2-W`[YItk]8)2T?
+10-20 13:58:20:876    
+10-20 13:58:20:877    Øa
+10-20 13:58:20:877    7/?i¨®EO~k<?
+10-20 13:58:20:878    B??R8DPk?c^3
+10-20 13:58:20:878    
+10-20 13:58:20:879    qiEmiZ"¨°{jss.]K+A9T
+10-20 13:58:20:880    èP
+10-20 13:58:20:880    jx75))KN;DHV[!l?h?@
+10-20 13:58:20:881    ÇQ
+10-20 13:58:20:883    y5mQ$XZmC6~Ld(w+yn@
+10-20 13:58:20:884    
+10-20 13:58:20:884    -?YbVpcU!.Q$MY5%~SG?
+10-20 13:58:20:885    ?
+10-20 13:58:20:885    b"@IY?ZH?A?gSm?j,7r
+10-20 13:58:20:885    
+10-20 13:58:20:886    `C9r2Z/	?QBoH`"6)DT-
+10-20 13:58:20:886    ?
+10-20 13:58:20:886    aAK"nLSD??f;a?%z
+10-20 13:58:22:579    
+10-20 13:58:22:581    b
+10-20 13:58:22:581    
+10-20 13:58:22:895    %?ntY M|QA
+10-20 13:58:22:897    
+10-20 13:58:22:897    OY=BQPN\,dl$.G{sI5?r
+10-20 13:58:22:897    ØQ
+10-20 13:58:22:898    ¨´Rl%mwe-4l;&fRk?KICsmGA
+10-20 13:58:22:898    Øa
+10-20 13:58:22:899    FY:%&fRk?KICsmGA
+10-20 13:58:22:899    FQ?W_K
+10-20 13:58:22:899    \I:{^Y2
+10-20 13:58:22:900    
+10-20 13:58:22:900    a¦ÉirG?Od@cQ
+10-20 13:58:22:900    
+10-20 13:58:22:901    ?qlTT?qQ$B?RgS*.q?Q
+10-20 13:58:22:901    
+10-20 13:58:22:901    jX+zS$og"I?2l]D>MgQ
+10-20 13:58:22:902    ØB
+10-20 13:58:22:902    9ZjiH*t"FEV2¨°nFf-H
+10-20 13:58:22:902    
+10-20 13:58:22:903    BG[?E	?KS)HQ\?6H
+10-20 13:58:30:372    ZBG[?E	?KS)HQ\?6H
+10-20 13:58:30:379    BG[?E	?KS)HQ\?6H
+10-20 13:58:30:379    \X"'*Zy]B[H
+10-20 13:58:30:380    MgG:
+10-20 13:58:30:380    ?
+10-20 13:58:30:380    d6I#$¦«RB;!?!7q
+10-20 13:58:30:381    6I#$¦«RB;!?!7q
+10-20 13:58:30:381    3!vek2S(?%IZ?Rk4s¦¬
+10-20 13:58:30:382    ?
+10-20 13:58:30:382    )lwT6\4M2?pug6<
+10-20 13:58:30:382    Q`bVx<&?p
+10-20 13:58:30:383    ?
+10-20 13:58:30:383    =N8tW#?B&3m(HW	Kw556A
+10-20 13:58:30:383    ×A
+10-20 13:58:30:383    3xAImgq?4-v)H7,uA
+10-20 13:58:30:384    Ø@
+10-20 13:58:30:384    ;*mqdCz?%fQi?d k+ZA
+10-20 13:58:30:384    
+10-20 13:58:30:385    sakzV9\kbCZyWT?¨·1)z*x
+10-20 13:58:33:097    MYY0
+10-20 13:58:33:098    ?
+10-20 13:58:33:099    LGEc!?;tI7XNyjL+J&?
+10-20 13:58:33:100    
+10-20 13:58:33:100    Ad=NuN?bo%&@PWh?	j1
+10-20 13:58:33:101    
+10-20 13:58:33:101    D%MLmrPx9V[%(
+10-20 13:58:33:101    D
+10-20 13:58:33:102    ?
+10-20 13:58:33:102    P!WZG|JX^?8h
+10-20 13:58:33:103    z1
+10-20 13:58:33:103    
+10-20 13:58:33:105    #fyLp]G|JX^?8h
+10-20 13:58:33:105    	uK3J4qJL-,}?}
+10-20 13:58:33:106    
+10-20 13:58:33:106    ;ZQE~??d<i?Vl[^%?hyx
+10-20 13:58:33:106    
+10-20 13:58:33:107    qX2f|	X)=L	o1{ZU4b?`
+10-20 13:58:33:107     
+10-20 13:58:33:107    l$-,(c. )m=L	o1{ZU4b?`
+10-20 13:58:33:108    Ymi?JT
+10-20 13:58:33:418    ZjA;]L[7N8b2C?B-%q6
+10-20 13:58:33:420    ÈA
+10-20 13:58:33:420    Zh+jDiwUl1"s3?iXVj;J@
+10-20 13:58:33:421     
+10-20 13:58:33:421    ?y|1o<?*?9:!3)ij?
+10-20 13:58:33:421    ?+@
+10-20 13:58:33:422    
+10-20 13:58:33:422    D1^jXIE?|(esgpQ0A
+10-20 13:58:33:422    È@
+10-20 13:58:33:423    Q2?.zzY6M17ID?	e)W
+10-20 13:58:33:425    ?
+10-20 13:58:33:425    BNz.0zpI`p	1=?m5M4x|?,H
+10-20 13:58:33:426    ØA
+10-20 13:58:33:426    n'
+10-20 13:58:33:426    $EH?F.f6q\)5a|/b5M4x|?,H
+10-20 13:58:33:427    f{0F.f6q\)5a|/b5M4x|?,H
+10-20 13:58:33:427    ÈA
+10-20 13:58:33:427    El?-hne/9M\wZ??`w>tXSC
+10-20 13:58:33:428    Ù@
+10-20 13:58:33:428    w	|8t}?^]l¨·l|'49/Wv
