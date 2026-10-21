@@ -92,6 +92,13 @@ void app_a2dp_share_on_a2dp_event(uint16_t event_id);
 void app_a2dp_share_reconcile_streams(void);
 
 bool app_a2dp_share_is_stopped(void);
+/* True while forwarded media is not yet safe to interrupt with connect
+ * signaling: the share is coming up (stream start in progress), the send
+ * ring is low (host about to starve the air), or the AVDTP send FIFOs are
+ * congested (the pump is holding on credits). The connect breathe window
+ * and the HFP "媒体未稳不重试" latch poll this to stay out of the media
+ * critical window (see BT底层修改汇总.md L2). */
+bool app_a2dp_share_media_unsettled(void);
 void app_a2dp_share_get_status(app_a2dp_share_status_t *status);
 void app_a2dp_share_get_stats(app_a2dp_share_stats_t *stats);
 const char *app_a2dp_share_state_name(app_a2dp_share_state_t state);

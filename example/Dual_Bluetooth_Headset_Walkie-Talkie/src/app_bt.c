@@ -146,6 +146,20 @@
 #define APP_BT_ROLE_DISC_MS 1500U
 #define APP_BT_ROLE_RECHECK_MS 3000U
 #define APP_BT_ROLE_NOT_READY_RETRY_MS 2000U
+/* L2 connect-storm shaping: a page/SSP burst landing on a live A2DP link
+ * is what turns into a sink underrun. Before firing a connect while media
+ * is up, give the forwarding path a bounded breathe window — send ring
+ * caught up, AVDTP credits drained — so the storm hits at maximum slack.
+ * Bounded on purpose: never queue the connect, media may never go idle. */
+#define APP_BT_CONNECT_BREATHE_MAX_MS 500U
+#define APP_BT_CONNECT_BREATHE_POLL_MS 50U
+/* "媒体未稳不重试": hold an HFP SLC retry while forwarded media is
+ * unsettled (stream starting / send ring low / AVDTP credits congested —
+ * see app_a2dp_share_media_unsettled). The 5s defer retry firing into
+ * exactly that window is what turned into a 360ms media stall. 2s per
+ * hold, at most 5 holds (~10s): talk must still land on a busy link. */
+#define APP_BT_HFP_MEDIA_WAIT_MS 2000U
+#define APP_BT_HFP_MEDIA_WAITS_MAX 5U
 
 typedef enum
 {
@@ -273,6 +287,10 @@ typedef struct
      * a retry did exactly that) makes both fail with AG res 19. */
     bool hfp_request_in_flight;
     uint8_t hfp_tries;
+    /* Media-stability holds taken on HFP retries (see
+     * APP_BT_HFP_MEDIA_WAITS_MAX). Reset whenever HFP acquisition
+     * restarts so each new attempt gets the full hold budget. */
+    uint8_t hfp_media_waits;
     /* Bounded AVDTP re-sends while the ACL is alive but A2DP flapped
      * mid-setup (some headsets close and re-open AVDTP around their own
      * SLC bring-up; aborting the ACL there wedges the remote). */
@@ -1605,6 +1623,7 @@ static int app_bt_begin_a2dp_connect(int slot_index)
     slot->av_deferred = false;
     slot->av_stall_watch = false;
     slot->av_resend_tries = 0U;
+    slot->hfp_media_waits = 0U;
     slot->gate_waits = 0U;
     slot->connect_attempt_tick = rt_tick_get();
     bt_interface_set_scan_mode(0U, 0U);
@@ -2431,11 +2450,22 @@ static void app_bt_handle_connect_command(const app_bt_event_t *event)
     }
 
     /* Outgoing page + AVDTP setup steals radio time from a live A2DP
-     * link. With a single radio this brief glitch is unavoidable 闂?warn
-     * but proceed (queuing deadlocks when media never goes idle). */
+     * link. Give the forwarding path a breathe window first: wait (bounded)
+     * until the send ring has caught up and AVDTP credits have drained, so
+     * the connect storm hits media at maximum slack instead of mid-catch-up.
+     * Never queue the connect itself — media may never go idle. */
     if (app_bt_media_active() && (app_bt_a2dp_count() > 0U))
     {
-        rt_kprintf("[intercom] connecting while music is playing; brief audio interruption expected\n");
+        uint32_t waited = 0U;
+
+        while (app_a2dp_share_media_unsettled() &&
+                (waited < APP_BT_CONNECT_BREATHE_MAX_MS))
+        {
+            rt_thread_mdelay(APP_BT_CONNECT_BREATHE_POLL_MS);
+            waited += APP_BT_CONNECT_BREATHE_POLL_MS;
+        }
+        rt_kprintf("[intercom] connecting while music is playing; media breathe %u ms\n",
+                   (unsigned int)waited);
     }
 
     if (g_scanning)
@@ -3054,6 +3084,20 @@ static void app_bt_prepare_acl_for_audio(const bt_notify_device_mac_t *mac)
      * the old slave-only guard left master links unprotected. */
     bt_interface_wr_link_policy_setting((unsigned char *)mac->addr, 0x01);
     bt_interface_exit_sniff_mode((unsigned char *)mac->addr);
+    /* L3藏抖动 (deferred): raising the controller's automatic ACL flush
+     * timeout to ~infinity (Write_Automatic_Flush_Timeout 0xFFFF x 0.625ms
+     * = 40.96s) would make a media packet that missed its air slot during
+     * a connect burst get retransmitted instead of silently dropped, so
+     * the sink's jitter buffer absorbs the lateness (a drop reads as a
+     * click/underrun). NOT POSSIBLE with this stack build: the wrapper
+     * hcia_wr_auto_flush_timeout() is declared in hci_api.h but is absent
+     * from lib_bt_gcc.a, and the command formatter's opcode dispatch
+     * (format_hc, hci_pkt_cmd.o) has no case for 0x0C28 — a hand-built
+     * DM message would be dropped at serialize time. Revisit if a future
+     * stack lib exports the wrapper. (Controller ACL buffer count 4→8+
+     * is the vendor-side half of this item and cannot be changed from
+     * the host either; the deeper host-side stock — 250ms prefill — is
+     * what covers this window today.) */
     if (slot_index >= 0)
     {
         app_bt_seize_master_role(slot_index, "A2DP ready");
@@ -3424,7 +3468,10 @@ static void app_bt_handle_a2dp(uint16_t event_id,
                        slot_index + 1U);
             app_bt_update_media_for_links();
             app_bt_request_avrcp(slot_index);
-            app_bt_request_remote_name(slot_index);
+            /* Remote name is intentionally NOT fetched here: the LMP
+             * exchange belongs to phase ④ (HFP tick / HFP connected), out
+             * of the connect critical window. The scan cache normally
+             * fills the name already, so this usually early-returns. */
             if (!slot->hfp_connected)
             {
                 /* Background HFP acquisition: give the headset a window to
@@ -3433,6 +3480,7 @@ static void app_bt_handle_a2dp(uint16_t event_id,
                  * and wedges the link until it drops (Redmi Buds 4 Pro). */
                 slot->hfp_deferred = true;
                 slot->hfp_tries = 0U;
+                slot->hfp_media_waits = 0U;
                 slot->gate_waits = 0U;
                 app_bt_hfp_timer_start(slot_index,
                                        APP_BT_HFP_DEFER_GRACE_MS);
@@ -4406,6 +4454,12 @@ static void app_bt_handle_internal(const app_bt_event_t *event)
                 slot->hfp_deferred = false;
                 break;
             }
+            /* Phase-4 filler work rides this first quiet tick: the remote
+             * name fetch used to fire right after AVDTP connected, adding
+             * an LMP exchange to the connect critical window; with the
+             * scan cache it early-returns, and without one the name can
+             * wait for this HFP phase (see L2 in BT底层修改汇总.md). */
+            app_bt_request_remote_name(slot_index);
             if (slot->acl_connected && !app_bt_link_encrypted(&slot->mac) &&
                     (slot->gate_waits < APP_BT_GATE_WAITS_MAX))
             {
@@ -4424,6 +4478,21 @@ static void app_bt_handle_internal(const app_bt_event_t *event)
                 slot->hfp_request_in_flight = false;
                 rt_kprintf("[intercom] headset %u HFP unavailable; music-only until the headset opens SLC itself\n",
                            slot_index + 1U);
+                break;
+            }
+            /* "媒体未稳不重试": an SLC burst (RFCOMM + SLC AT exchanges)
+             * landing while forwarded media is unsettled is the 360ms
+             * stall class. Hold the retry until the pipeline is settled;
+             * bounded by APP_BT_HFP_MEDIA_WAITS_MAX so talk still lands. */
+            if (app_a2dp_share_media_unsettled() &&
+                    (slot->hfp_media_waits < APP_BT_HFP_MEDIA_WAITS_MAX))
+            {
+                slot->hfp_media_waits++;
+                slot->hfp_request_in_flight = false;
+                rt_kprintf("[intercom] headset %u HFP retry held for media settle (%u/%u)\n",
+                           slot_index + 1U, slot->hfp_media_waits,
+                           APP_BT_HFP_MEDIA_WAITS_MAX);
+                app_bt_hfp_timer_start(slot_index, APP_BT_HFP_MEDIA_WAIT_MS);
                 break;
             }
             /* This timer tick means the previous request's window is
