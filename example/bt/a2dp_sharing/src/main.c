@@ -167,14 +167,14 @@ static int bt_app_interface_event_handle(uint16_t type, uint16_t event_id, uint8
         break;
         case BT_NOTIFY_COMMON_SCO_CONNECTED:
         {
-            LOG_I("HFP HF audio_connected");
+            LOG_I("HFP audio_connected");
             bt_notify_device_sco_info_t *sco_info = (bt_notify_device_sco_info_t *)data;
             bt_hfp_relay_handle_sco_event(event_id, sco_info);
             break;
         }
         case BT_NOTIFY_COMMON_SCO_DISCONNECTED:
         {
-            LOG_I("HFP HF audio_disconnected");
+            LOG_I("HFP audio_disconnected");
             bt_notify_device_sco_info_t *sco_info = (bt_notify_device_sco_info_t *)data;
             bt_hfp_relay_handle_sco_event(event_id, sco_info);
             break;
@@ -580,6 +580,8 @@ int main(void)
 
     rt_ringbuffer32_init(&transfor_rb, mempool, TRANSFOR_BUFFER_SIZE);
 
+    bt_hfp_relay_mgr_init();
+
     while (1)
     {
         rt_thread_mdelay(15000);
@@ -588,7 +590,7 @@ int main(void)
 }
 
 
-#if defined(SF32LB52X_58)|| (defined(SF32LB52X) && (defined(SF32LB52X_REV_B) || defined(SF32LB52X_REV_AUTO)))
+#if defined(SF32LB57X)|| defined(SF32LB52X_58)|| (defined(SF32LB52X) && (defined(SF32LB52X_REV_B) || defined(SF32LB52X_REV_AUTO)))
 
 void lcpu_rom_config_default(void);
 uint16_t g_em_offset[HAL_LCPU_CONFIG_EM_BUF_MAX_NUM] =
@@ -615,6 +617,8 @@ void lcpu_rom_config(void)
     HAL_LCPU_CONFIG_set(HAL_LCPU_CONFIG_BT_ACT_CFG, &act_cfg, sizeof(hal_lcpu_bluetooth_act_configt_t));
 
     hal_lcpu_bluetooth_rom_config_t config = {0};
+    uint16_t cfg_len = sizeof(config);
+    HAL_LCPU_CONFIG_get(HAL_LCPU_CONFIG_BT_CONFIG, (uint8_t*)&config, &cfg_len);
     config.bit_valid |= 1 << 2 | 1 << 13;
     config.lld_prog_delay = 3;
     config.sco_cfg = 2;
