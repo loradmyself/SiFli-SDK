@@ -1117,11 +1117,25 @@ static void app_share_producer(void *parameter)
         }
         if ((g_pcm_used + read_length) > sizeof(g_pcm_buffer))
         {
-            g_pcm_used = 0U;
+            /* Drop the oldest complete encode-chunk to make room instead
+             * of resetting the whole buffer (a full reset left a click /
+             * gap in the audio). Only if even that is not enough do we
+             * fall back to a hard reset. */
+            while ((g_pcm_used + read_length) > sizeof(g_pcm_buffer) &&
+                    (g_pcm_used >= g_active_config.bytes_to_rd))
+            {
+                g_pcm_used -= g_active_config.bytes_to_rd;
+                memmove(g_pcm_buffer,
+                        &g_pcm_buffer[g_active_config.bytes_to_rd],
+                        g_pcm_used);
+            }
+            if ((g_pcm_used + read_length) > sizeof(g_pcm_buffer))
+            {
+                g_pcm_used = 0U;
+            }
             app_share_lock();
             g_stats.encode_errors++;
             app_share_unlock();
-            continue;
         }
         app_share_apply_music_volume(g_i2s_block, read_length);
         memcpy(&g_pcm_buffer[g_pcm_used], g_i2s_block, read_length);

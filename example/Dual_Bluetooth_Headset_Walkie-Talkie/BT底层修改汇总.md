@@ -969,6 +969,139 @@ max_used=used 表明是泄漏顶满，不是 free 链踩坏。）
 条件。验证点：跑双耳机连接 + 长时间转发后 `list_mem`/异常转储的
 used 应远低于 total（此前 1–2s 即顶满）。`main.bin` 915,772B 重建通过。
 
+### 1.11 未提交（2026-10-21）「L3 藏抖动落地：ACL 连接时写 Write_Automatic_Flush_Timeout 防配对窗丢包」
+
+**现象**：双耳机场景，配对第二副耳机的瞬间，第一副耳机的 A2DP 转发
+出现 231ms / 419ms 的空窗——sniffer 抓到 AVDTP seq 丢号（113/1715），
+host 侧媒体泵（§1.8/§1.9 已证不丢包）确认是 **controller 侧自动 ACL
+flush**：配对突发抢空口，控制器对来不及发的 ACL 数据按默认 flush timer
+丢弃，sink 端 jitter buffer 等不到数据 → 听感卡顿/爆音。
+
+**根因**：控制器默认 Automatic_Flush_Timeout 太短（~200ms 级），配对
+风暴导致的短暂空口拥堵（231ms/419ms）即触发 flush。Audio ACL 链路的
+数据被静默丢掉——lateness 本可被 sink jitter buffer（225ms）吸收。
+
+**注入路径选型**（三选一，前两个死路已实锤）：
+1. **DM/`hcia_*` 路径（死）**：`hcia_wr_auto_flush_timeout()` 在
+   `hci_api.h:1776` 有声明，但 `lib_bt_gcc.a` 无实现（nm 查无符号）；
+   且 `format_hc`（`hci_pkt_cmd.o`，203 个 `format_hci_*` 函数）没有
+   `format_hci_wr_auto_flush_timeout` 条目——手工构造 DM 消息会在序列
+   化时被 TBB 丢弃。OCF 0x28 连格式化器都不存在。
+2. **结构化 `hcicm_send_to_hci` 路径（可用但有竞态）**：绕过 format_hc
+   直接走 co_util_pack OGF 表（OGF-3 OCF 0x28 → plen=4, msg_size=0x14），
+   20 字节消息布局 `opcode@0, handle@4, BD@8, timeout@16`，CC 能配对到
+   `hciev_cc_wr_auto_flush_timeout`。但 `tx_cmd_to_hci` 的 credit/队列
+   无临界区保护——从 app 线程调用会与 hcicm 任务竞态。
+3. **raw `hcid_send_hci_cmd` 路径（选定）**：`hci_drv.h:55` 声明的公开
+   注入 API。内部走 `hci_send_pk_2_controller` → `ke_msg_alloc` +
+   `ke_msg_send`（RW 内核原语，任意线程安全）→ 传输层。绕过 hcicm
+   credit 队列，无竞态。CC 回来后 `hciev_hdl_hci_cmd_cmp` 在队列里查
+   无 opcode 直接 `cbz r0, return`（typed CC 派发跳过）；唯一副作用是
+   无条件 credit=1 + delayed-list drain——与任何正常 CC 一致，无害。
+
+**修复**：`app_bt.c` 新增 `app_bt_set_acl_flush_timeout()`：`rt_malloc(7)`
+分配 7 字节 raw HCI 命令 `28 0C 04 [hdl_lo hdl_hi] FF 07`，调
+`hcid_send_hci_cmd(cmd, 7)`（内部走 `bt_mem_free` 释放——池内指针回池、
+池外 `rt_free`，§1.10 修复后区间判定正确）。在
+`app_bt_handle_acl_connected()` 的 `info->res == HCI_SUCC` 分支调用
+（handle 来自 `info->handle`，`bt_connection_manager.c:1187` 填入的
+`ind->phdl`），**在 ACL 连接时刻**即写入——早于 A2DP ready（
+`app_bt_prepare_acl_for_audio`），确保第二副耳机配对风暴到来前第一副
+的 flush timeout 已生效。`app_bt_prepare_acl_for_audio` 的 L3 注释更新
+为指向本实现。
+
+**Timeout 取值 0x07FF（1.28s）而非 0xFFFF（never-flush）**：
+0xFFFF = 永不自动 flush，配对间歇期过长时旧包占死 ACL buffer（本芯片
+controller ACL buffer 仅 4 个），新音频反而被 credit 门在 host 侧堵住——
+更糟。0x07FF × 0.625ms = 1.28s，远大于两次观测空窗（231ms/419ms），
+同时保留 flush 安全阀防止死链 wedge。`hci_spec.h` 定义
+`HCI_MAX_FLUSH_TIMEOUT = 0x07FF` 与之一致。
+
+**预期**：配对第二副耳机时，第一副的 ACL 数据不再被 controller 自动
+flush——231ms 级空窗内数据继续在 controller 队列里排队重传，sink jitter
+buffer（225ms）吸收延迟。验证点：sniffer 抓配对窗，AVDTP seq 不再丢号
+（113/1715 位置变为 late delivery 而非 gap）；log 里每次 ACL 连接打印
+`[intercom] ACL %04X flush timeout -> 1.28s`。419ms 事件需设备 log 确认
+是否同类——若伴随 ecc_p256/host 侧停顿则属另一类（§1.8 L2 塑形 + §1.9
+L1 门控的范围）。
+
+### 1.12 未提交（2026-10-21）「应用层三连修：频繁 pause 禁全局停 + 复位重连 EBUSY 重试 + PCM 溢出削块」
+
+三个独立症状、三处独立修复，均在 `example/Dual_Bluetooth_Headset_Walkie-Talkie/src/`。
+
+---
+
+**① 频繁 pause（`app_bt.c` → `app_bt_update_media_for_links`）**
+
+现象：连接第二副耳机期间，第一副耳机的转发音频反复暂停/恢复。
+根因：`disconnect_blocks_media` 置位（HFP teardown 路径 ~9 处）后，
+`app_bt_update_media_for_links` 无条件调 `app_bt_set_media_desired(false)`
+→ share stop/start 循环。`app_a2dp_share_start` 在 STOPPING 态返回
+`-RT_EBUSY` 且静默失败 → share 永久停止。
+
+修复：`disconnect_blocks_media` 只在 **没有任何健康 A2DP 链路** 时才停
+share。健康链路存在时，teardown 的那条链路的断连不再影响另一条正在播
+放的耳机。
+
+```c
+if (blocking && !any_healthy_a2dp) { app_bt_set_media_desired(false); return; }
+app_bt_set_media_desired(app_bt_a2dp_count() != 0U);
+```
+
+---
+
+**② 复位重连后两耳机均不播音（`app_bt.c` → `app_bt_set_media_desired`）**
+
+现象：复位/重连后两个耳机都没有音频。share 处于 STOPPING 窗口期时
+`app_a2dp_share_start` 返回 `-RT_EBUSY`，此前代码只处理 `!= RT_EOK &&
+!= -RT_EBUSY`，EBUSY 被忽略 → share 永久停。
+
+修复：EBUSY 时安排 500ms×8 的 `APP_BT_CMD_MEDIA_RECOVER` 重试链（复用
+已有 recovery 机制），确保 stop/start 竞态窗口关闭后 share 恢复。
+
+```c
+if (desired && (result == -RT_EBUSY))
+{
+    bts2_timer_ev_add(APP_BT_MEDIA_RECOVER_DELAY_MS,
+                      app_bt_media_recover_bts_cb,
+                      APP_BT_MEDIA_RECOVER_MAX, RT_NULL);
+}
+```
+
+---
+
+**③ 电流声残余——PCM 溢出全量清零爆音（`app_a2dp_share.c` → `app_share_producer`）**
+
+现象：编码器生产速度偶尔跟不上 I2S 读入速度时，`g_pcm_buffer` 溢出走
+`g_pcm_used = 0; continue;`——整个缓冲区清零 = 丢一大段 PCM = 爆音/电流声。
+
+修复：溢出时先逐块丢弃最旧的完整 encode-chunk（`memmove` 前移），尽量
+保留最近数据。仅当连丢几块仍不够时才硬清零。
+
+```c
+while ((g_pcm_used + read_length) > sizeof(g_pcm_buffer) &&
+        (g_pcm_used >= g_active_config.bytes_to_rd))
+{
+    g_pcm_used -= g_active_config.bytes_to_rd;
+    memmove(g_pcm_buffer, &g_pcm_buffer[g_active_config.bytes_to_rd], g_pcm_used);
+}
+if ((g_pcm_used + read_length) > sizeof(g_pcm_buffer)) { g_pcm_used = 0U; }
+```
+
+**电音排查结论**（本次代码审计未找到固件侧根因）：
+- SBC 编码器锁：全部生产路径持 `bt_avsrc_sbc_lock`（唯一无锁调用在
+  `#ifdef AUDIO_DATA_TEST` 测试代码内，不参与生产）
+- SBC 配置：`app_share_config_equal` 比较全部 12 个字段；`validate` 拒绝
+  MONO / 零参数
+- 音量：`set_volume` 拒绝 `level > MAX`，gain ≤ unity Q15，`>> 15` 无溢出
+- ring put：`rt_enter_critical` 保护，SPSC 安全
+- 线程优先级：a2dps/a2dptx=11（高于 BT task=12），配对风暴不饿死 TX
+- RTP 头：由 `av_stream_data_req` 填充，share 管线只写 SBC payload + 帧数
+
+残余可能：sink 端 SBC bitpool 协商过低（耳机能力）；或 sink jitter buffer
+不足 225ms 时超长空窗（>419ms）仍导致 decoder underrun——属空口调度层
+面，L1/L2/§1.11 已覆盖 231ms 级，更大空窗需设备 log 确认。
+
 ## 2. 累计改动清单（按主题）
 
 ### 2.1 ACL / 连接管理器（`bt_connection_manager.c`，净 +112/−15）
@@ -1017,6 +1150,15 @@ used 应远低于 total（此前 1–2s 即顶满）。`main.bin` 915,772B 重�
 
 产品策略均在应用层覆写：`app_bt.c:5520` 返回 `BT_LINK_MASTER`；
 `app_bt.c:5582` 实现"转外连"判定并投递 `APP_BT_CMD_CONVERT_INCOMING`。
+
+### 2.5 应用层（`example/Dual_Bluetooth_Headset_Walkie-Talkie/src/`）
+
+| # | 修改 | 作用 | 提交 |
+| --- | --- | --- | --- |
+| 25 | `app_bt_update_media_for_links` 频繁 pause 禁全局停 | 健康 A2DP 存在时 teardown 不再停 share | 未提交 1.12 |
+| 26 | `app_bt_set_media_desired` EBUSY 重试 | stop/start 竞态窗口关闭后 share 自动恢复 | 未提交 1.12 |
+| 27 | `app_share_producer` PCM 溢出削块 | 丢最旧 encode-chunk 替代全清零，消除爆音 | 未提交 1.12 |
+| 28 | `app_bt_set_acl_flush_timeout` ACL 连接注入 | controller 不再 flush 配对窗内的音频包 | 未提交 1.11 |
 
 ---
 
