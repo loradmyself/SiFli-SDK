@@ -26,9 +26,18 @@
 #define APP_SHARE_SBC_HEADER_SIZE 1U
 #define APP_SHARE_PACKET_HEADER_SIZE                                      \
     (APP_SHARE_RTP_HEADER_SIZE + APP_SHARE_SBC_HEADER_SIZE)
+/* L3藏抖动: the ring doubles so the 250ms prefill target fits under the
+ * half-ring cap (250ms of SBC records is ~9 x 645B, and the cap guards
+ * against ever filling the whole buffer). The deeper stock is what lets
+ * the host keep feeding instantly through the air gaps of a connect
+ * storm instead of starving the link after each gap. */
 #define APP_SHARE_RING_SIZE                                               \
-    (SINK_DATA_LIST_MAX_THRESHOLD * AV_MTU_SIZE)
-#define APP_SHARE_PREFILL_MS 100U
+    (20U * AV_MTU_SIZE)
+/* L3藏抖动: prefill 100ms -> 250ms. The connect-storm capture showed a
+ * 226ms air gap underrunning the sink; deeper host stock cannot shorten
+ * the gap itself (that is L1.4/L2) but guarantees the pipeline refills
+ * the sink the moment the air frees, so the gap never compounds. */
+#define APP_SHARE_PREFILL_MS 250U
 #define APP_SHARE_MAX_FRAMES_PER_PACKET 10U
 #define APP_SHARE_MAX_PCM_BYTES                                           \
     (APP_SHARE_MAX_FRAMES_PER_PACKET * 16U * 8U * 2U * sizeof(int16_t))
@@ -71,7 +80,10 @@
  * winning (slow the encoder); if it fills high both sinks lag (speed up).
  * This pulls the two sinks' consumption rates together and shrinks
  * playback drift without touching the BT submodule. */
-#define APP_SHARE_SYNC_RING_TARGET_MS 80U
+/* L3藏抖动: 80ms -> 200ms so a two-sink steady state keeps the same storm
+ * slack as the single-sink prefill; the steering dynamics (±50us steps)
+ * are unchanged, only the equilibrium level moves up. */
+#define APP_SHARE_SYNC_RING_TARGET_MS 200U
 #define APP_SHARE_SYNC_STEP_US 50U
 
 /* Forced two-sink resync: every APP_SHARE_RESYNC_INTERVAL_MS, briefly
@@ -1864,6 +1876,43 @@ bool app_a2dp_share_is_stopped(void)
     return stopped;
 }
 
+bool app_a2dp_share_media_unsettled(void)
+{
+    app_a2dp_share_status_t snapshot;
+
+    app_a2dp_share_get_status(&snapshot);
+    switch (snapshot.state)
+    {
+    case APP_A2DP_SHARE_STATE_STARTING:
+    case APP_A2DP_SHARE_STATE_PREFILLING:
+        /* Stream start in progress — a signaling burst now lands exactly
+         * where the sink is still filling its jitter buffer. */
+        return true;
+
+    case APP_A2DP_SHARE_STATE_RUNNING:
+        break;
+
+    default:
+        /* Idle / stopping / error: no live audio to protect. */
+        return false;
+    }
+
+    /* Send ring below half the prefill target: the host is about to
+     * starve the air and every bit of airtime belongs to catch-up. */
+    if (snapshot.ring_bytes < (snapshot.prefill_target / 2U))
+    {
+        return true;
+    }
+
+    /* AVDTP send FIFO depth (backpressure proxy, see
+     * avh_stream_data_req / avh_gap_l2c_data_cfm in the prebuilt stack):
+     * depth >= 2 means at least 3 media packets are already in the
+     * L2CAP/controller pipeline — all 4 ACL buffers' worth of media on
+     * this controller. Exactly the window where a page/SLC burst turns
+     * into a sink underrun. */
+    return av_get_stream_buffize() >= 2U;
+}
+
 void app_a2dp_share_get_status(app_a2dp_share_status_t *status)
 {
     if (status == RT_NULL)
@@ -1940,6 +1989,11 @@ void app_a2dp_share_reconcile_streams(void)
 bool app_a2dp_share_is_stopped(void)
 {
     return true;
+}
+
+bool app_a2dp_share_media_unsettled(void)
+{
+    return false;
 }
 
 void app_a2dp_share_get_status(app_a2dp_share_status_t *status)

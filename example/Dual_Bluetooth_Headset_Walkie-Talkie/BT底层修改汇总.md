@@ -869,6 +869,106 @@ pdm/i2s 录音 pipe 从 `CFG_AUDIO_RECORD_PIPE_SIZE * 2`（约 3.7ms）改
 分配池）；③ 连接窗口抖动是 page/SSP 空口争用 + 4 ACL 缓冲打满，需连
 接编排与耳机侧 jitter buffer。
 
+### 1.9 未提交（2026-10-20）「连接卡顿根因②③清零：发送缓冲池 + ts 提交 + credit 门 + 连接风暴塑形 + 藏抖动」
+
+现象：1.8 只修复了三因中的①（定时器饿死）。残余②：seq 556 整包
+消失（per-sink `bmalloc` 失败）；残余③：连接窗口 225.98ms 空窗 +
+credits -4/-3（本次抓包主因，page/SSP 争空口 + 控制器 4 个 ACL 缓冲
+打满）。按四层计划顺序修复：L1 发送缓冲池→ts 提交语义→credit 调度器，
+L2 连接风暴塑形，L3 藏抖动。
+
+根因：② `bt_avsrc_sharing` 每 sink 扇出一次 `bmalloc(pkt_len)`（~658B），
+连接风暴期堆压力/碎片下失败即整包静默丢（`s_media_nomem` 可证），且
+ts 在读 ring 时即推进，丢包处 seq/ts 出现空洞。③ 空口让给 page/SSP
+期间媒体全靠主机即时供给——无预存量可顶，控制器 4 个 ACL 缓冲被
+信令+媒体打满后 `l2ca_datawr_req` 背压，媒体一让出就断流。
+
+修复（按序）：
+- **L1.2 发送缓冲池**（`bts2_app_av_src.c`）：16×704B 静态池
+  （≥ 10×63+13 一条媒体记录），`bt_mem_free` 强符号重定向只回收池
+  块（其他地址透传 `rt_free`，池空/非池地址行为与旧版逐字节一致）；
+  `bt_avsrc_media_alloc` 取池块，池空退回 `bmalloc`（最坏退化为旧
+  行为，不更差）。池块在种子循环后才可发放，free 回收不会与种子竞态。
+- **L1.3 ts 提交语义**（同文件）：单记录 peek/commit——记录从 share
+  ring 读出先暂存 `s_share_pkt_buf[1024]`，扇出全部成功（或决策丢弃）
+  后才提交 `inst->time_stamp` 并释放暂存；节拍只对已提交包推进
+  （`!s_share_pkt_pending` 才改 `stream_frm_time_begin`）。丢包不再
+  产生 ts 空洞，1ms 重试轮询不干扰节拍数学。
+- **L1.4 credit 调度器**（同文件）：`BT_AVSRC_TX_CREDIT_HOLD 3`——
+  `av_get_stream_buffize()`（每流媒体 FIFO 深度；反汇编验证：data_req
+  压入/`gap_l2c_data_cfm` 弹出，1 在途 + FIFO 即控制器 ACL 缓冲占用
+  的真实背压代理）≥3 时持有暂存记录不扇出，`BT_AVSRC_TX_HOLD_MS 1`
+  轮询；`BT_AVSRC_TX_FAILS_MAX 32` 次连续扇出失败丢弃暂存防死锁。
+  阈值 3 ≈ 控制器 4 缓冲全占（留 1 个给信令），正对抓包 credits -4 窗口。
+- **L2 连接风暴塑形**（`app_bt.c`，不属子模块）：
+  ① 连接前 breathe——音乐在播且有 sink 时轮询
+  `app_a2dp_share_media_unsettled()` 最多 500ms（50ms 步，上限
+  `APP_BT_CONNECT_BREATHE_MAX_MS`），让 ring 追平、credit 归零再开
+  风暴，有界且从不排队连接；
+  ② 计划"SSP 后 L2CAP 前插 300–500ms"不可行：`av_conn_req` 是原子
+  预编译序列（ACL+L2CAP+AVDTP），`gap_api.h` 无 ACL-only API——以①
+  的风暴前 breathe 作应用级等价；
+  ③ Remote Name 移出媒体关键窗口：`app_bt_request_remote_name` 从
+  A2DP 连上（阶段③）移到首个 HFP tick（阶段④），扫描缓存命中时提前
+  返回；
+  ④ HFP"媒体未稳不重试"闩：`APP_BT_CMD_HFP_TIMEOUT` 重试前查
+  unsettled，未稳则挂起 2s（`APP_BT_HFP_MEDIA_WAIT_MS`）× 最多 5 次
+  （`hfp_media_waits`，HFP 获取重启时清零），重试不再撞媒体窗口。
+- **L3 藏抖动**（`app_a2dp_share.c/.h`）：`APP_SHARE_PREFILL_MS`
+  100→250（≈9 包 5805B，覆盖 226ms 抓包空窗）；`APP_SHARE_RING_SIZE`
+  改 20×AV_MTU（13440B，250ms 预存 < 半环上限）；
+  `APP_SHARE_SYNC_RING_TARGET_MS` 80→200（双 sink 稳态高于 unsettled
+  底线 125ms=prefill_target/2，闩不会常年误触发）；
+  新增 `app_a2dp_share_media_unsettled()`：STARTING/PREFILLING 为真，
+  RUNNING 时 `ring_bytes < prefill_target/2` 或 `av_get_stream_buffize()
+  >= 2` 为真——breathe 与闩共用此判定。
+  ACL flush timeout=∞（计划条件项）：`hcia_wr_auto_flush_timeout`
+  在 `hci_api.h` 有声明但未编入 `lib_bt_gcc.a`，且 `format_hc`
+  （`hci_pkt_cmd.o`）OGF 0x0C00 派发表对 opcode 0x0C28 无 case（自制
+  DM 消息也会在序列化时被丢弃）——改注释记录，留待未来库导出；
+  控制器 ACL 缓冲 4→8+ 仍为厂商侧项。
+
+预期：② 池化后 `s_media_nomem` 计数应恒 0；③ credit 门把 credits -4
+窗口的扇出压住，250ms 库存把空窗转为"晚发"而非"丢包"，breathe/闩把
+风暴挪出媒体关键窗口。四层全部落地后重建通过（`main.bin` 915,772B）。
+未覆盖：控制器缓冲扩容（厂商侧）、未来库若导出
+`hcia_wr_auto_flush_timeout` 可再补 L3 首项。
+
+### 1.10 未提交（2026-10-21）「死机修复：媒体池 `bt_mem_free` 区间判定把整个堆吞进池空闲链」
+
+**现象**：单副耳机连接流程（ACL→SSP→A2DP connected→stream start→
+AVRCP 音量 5/15 后约 0.5s）`hard fault on thread: bts`，
+`SCB_CFSR_MFSR:0x82 DACCVIOL SCB->MMAR:00000000`，PC 0x1207d474 =
+`hcit_send_acl_data`+0x16 `strb r3,[r0,#0]`（r0=0）；Memory Info
+`total 290140 / used 290164 / max 290164`——堆钉死在满位。
+
+**根因**：§1.9 L1.2 发送缓冲池的 `bt_mem_free()` 强符号覆盖里，池
+区间上界写成 `s_mem_pool + sizeof(s_mem_pool)`。`s_mem_pool` 类型是
+`uint8_t [16][704]`，指针加法按 `uint8_t[704]` 元素缩放，上界实际落在
+**基址 + 0x790000（11264×704 = 7.93MB）**——反汇编实锤
+`add.w r3, r3, #7929856`。而本工程堆区为 0x20028E74–0x2006FC00
+（`rt_system_heap_init` 实参，290188B，log 290140B 吻合），整个堆
+**落在**伪造区间 [0x2000E8CC, 0x2079E8CC) 内：`bt_mem_free`（= `bfree`
+宏，栈内 l2cm_datawr_free / avh_stream_data_req / av_stream_buff_clear
+以及 av_src 自身所有 `bmalloc`/`bfree` 对全部经此）把**每一个堆指针**
+都当作池块塞进 `s_mem_pool_free[]`，永远不 `rt_free`——秒级泄漏满堆。
+随后 `hcit_send_acl_data`（`hci_tl.o`，预编译库）`bt_mem_alloc(len+4)`
+返回 NULL 且**无判空**，直接 `strb` 写 [0] → DACCVIOL 硬错误。媒体包
+647B（r7=0x287）正走 ACL 发送，撞在满堆上。
+（used=total+24B 为转储时自留的 24B 小分配/对齐零头，非元数据损坏：
+max_used=used 表明是泄漏顶满，不是 free 链踩坏。）
+
+**修复**：`bts2_app_av_src.c` `bt_mem_free()` 上界改为字节寻址
+`pool + sizeof(s_mem_pool)`（先 `uint8_t *` 化再加），重建后反汇编为
+`add.w r3, r3, #11264`（0x2C00 = 16×704 真实池尺寸）。池内指针照旧
+回收进空闲链，池外一律 `rt_free`——与默认弱蹦床逐字节等价。注释里
+记录了数组衰减陷阱，防止再犯。
+
+**预期**：连接/串流期间堆不再被吞，`bt_mem_alloc` 不再返回 NULL；
+`hcit_send_acl_data` 的 NULL 解引用（预编译库侧，无法加判空）失去触发
+条件。验证点：跑双耳机连接 + 长时间转发后 `list_mem`/异常转储的
+used 应远低于 total（此前 1–2s 即顶满）。`main.bin` 915,772B 重建通过。
+
 ## 2. 累计改动清单（按主题）
 
 ### 2.1 ACL / 连接管理器（`bt_connection_manager.c`，净 +112/−15）
