@@ -443,9 +443,19 @@ static void app_share_collect_links(app_share_link_snapshot_t *snapshot)
     /* "Whoever streams gets audio": encoding needs ONE streaming link
      * with a valid config — not every connected link streaming. The
      * all_streaming veto used to silence BOTH headsets whenever a
-     * joiner's stream start stalled. */
+     * joiner's stream start stalled.
+     *
+     * configs_match is deliberately NOT part of config_valid: when a
+     * second headset joins with a different SBC config (e.g. different
+     * bitpool), requiring a match made config_valid false → the encoder
+     * stopped → app_share_stop_producer cleared the PCM buffer and reset
+     * the SBC state → audible click / 电流音 on BOTH headsets.  The SBC
+     * frame header is self-describing (bitpool is in the frame), so
+     * encoding with the first streaming link's config delivers continuous
+     * audio to every sink; the only cost is the second sink getting the
+     * first link's negotiated quality.  Silence is never acceptable. */
     snapshot->config_valid = (snapshot->streaming_count > 0U) &&
-                             have_config && configs_match &&
+                             have_config &&
                              app_share_validate_config(&first_config);
 }
 
@@ -889,7 +899,7 @@ static int app_share_encode_record(const uint8_t *pcm,
         (uint16_t)(AV_MTU_SIZE - APP_SHARE_PACKET_HEADER_SIZE);
     uint16_t frames = 0U;
 
-    memset(record->packet, 0, APP_SHARE_PACKET_HEADER_SIZE);
+    memset(record->packet, 0, sizeof(record->packet));
     bt_avsrc_sbc_lock();
     app_share_collect_links(&links);
     if (!links.config_valid || !app_share_config_equal(config, &links.sbc))
@@ -1060,7 +1070,14 @@ static void app_share_producer(void *parameter)
             continue;
         }
 
-        if (!links.all_streaming)
+        /* "Whoever streams gets audio": continue as long as at least one
+         * link is streaming (config_valid), not only when EVERY connected
+         * link is streaming.  The all_streaming gate stopped the producer
+         * — clearing the PCM buffer and resetting the SBC encoder — every
+         * time a second headset was connected but its AVDTP stream had not
+         * started yet (or was mid-suspend), which is exactly the connect /
+         * disconnect window where 电流音 was heard on the healthy headset. */
+        if (!links.config_valid)
         {
             if (producer_active || cleanup_pending)
             {
@@ -1281,8 +1298,18 @@ static void app_share_bts_pump(void)
 
     app_share_collect_links(&links);
     app_share_update_link_status(&links);
-    if (desired && links.all_streaming)
+    /* Use config_valid (≥1 streaming link) not all_streaming: the pump
+     * must run while a second headset is still bringing its AVDTP stream
+     * up, otherwise the kick never fires and the healthy headset's ring
+     * drains to empty during the connect window. */
+    if (desired && links.config_valid)
     {
+        /* Must run even while one link is already streaming: the second
+         * headset's AVDTP stream starts here (avconned_open → START).
+         * Without this the else-branch below is never reached once the
+         * first headset is streaming, so the joiner's stream never starts
+         * and the second headset stays silent until the first leaves. */
+        app_a2dp_share_reconcile_streams();
         app_share_wedge_check(&links);
         /* Records are pumped by the producer thread now (see
          * app_share_producer); only sample the ring level here. */

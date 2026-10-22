@@ -1102,6 +1102,81 @@ if ((g_pcm_used + read_length) > sizeof(g_pcm_buffer)) { g_pcm_used = 0U; }
 不足 225ms 时超长空窗（>419ms）仍导致 decoder underrun——属空口调度层
 面，L1/L2/§1.11 已覆盖 231ms 级，更大空窗需设备 log 确认。
 
+### 1.13 未提交（2026-10-22）「丢包清零 + 电流音消除：组合管线门控 + 配置变更不停编码器」
+
+四个独立修复，分别针对 sniffer 抓到的两类卡顿和连接/断开时的电流音。
+其中 ①② 于同日 13:00 重写：通过反汇编预编译库确认
+`av_get_stream_buffize()` 并非 per-stream 深度（旧分析有误），而是单一
+全局变量 `stream_buffize`，由 `avh_stream_data_req`/`avh_gap_l2c_data_cfm`
+设为**最后操作的那条流**的 FIFO 深度。双流时它在两个深度之间跳动，严重
+低估管线占用。因此 credit 门限改为组合计数器方案。
+
+---
+
+**① AVDTP 丢包（sniffer: missing packet sequence number）**
+
+现象：连接/断开耳机时，sniffer 抓到 AVDTP seq 号缺失（9884/9886/9892/
+9896/9898/9903/9906），间隔不规则（2/6/4/2/5/3）——包已进 AVDTP 层拿到
+seq 号但在下游丢失。
+
+根因（反汇编确认）：
+- `av_get_stream_buffize()` 读全局 `stream_buffize`，仅反映最后入/出队的
+  那条流的 FIFO 深度。双流时另一条流的真实深度被隐藏，门限形同虚设。
+- 每条流的 per-stream FIFO 深 50（偏移 248），满了丢 20 个最老包（已分配
+  seq → gap）。`avh_gap_l2c_data_cfm` 无条件调 `l2ca_datawr_req` 发下一个，
+  不检查 HCI ACL 余量 → controller 4 buffer 耗尽时静默丢包。
+- Frontline sniffer "credits: -4" 证实 controller ACL 被超发 4 个。
+
+修复（组合管线门控）：
+- 新增 `s_tx_pipe_copies` 组合计数器：每次 `av_stream_data_req` 扇出后
+  `+= ncopy`；每 2ms 衰减 1（`BT_AVSRC_TX_DRAIN_MS`，保守估计 ACL slot
+  释放时间）。gate 在发送前检查 `pipe_est + ncopy_est > BT_AVSRC_TX_PIPE_MAX(3)`。
+- `BT_AVSRC_TX_CREDIT_HOLD` 3→2：单流时兜底（全局准确）。
+- 停止/取消时重置计数器（`bt_avsrc_sharing_cancel`）。
+
+---
+
+**② 延迟型卡顿（sniffer: 255.84ms gap > 225ms sink buffer）**
+
+现象：连接/断开时 audio 空窗 255.84ms，超过 sink jitter buffer 225ms →
+decoder underrun。
+
+根因：flush-timeout 1.28s 让包存活但延迟交付。延迟 >225ms 时 sink 丢弃
+迟到包 → 空窗。credit 门限失效导致拥堵窗口过长。
+
+修复：
+- 组合管线门控（同①）：减少拥堵窗口
+- `BT_AVSRC_TX_CATCHUP_MS` 5→2：拥堵结束后 2ms 内追发，16ms 内填满
+  sink 的 225ms jitter buffer（原 5ms 需 40ms）
+
+---
+
+**③ 电流音：SBC 配置不一致时编码器停止**
+
+现象：连接/断开耳机时听到电流音/爆音。
+
+根因：`app_share_collect_links` 的 `config_valid` 要求 `configs_match`。
+第二副耳机 SBC 配置不同（如 bitpool 不同）时 `configs_match=false` →
+`config_valid=false` → encoder 停止 → `app_share_stop_producer` 清 PCM
+buffer + 重置 SBC 状态 → 爆音。断开时恢复又触发 restart → 又一次爆音。
+
+修复：`config_valid` 不再要求 `configs_match`。SBC 帧头自描述（bitpool
+在帧内），用第一个 streaming link 的配置编码，所有 sink 持续出声。代价仅
+是第二个 sink 得到第一个 link 的协商质量。
+
+---
+
+**④ 电流音：all_streaming 门禁在连接窗停编码器**
+
+现象：同③，连接/断开时爆音。
+
+根因：producer 线程的 `!links.all_streaming` 检查要求**所有**已连接链路
+都在 streaming。第二副耳机 A2DP 已连但 AVDTP 还没 started 时
+`all_streaming=false` → producer 停止 → 清 PCM buffer + 重置编码器 → 爆音。
+
+修复：改为 `!links.config_valid`（≥1 条 streaming 即继续）。pump 的
+`all_streaming` 检查同步改为 `config_valid`，确保连接窗内 kick 不断。
+
 ## 2. 累计改动清单（按主题）
 
 ### 2.1 ACL / 连接管理器（`bt_connection_manager.c`，净 +112/−15）
@@ -1159,6 +1234,17 @@ if ((g_pcm_used + read_length) > sizeof(g_pcm_buffer)) { g_pcm_used = 0U; }
 | 26 | `app_bt_set_media_desired` EBUSY 重试 | stop/start 竞态窗口关闭后 share 自动恢复 | 未提交 1.12 |
 | 27 | `app_share_producer` PCM 溢出削块 | 丢最旧 encode-chunk 替代全清零，消除爆音 | 未提交 1.12 |
 | 28 | `app_bt_set_acl_flush_timeout` ACL 连接注入 | controller 不再 flush 配对窗内的音频包 | 未提交 1.11 |
+| 29 | `config_valid` 不再要求 `configs_match` | SBC 配置不同不停车载编码器，消除电流音 | 未提交 1.13 |
+| 30 | producer `all_streaming`→`config_valid` | 一条链路 streaming 即继续，连接窗不停车载 | 未提交 1.13 |
+| 31 | pump `all_streaming`→`config_valid` + reconcile_streams 移入主分支 | 连接窗内 kick 不断；第二副耳机的 AVDTP stream 不再被饿死 | 未提交 1.13 |
+
+### 2.6 A2DP 发送路径（`bts2_app_av_src.c`，净 +45/−10）
+
+| # | 修改 | 作用 | 提交 |
+| --- | --- | --- | --- |
+| 32 | `BT_AVSRC_TX_CREDIT_HOLD` 3→2 + `BT_AVSRC_TX_PIPE_MAX 3` | 单流兜底 + 双流组合门控，总深度 ≤3/4 ACL slots | 未提交 1.13 |
+| 33 | `BT_AVSRC_TX_CATCHUP_MS` 5→2 | 拥堵后 16ms 内填满 sink jitter buffer | 未提交 1.13 |
+| 34 | `s_tx_pipe_copies` 组合管线计数器（扇出累加 + 2ms 衰减） | 双流时正确追踪总管线占用（`av_get_stream_buffize()` 仅反映单流） | 未提交 1.13 |
 
 ---
 
