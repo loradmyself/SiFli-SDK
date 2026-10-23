@@ -1177,6 +1177,52 @@ buffer + 重置 SBC 状态 → 爆音。断开时恢复又触发 restart → 又
 修复：改为 `!links.config_valid`（≥1 条 streaming 即继续）。pump 的
 `all_streaming` 检查同步改为 `config_valid`，确保连接窗内 kick 不断。
 
+### 1.14 未提交（2026-10-23）「连接/断开电流音残余根因：栈层共享编码器被拆」
+
+**修改标记：1023-01**（2026-10-23 当日第 1 项修改，用于固件测试对照）
+
+1.13③④ 只修了**应用层**的停编码器路径；栈层还有两处无条件拆共享
+SBC 编码器的调用，恰好只在连接/断开窗口触发——这解释了为什么电流音
+"只在连接时出现"且 1.13 后仍有残余。
+
+---
+
+**① 第二副耳机 AVDTP start 时重配共享编码器（连接窗电流音）**
+
+现象：第二副耳机连接瞬间第一副耳机出电流音；共享帧下两副耳机都出。
+
+根因：`bt_avsrc_prepare_sbc`（`bts2_app_av_src.c`）无条件调
+`bts2_sbc_encode_cfg()`——该函数**重初始化全局编码器**（滤波器组复位）。
+第二副耳机的 `bt_avsrc_hdl_start_cfm`/`bt_avsrc_hdl_start_ind` 在第一副
+正在编码的中途执行它 → 在途帧在所有 sink 上解码成噪声。官方单流流程
+里此调用发生在"没有其他流在编码"时，永远不会踩到；双流共享是我们新加
+的数据处理，与 origin/main（基线 437d7da）行为分叉点就在这里。
+
+修复：`prepare_sbc` 增加 busy 判断——存在其他 `st==avconned_streaming &&
+cfg==AV_AUDIO_SRC` 连接时，改用纯计算 `bts2_sbc_calculate_framelen()`
+（反汇编确认无编码器状态访问，帧长公式与 `encode_cfg` 同源）只填
+`frmsize` 等簿记字段，不动编码器；否则维持原 `encode_cfg`。
+
+---
+
+**② 第二副耳机断开时拆编码器（断开窗电流音）**
+
+现象：断开第二副耳机时剩余耳机爆音。
+
+根因：`bt_avsrc_hdl_disc_handler` 无条件调 `bts2_sbc_encode_completed()`
+（释放编码器状态），哪怕另一条流还在共享这个编码器。
+
+修复：仅当 `bt_av_get_src_streaming_number() == 0`（本连接已置
+`st==avdisced`，计数天然排除它）才执行 `encode_completed`。
+
+---
+
+**③ 全量 HCI dump 恢复**
+
+此前为降串口负载做的 1-in-8 媒体抽样使抓包无法做 SBC 分析，已恢复
+`tl_log_write` 原始全量 `LOG_BIN_MIX`。A/B 证实 dump 风暴是电流音的
+**贡献项而非元凶**（静音 tap 后电流音减小但不消失，残余即①②）。
+
 ## 2. 累计改动清单（按主题）
 
 ### 2.1 ACL / 连接管理器（`bt_connection_manager.c`，净 +112/−15）
@@ -1245,6 +1291,8 @@ buffer + 重置 SBC 状态 → 爆音。断开时恢复又触发 restart → 又
 | 32 | `BT_AVSRC_TX_CREDIT_HOLD` 3→2 + `BT_AVSRC_TX_PIPE_MAX 3` | 单流兜底 + 双流组合门控，总深度 ≤3/4 ACL slots | 未提交 1.13 |
 | 33 | `BT_AVSRC_TX_CATCHUP_MS` 5→2 | 拥堵后 16ms 内填满 sink jitter buffer | 未提交 1.13 |
 | 34 | `s_tx_pipe_copies` 组合管线计数器（扇出累加 + 2ms 衰减） | 双流时正确追踪总管线占用（`av_get_stream_buffize()` 仅反映单流） | 未提交 1.13 |
+| 35 | `bt_avsrc_prepare_sbc` busy 守卫：有其他 SRC 流时改用 `bts2_sbc_calculate_framelen` 填 frmsize | 第二副耳机 start 不再重置共享编码器（连接窗电流音） | 未提交 1.14（1023-01） |
+| 36 | `bt_avsrc_hdl_disc_handler` 的 `encode_completed` 加 `streaming_number == 0` 守卫 | 断开一条流不再释放仍在用的共享编码器（断开窗电流音） | 未提交 1.14（1023-01） |
 
 ---
 

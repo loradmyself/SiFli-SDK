@@ -72,20 +72,20 @@
 #define AUDIO_DATA_CAPTURE_UART
 //#define AUDIO_DATA_CAPTURE_FILE
 
-#if RT_USING_DFS
-    #ifndef FILE_ADUMP_DOWNLINK
-        #define FILE_ADUMP_DOWNLINK         "/dump_downlink.pcm"
-        #define FILE_ADUMP_DOWNLINK_AGC     "/dump_downlink_agc.pcm"
-        #define FILE_ADUMP_AUDPRC           "/dump_audprc.pcm"
-        #define FILE_ADUMP_DC_OUT           "/dump_dc_out.pcm"
-        #define FILE_ADUMP_RAMP_IN_OUT      "/dump_ramp_in_out.pcm"
-        #define FILE_ADUMP_AECM_INPUT1      "/dump_aecm_input1.pcm"
-        #define FILE_ADUMP_AECM_INPUT2      "/dump_aecm_input2.pcm"
-        #define FILE_ADUMP_AECM_OUT         "/dump_aecm_out.pcm"
-        #define FILE_ADUMP_ANS_OUT          "/dump_ans_out.pcm"
-        #define FILE_ADUMP_AGC_OUT          "/dump_agc_out.pcm"
-        #define FILE_ADUMP_RAMP_OUT_OUT     "/dump_ramp_out_out.pcm"
-    #endif
+/* File name macros must stay defined even without DFS: audio_files[] is
+ * compiled unconditionally and only the file I/O code is #if RT_USING_DFS. */
+#ifndef FILE_ADUMP_DOWNLINK
+    #define FILE_ADUMP_DOWNLINK         "/dump_downlink.pcm"
+    #define FILE_ADUMP_DOWNLINK_AGC     "/dump_downlink_agc.pcm"
+    #define FILE_ADUMP_AUDPRC           "/dump_audprc.pcm"
+    #define FILE_ADUMP_DC_OUT           "/dump_dc_out.pcm"
+    #define FILE_ADUMP_RAMP_IN_OUT      "/dump_ramp_in_out.pcm"
+    #define FILE_ADUMP_AECM_INPUT1      "/dump_aecm_input1.pcm"
+    #define FILE_ADUMP_AECM_INPUT2      "/dump_aecm_input2.pcm"
+    #define FILE_ADUMP_AECM_OUT         "/dump_aecm_out.pcm"
+    #define FILE_ADUMP_ANS_OUT          "/dump_ans_out.pcm"
+    #define FILE_ADUMP_AGC_OUT          "/dump_agc_out.pcm"
+    #define FILE_ADUMP_RAMP_OUT_OUT     "/dump_ramp_out_out.pcm"
 #endif
 
 #if defined (AUDIO_DATA_CAPTURE_UART) && defined (RT_USING_FINSH)
