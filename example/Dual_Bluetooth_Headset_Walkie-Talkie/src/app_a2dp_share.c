@@ -59,6 +59,14 @@
 #define APP_SHARE_GAIN_UNITY_Q15 32768L
 #define APP_SHARE_VOLUME_RAMP_FRAMES                                    \
     ((APP_PCM_SAMPLE_RATE * APP_SHARE_VOLUME_RAMP_MS + 999U) / 1000U)
+/* Stream start/stop soft ramp. Independent of the user volume gain: the
+ * fade only moves 0 -> unity (fade-in) or unity -> 0 (fade-out) and never
+ * touches the configured level. The 20ms ramp is short enough to sit
+ * fully inside the APP_SHARE_PREFILL_MS window, so the sink's first/last
+ * playout after a START/SUSPEND is a smooth ramp, not a hard step. */
+#define APP_SHARE_FADE_RAMP_MS 20U
+#define APP_SHARE_FADE_RAMP_FRAMES                                      \
+    ((APP_PCM_SAMPLE_RATE * APP_SHARE_FADE_RAMP_MS + 999U) / 1000U)
 
 /* Minimum spacing between bt_av_start_stream() attempts per connection.
  * Covers both the post-open initial delay (A) and the reject back-off (B):
@@ -169,6 +177,11 @@ static uint8_t g_music_volume_level;
 static int32_t g_music_gain_q15;
 static int32_t g_music_gain_target_q15;
 static uint32_t g_music_gain_ramp_frames;
+/* Start/stop fade multiplier (0 = mute, UNITY = pass-through), kept
+ * separate from g_music_gain_* so a fade never corrupts the user volume. */
+static int32_t g_music_fade_q15;
+static int32_t g_music_fade_target_q15;
+static uint32_t g_music_fade_ramp_frames;
 
 /* Encode-rate pacing for two-sink sync (see APP_SHARE_SYNC_*). */
 static int32_t g_sync_encode_delay_us;
@@ -212,7 +225,9 @@ static void app_share_apply_music_volume(uint8_t *pcm, rt_size_t bytes)
 
     app_share_lock();
     if ((g_music_gain_ramp_frames == 0U) &&
-            (g_music_gain_q15 == APP_SHARE_GAIN_UNITY_Q15))
+            (g_music_gain_q15 == APP_SHARE_GAIN_UNITY_Q15) &&
+            (g_music_fade_ramp_frames == 0U) &&
+            (g_music_fade_q15 == APP_SHARE_GAIN_UNITY_Q15))
     {
         app_share_unlock();
         return;
@@ -220,6 +235,8 @@ static void app_share_apply_music_volume(uint8_t *pcm, rt_size_t bytes)
 
     for (frame = 0U; frame < frame_count; frame++)
     {
+        int32_t effective_gain;
+
         if (g_music_gain_ramp_frames != 0U)
         {
             int32_t difference = g_music_gain_target_q15 -
@@ -238,11 +255,31 @@ static void app_share_apply_music_volume(uint8_t *pcm, rt_size_t bytes)
             }
         }
 
+        if (g_music_fade_ramp_frames != 0U)
+        {
+            int32_t difference = g_music_fade_target_q15 -
+                                 g_music_fade_q15;
+
+            if (g_music_fade_ramp_frames == 1U)
+            {
+                g_music_fade_q15 = g_music_fade_target_q15;
+                g_music_fade_ramp_frames = 0U;
+            }
+            else
+            {
+                g_music_fade_q15 += difference /
+                                    (int32_t)g_music_fade_ramp_frames;
+                g_music_fade_ramp_frames--;
+            }
+        }
+
+        effective_gain = (int32_t)(((int64_t)g_music_gain_q15 *
+                                    (int64_t)g_music_fade_q15) >> 15);
         for (channel = 0U; channel < APP_PCM_CHANNELS; channel++)
         {
             rt_size_t sample_index = frame * APP_PCM_CHANNELS + channel;
             int32_t scaled = (int32_t)samples[sample_index] *
-                             g_music_gain_q15;
+                             effective_gain;
 
             samples[sample_index] = (int16_t)(scaled >> 15);
         }
@@ -817,6 +854,13 @@ static int app_share_start_producer(
     g_status.prefill_target = prefill_target;
     g_stats.producer_starts++;
     g_status.kicked = false;
+    /* Fade-in the first APP_SHARE_FADE_RAMP_FRAMES samples. The prefill
+     * window (APP_SHARE_PREFILL_MS) is longer than the fade, so the sink's
+     * first playout after START always begins at a zero sample and ramps
+     * smoothly up — removing the stream-start pop. */
+    g_music_fade_q15 = 0;
+    g_music_fade_target_q15 = APP_SHARE_GAIN_UNITY_Q15;
+    g_music_fade_ramp_frames = APP_SHARE_FADE_RAMP_FRAMES;
     app_share_unlock();
     g_prefill_start_tick = rt_tick_get();
     return RT_EOK;
@@ -835,6 +879,9 @@ static void app_share_stop_producer(void)
     g_encoder_cleanup_pending = false;
     g_music_gain_q15 = g_music_gain_target_q15;
     g_music_gain_ramp_frames = 0U;
+    g_music_fade_q15 = APP_SHARE_GAIN_UNITY_Q15;
+    g_music_fade_target_q15 = APP_SHARE_GAIN_UNITY_Q15;
+    g_music_fade_ramp_frames = 0U;
     g_sync_encode_delay_us = 0;
     if (!g_status.desired &&
             (g_status.state != APP_A2DP_SHARE_STATE_ERROR))
@@ -1556,6 +1603,9 @@ int app_a2dp_share_init(app_a2dp_share_callback_t callback, void *user_data)
     g_music_gain_q15 = APP_SHARE_GAIN_UNITY_Q15;
     g_music_gain_target_q15 = APP_SHARE_GAIN_UNITY_Q15;
     g_music_gain_ramp_frames = 0U;
+    g_music_fade_q15 = APP_SHARE_GAIN_UNITY_Q15;
+    g_music_fade_target_q15 = APP_SHARE_GAIN_UNITY_Q15;
+    g_music_fade_ramp_frames = 0U;
     error = rt_mutex_init(&g_share_lock, "a2dpsl", RT_IPC_FLAG_FIFO);
     if (error != RT_EOK)
     {
@@ -1785,8 +1835,21 @@ void app_a2dp_share_on_a2dp_event(uint16_t event_id)
         break;
     case BT_NOTIFY_A2DP_PROFILE_DISCONNECTED:
         /* A sink left — the active SBC config may no longer be valid
-         * for the remaining sinks, so the encoder must be re-checked. */
-        invalidate = true;
+         * for the remaining sinks, so the encoder must be re-checked.
+         * But tearing down the shared encoder (I2S off + ring flush)
+         * while another sink is still open/streaming slams its in-flight
+         * stream and produces an audible glitch on the survivor. Only
+         * invalidate when no other sink remains connected. */
+        {
+            app_share_link_snapshot_t links;
+
+            app_share_collect_links(&links);
+            invalidate = (links.connected_count == 0U);
+            rt_kprintf("[intercom] a2dp disc: conn=%u stream=%u invalidate=%d\n",
+                       (unsigned)links.connected_count,
+                       (unsigned)links.streaming_count,
+                       invalidate ? 1 : 0);
+        }
         break;
     case BT_NOTIFY_A2DP_START_IND:
     case BT_NOTIFY_A2DP_START_CFM:
@@ -1861,6 +1924,10 @@ void app_a2dp_share_reconcile_streams(void)
 
             bt_addr_convert(&connection->av_rmt_addr, mac);
             if (!app_bt_is_link_registered(mac))
+            {
+                continue;
+            }
+            if (app_bt_is_disconnecting(mac))
             {
                 continue;
             }

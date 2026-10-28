@@ -19,6 +19,10 @@ bool app_bt_is_ready(void);
  * the app has not accepted yet (an unregistered start raced the remote's
  * own AVDTP setup and made it drop the link). */
 bool app_bt_is_link_registered(const unsigned char *mac);
+/* True while a link is being actively torn down (suspend-then-AVDTP-
+ * disconnect). The share reconciler must not re-start a stream on such a
+ * link, or the START races the AVDTP disconnect and re-pauses the audio. */
+bool app_bt_is_disconnecting(const unsigned char *mac);
 /* Bounce (disconnect + auto-reconnect) a link whose A2DP media path is
  * wedged: streaming at the app but no audio delivered. Rate limited. */
 bool app_bt_bounce_media_link(const unsigned char *mac);

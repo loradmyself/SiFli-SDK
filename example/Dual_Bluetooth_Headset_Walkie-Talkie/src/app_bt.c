@@ -239,6 +239,8 @@ typedef struct
     bool release_pending;
     bool disconnect_watchdog_active;
     bool disconnect_blocks_media;
+    bool disconnect_suspend_pending;
+    bool disconnect_avdtp_pending;
     bool profile_cleanup_pending;
     bool acl_connected;
     bool a2dp_connected;
@@ -1550,6 +1552,83 @@ static void app_bt_disconnect_timer_cancel(int slot_index)
     slot->disconnect_generation++;
 }
 
+/* Resolve a slot's AVDTP connection index (or -1 when absent). */
+static int app_bt_av_conn_idx(app_bt_slot_t *slot, uint8_t *con_idx_out)
+{
+    bts2s_av_inst_data *inst = bt_av_get_inst_data();
+    BTS2S_BD_ADDR addr;
+    uint8_t con_idx;
+
+    if ((inst == RT_NULL) || (slot == RT_NULL) || (con_idx_out == RT_NULL))
+    {
+        return -1;
+    }
+    if (bt_addr_convert_to_bts((bd_addr_t *)&slot->mac, &addr) != 0U)
+    {
+        return -1;
+    }
+    con_idx = bt_av_get_idx_from_addr(inst, &addr);
+    if (con_idx > MAX_CONNS)
+    {
+        return -1;
+    }
+    *con_idx_out = (uint8_t)con_idx;
+    return 0;
+}
+
+/* When the target headset is actively streaming, suspend its AVDTP stream
+ * first and defer the ACL teardown until the SUSPEND_CFM arrives — tearing
+ * the ACL under a live stream is what produces the audio gap/underrun and
+ * the residual click on an active disconnect. */
+static bool app_bt_begin_suspend_then_disconnect(int slot_index)
+{
+    app_bt_slot_t *slot = &g_slots[slot_index];
+    bts2s_av_inst_data *inst = bt_av_get_inst_data();
+    uint8_t con_idx;
+    int rc;
+
+    if (inst == RT_NULL)
+    {
+        rt_kprintf("[intercom] slot %u suspend-skip: no av instance\n",
+                   slot_index + 1U);
+        return false;
+    }
+    rc = app_bt_av_conn_idx(slot, &con_idx);
+    if (rc != 0)
+    {
+        rt_kprintf("[intercom] slot %u suspend-skip: av idx not found (rc=%d)\n",
+                   slot_index + 1U, rc);
+        return false;
+    }
+    if (inst->con[con_idx].st == avconned_streaming)
+    {
+        slot->disconnect_suspend_pending = true;
+        bt_av_suspend_stream(con_idx);
+        /* Watchdog fallback: if suspend never confirms, the disconnect
+         * timeout below force-disconnects the ACL after 3s. */
+        app_bt_disconnect_timer_start(slot_index);
+        rt_kprintf("[intercom] headset %u suspend-then-disconnect pending (av=%u)\n",
+                   slot_index + 1U, (unsigned int)con_idx);
+        return true;
+    }
+    if ((inst->con[con_idx].st == avconned) ||
+            (inst->con[con_idx].st == avconned_open))
+    {
+        /* Not streaming, so there is no media to suspend. Still tear down
+         * the AVDTP signaling/media channel before the raw ACL drop, or the
+         * sniffer reports the L2CAP channels outliving the ACL. */
+        slot->disconnect_avdtp_pending = true;
+        bt_av_disconnect(con_idx);
+        app_bt_disconnect_timer_start(slot_index);
+        rt_kprintf("[intercom] headset %u AVDTP disconnect (idle, av st=%u)\n",
+                   slot_index + 1U, (unsigned int)inst->con[con_idx].st);
+        return true;
+    }
+    rt_kprintf("[intercom] slot %u suspend-skip: av st=%u no AVDTP link\n",
+               slot_index + 1U, (unsigned int)inst->con[con_idx].st);
+    return false;
+}
+
 static int app_bt_issue_disconnect(int slot_index)
 {
     app_bt_slot_t *slot = &g_slots[slot_index];
@@ -2513,6 +2592,12 @@ static void app_bt_handle_disconnect_command(const app_bt_event_t *event)
     if (!g_slots[slot_index].disconnect_watchdog_active)
     {
         g_slots[slot_index].disconnect_attempts = 0U;
+        if (app_bt_begin_suspend_then_disconnect(slot_index))
+        {
+            rt_kprintf("[intercom] headset %u suspend-then-disconnect pending\n",
+                       slot_index + 1U);
+            return;
+        }
         if (app_bt_issue_disconnect(slot_index) != 0)
         {
             rt_kprintf("[intercom] disconnect request failed for headset %u; retry scheduled\n",
@@ -2791,6 +2876,8 @@ static void app_bt_handle_acl_disconnected(const bt_notify_device_base_info_t *i
     g_slots[slot_index].remote_music_volume_pending = false;
     g_slots[slot_index].remote_music_volume_retries = 0U;
     g_slots[slot_index].disconnect_blocks_media = false;
+    g_slots[slot_index].disconnect_suspend_pending = false;
+    g_slots[slot_index].disconnect_avdtp_pending = false;
     g_slots[slot_index].profile_cleanup_pending = false;
     if (release_slot)
     {
@@ -4881,10 +4968,53 @@ static int app_bt_event_callback(uint16_t type, uint16_t event_id,
              * forward drops of links that were actually up. */
             drop_from_unconnected = (idx >= 0) &&
                                     !g_slots[idx].a2dp_connected;
+
+            /* Deferred ACL teardown: we suspended then issued AVDTP
+             * DISCONNECT; this event confirms the profile is gone, so the
+             * A2DP L2CAP channels are already closed and the raw ACL drop
+             * can no longer be flagged by the sniffer as out-of-order. */
+            if ((idx >= 0) && g_slots[idx].disconnect_avdtp_pending)
+            {
+                g_slots[idx].disconnect_avdtp_pending = false;
+                app_bt_issue_disconnect(idx);
+                rt_kprintf("[intercom] headset %u AVDTP disconnected, dropping ACL\n",
+                           idx + 1U);
+            }
         }
         if (!drop_from_unconnected)
         {
             app_a2dp_share_on_a2dp_event(event_id);
+        }
+        if (event_id == BT_NOTIFY_A2DP_SUSPEND_CFM)
+        {
+            uint8_t i;
+
+            for (i = 0U; i < APP_HEADSET_COUNT; i++)
+            {
+                app_bt_slot_t *slot = &g_slots[i];
+                bts2s_av_inst_data *inst;
+                uint8_t con_idx;
+
+                if (!slot->disconnect_suspend_pending)
+                {
+                    continue;
+                }
+                if (app_bt_av_conn_idx(slot, &con_idx) != 0)
+                {
+                    continue;
+                }
+                inst = bt_av_get_inst_data();
+                if (inst->con[con_idx].suspend_pending)
+                {
+                    continue;
+                }
+                slot->disconnect_suspend_pending = false;
+                slot->disconnect_avdtp_pending = true;
+                bt_av_disconnect(con_idx);
+                app_bt_disconnect_timer_start(i);
+                rt_kprintf("[intercom] headset %u suspended, disconnecting AVDTP first\n",
+                           i + 1U);
+            }
         }
         if ((event_id == BT_NOTIFY_A2DP_START_CFM) ||
                 (event_id == BT_NOTIFY_A2DP_START_IND))
@@ -5967,6 +6097,23 @@ bool app_bt_is_link_registered(const unsigned char *mac)
     slot = app_bt_find_slot_by_mac(&key);
     return (slot >= 0) && g_slots[slot].used &&
            g_slots[slot].a2dp_connected;
+}
+
+bool app_bt_is_disconnecting(const unsigned char *mac)
+{
+    bt_notify_device_mac_t key;
+    int slot;
+
+    if (mac == RT_NULL)
+    {
+        return false;
+    }
+    memcpy(key.addr, mac, sizeof(key.addr));
+    slot = app_bt_find_slot_by_mac(&key);
+    return (slot >= 0) &&
+           (g_slots[slot].disconnect_suspend_pending ||
+            g_slots[slot].disconnect_avdtp_pending ||
+            g_slots[slot].release_pending);
 }
 
 int app_bt_scan(void)
