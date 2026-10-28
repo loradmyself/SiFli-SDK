@@ -56,6 +56,14 @@
 #define APP_SHARE_GAIN_UNITY_Q15 32768L
 #define APP_SHARE_VOLUME_RAMP_FRAMES                                    \
     ((APP_PCM_SAMPLE_RATE * APP_SHARE_VOLUME_RAMP_MS + 999U) / 1000U)
+/* Stream start/stop soft ramp. Independent of the user volume gain: the
+ * fade only moves 0 -> unity (fade-in) or unity -> 0 (fade-out) and never
+ * touches the configured level. The 20ms ramp is short enough to sit
+ * fully inside the APP_SHARE_PREFILL_MS window, so the sink's first/last
+ * playout after a START/SUSPEND is a smooth ramp, not a hard step. */
+#define APP_SHARE_FADE_RAMP_MS 20U
+#define APP_SHARE_FADE_RAMP_FRAMES                                      \
+    ((APP_PCM_SAMPLE_RATE * APP_SHARE_FADE_RAMP_MS + 999U) / 1000U)
 
 /* Minimum spacing between bt_av_start_stream() attempts per connection.
  * Covers both the post-open initial delay (A) and the reject back-off (B):
@@ -160,6 +168,11 @@ static uint8_t g_music_volume_level;
 static int32_t g_music_gain_q15;
 static int32_t g_music_gain_target_q15;
 static uint32_t g_music_gain_ramp_frames;
+/* Start/stop fade multiplier (0 = mute, UNITY = pass-through), kept
+ * separate from g_music_gain_* so a fade never corrupts the user volume. */
+static int32_t g_music_fade_q15;
+static int32_t g_music_fade_target_q15;
+static uint32_t g_music_fade_ramp_frames;
 
 /* Encode-rate pacing for two-sink sync (see APP_SHARE_SYNC_*). */
 static int32_t g_sync_encode_delay_us;
@@ -203,7 +216,9 @@ static void app_share_apply_music_volume(uint8_t *pcm, rt_size_t bytes)
 
     app_share_lock();
     if ((g_music_gain_ramp_frames == 0U) &&
-            (g_music_gain_q15 == APP_SHARE_GAIN_UNITY_Q15))
+            (g_music_gain_q15 == APP_SHARE_GAIN_UNITY_Q15) &&
+            (g_music_fade_ramp_frames == 0U) &&
+            (g_music_fade_q15 == APP_SHARE_GAIN_UNITY_Q15))
     {
         app_share_unlock();
         return;
@@ -211,6 +226,8 @@ static void app_share_apply_music_volume(uint8_t *pcm, rt_size_t bytes)
 
     for (frame = 0U; frame < frame_count; frame++)
     {
+        int32_t effective_gain;
+
         if (g_music_gain_ramp_frames != 0U)
         {
             int32_t difference = g_music_gain_target_q15 -
@@ -229,11 +246,31 @@ static void app_share_apply_music_volume(uint8_t *pcm, rt_size_t bytes)
             }
         }
 
+        if (g_music_fade_ramp_frames != 0U)
+        {
+            int32_t difference = g_music_fade_target_q15 -
+                                 g_music_fade_q15;
+
+            if (g_music_fade_ramp_frames == 1U)
+            {
+                g_music_fade_q15 = g_music_fade_target_q15;
+                g_music_fade_ramp_frames = 0U;
+            }
+            else
+            {
+                g_music_fade_q15 += difference /
+                                    (int32_t)g_music_fade_ramp_frames;
+                g_music_fade_ramp_frames--;
+            }
+        }
+
+        effective_gain = (int32_t)(((int64_t)g_music_gain_q15 *
+                                    (int64_t)g_music_fade_q15) >> 15);
         for (channel = 0U; channel < APP_PCM_CHANNELS; channel++)
         {
             rt_size_t sample_index = frame * APP_PCM_CHANNELS + channel;
             int32_t scaled = (int32_t)samples[sample_index] *
-                             g_music_gain_q15;
+                             effective_gain;
 
             samples[sample_index] = (int16_t)(scaled >> 15);
         }
@@ -338,10 +375,29 @@ static void app_share_collect_links(app_share_link_snapshot_t *snapshot)
     }
     rt_hw_interrupt_enable(level);
 
+    snapshot->sbc = first_config;
+    snapshot->all_streaming =
+        (snapshot->connected_count > 0U) &&
+        (snapshot->streaming_count == snapshot->connected_count) &&
+        (snapshot->start_pending_count == 0U) &&
+        (snapshot->suspend_pending_count == 0U);
+    /* "Whoever streams gets audio": encoding needs ONE streaming link
+     * with a valid config — not every connected link streaming. The
+     * all_streaming veto used to silence BOTH headsets whenever a
+     * joiner's stream start stalled.
+     *
+     * configs_match is deliberately NOT part of config_valid: when a
+     * second headset joins with a different SBC config (e.g. different
+     * bitpool), requiring a match made config_valid false → the encoder
+     * stopped → app_share_stop_producer cleared the PCM buffer and reset
+     * the SBC state → audible click / 电流音 on BOTH headsets.  The SBC
+     * frame header is self-describing (bitpool is in the frame), so
+     * encoding with the first streaming link's config delivers continuous
+     * audio to every sink; the only cost is the second sink getting the
+     * first link's negotiated quality.  Silence is never acceptable. */
     snapshot->config_valid = (snapshot->streaming_count > 0U) &&
-                             first_config_valid && configs_match &&
-                             (first_config.frmsize > 0U) &&
-                             (first_config.frms_per_payload > 0U);
+                             have_config &&
+                             app_share_validate_config(&first_config);
 }
 
 static void app_share_update_status(const app_share_link_snapshot_t *links)
@@ -771,6 +827,13 @@ static int app_share_start_producer(
     g_status.prefill_target = prefill_target;
     g_stats.producer_starts++;
     g_status.kicked = false;
+    /* Fade-in the first APP_SHARE_FADE_RAMP_FRAMES samples. The prefill
+     * window (APP_SHARE_PREFILL_MS) is longer than the fade, so the sink's
+     * first playout after START always begins at a zero sample and ramps
+     * smoothly up — removing the stream-start pop. */
+    g_music_fade_q15 = 0;
+    g_music_fade_target_q15 = APP_SHARE_GAIN_UNITY_Q15;
+    g_music_fade_ramp_frames = APP_SHARE_FADE_RAMP_FRAMES;
     app_share_unlock();
     g_prefill_start_tick = rt_tick_get();
     return RT_EOK;
@@ -789,6 +852,9 @@ static void app_share_stop_producer(void)
     g_encoder_cleanup_pending = false;
     g_music_gain_q15 = g_music_gain_target_q15;
     g_music_gain_ramp_frames = 0U;
+    g_music_fade_q15 = APP_SHARE_GAIN_UNITY_Q15;
+    g_music_fade_target_q15 = APP_SHARE_GAIN_UNITY_Q15;
+    g_music_fade_ramp_frames = 0U;
     g_sync_encode_delay_us = 0;
     if (!g_status.desired &&
             (g_status.state != APP_A2DP_SHARE_STATE_ERROR))
@@ -853,7 +919,7 @@ static int app_share_encode_record(const uint8_t *pcm,
         (uint16_t)(AV_MTU_SIZE - APP_SHARE_PACKET_HEADER_SIZE);
     uint16_t frames = 0U;
 
-    memset(record->packet, 0, APP_SHARE_PACKET_HEADER_SIZE);
+    memset(record->packet, 0, sizeof(record->packet));
     bt_avsrc_sbc_lock();
     app_share_collect_links(&links);
     if (!links.config_valid || !app_share_config_equal(config, &links.sbc))
@@ -1024,7 +1090,14 @@ static void app_share_producer(void *parameter)
             continue;
         }
 
-        if (!links.all_streaming)
+        /* "Whoever streams gets audio": continue as long as at least one
+         * link is streaming (config_valid), not only when EVERY connected
+         * link is streaming.  The all_streaming gate stopped the producer
+         * — clearing the PCM buffer and resetting the SBC encoder — every
+         * time a second headset was connected but its AVDTP stream had not
+         * started yet (or was mid-suspend), which is exactly the connect /
+         * disconnect window where 电流音 was heard on the healthy headset. */
+        if (!links.config_valid)
         {
             if (producer_active || cleanup_pending)
             {
@@ -1081,11 +1154,25 @@ static void app_share_producer(void *parameter)
         }
         if ((g_pcm_used + read_length) > sizeof(g_pcm_buffer))
         {
-            g_pcm_used = 0U;
+            /* Drop the oldest complete encode-chunk to make room instead
+             * of resetting the whole buffer (a full reset left a click /
+             * gap in the audio). Only if even that is not enough do we
+             * fall back to a hard reset. */
+            while ((g_pcm_used + read_length) > sizeof(g_pcm_buffer) &&
+                    (g_pcm_used >= g_active_config.bytes_to_rd))
+            {
+                g_pcm_used -= g_active_config.bytes_to_rd;
+                memmove(g_pcm_buffer,
+                        &g_pcm_buffer[g_active_config.bytes_to_rd],
+                        g_pcm_used);
+            }
+            if ((g_pcm_used + read_length) > sizeof(g_pcm_buffer))
+            {
+                g_pcm_used = 0U;
+            }
             app_share_lock();
             g_stats.encode_errors++;
             app_share_unlock();
-            continue;
         }
         app_share_apply_music_volume(g_i2s_block, read_length);
         memcpy(&g_pcm_buffer[g_pcm_used], g_i2s_block, read_length);
@@ -1229,8 +1316,18 @@ static void app_share_bts_pump(void)
 
     app_share_collect_links(&links);
     app_share_update_link_status(&links);
-    if (desired && links.all_streaming)
+    /* Use config_valid (≥1 streaming link) not all_streaming: the pump
+     * must run while a second headset is still bringing its AVDTP stream
+     * up, otherwise the kick never fires and the healthy headset's ring
+     * drains to empty during the connect window. */
+    if (desired && links.config_valid)
     {
+        /* Must run even while one link is already streaming: the second
+         * headset's AVDTP stream starts here (avconned_open → START).
+         * Without this the else-branch below is never reached once the
+         * first headset is streaming, so the joiner's stream never starts
+         * and the second headset stays silent until the first leaves. */
+        app_a2dp_share_reconcile_streams();
         app_share_wedge_check(&links);
         /* Records are pumped by the producer thread now (see
          * app_share_producer); only sample the ring level here. */
@@ -1459,6 +1556,9 @@ int app_a2dp_share_init(app_a2dp_share_callback_t callback, void *user_data)
     g_music_gain_q15 = APP_SHARE_GAIN_UNITY_Q15;
     g_music_gain_target_q15 = APP_SHARE_GAIN_UNITY_Q15;
     g_music_gain_ramp_frames = 0U;
+    g_music_fade_q15 = APP_SHARE_GAIN_UNITY_Q15;
+    g_music_fade_target_q15 = APP_SHARE_GAIN_UNITY_Q15;
+    g_music_fade_ramp_frames = 0U;
     error = rt_mutex_init(&g_share_lock, "a2dpsl", RT_IPC_FLAG_FIFO);
     if (error != RT_EOK)
     {
@@ -1757,6 +1857,27 @@ void app_a2dp_share_on_a2dp_event(uint16_t event_id)
     switch (event_id)
     {
     case BT_NOTIFY_A2DP_PROFILE_CONNECTED:
+    case BT_NOTIFY_A2DP_SUSPEND_IND:
+    case BT_NOTIFY_A2DP_SUSPEND_CFM:
+        break;
+    case BT_NOTIFY_A2DP_PROFILE_DISCONNECTED:
+        /* A sink left — the active SBC config may no longer be valid
+         * for the remaining sinks, so the encoder must be re-checked.
+         * But tearing down the shared encoder (I2S off + ring flush)
+         * while another sink is still open/streaming slams its in-flight
+         * stream and produces an audible glitch on the survivor. Only
+         * invalidate when no other sink remains connected. */
+        {
+            app_share_link_snapshot_t links;
+
+            app_share_collect_links(&links);
+            invalidate = (links.connected_count == 0U);
+            rt_kprintf("[intercom] a2dp disc: conn=%u stream=%u invalidate=%d\n",
+                       (unsigned)links.connected_count,
+                       (unsigned)links.streaming_count,
+                       invalidate ? 1 : 0);
+        }
+        break;
     case BT_NOTIFY_A2DP_START_IND:
     case BT_NOTIFY_A2DP_START_CFM:
         app_a2dp_share_reconcile_streams();
@@ -1796,7 +1917,80 @@ void app_a2dp_share_reconcile_streams(void)
     {
         return;
     }
-    app_share_reconcile_links();
+    app_share_lock();
+    desired = g_status.desired;
+    app_share_unlock();
+
+    instance = bt_av_get_inst_data();
+    if (instance == RT_NULL)
+    {
+        return;
+    }
+    for (index = 0U; index < MAX_CONNS; index++)
+    {
+        bts2_av_conn *connection = &instance->con[index];
+
+        if ((connection->cfg != AV_AUDIO_SRC) ||
+                (connection->st <= avconned))
+        {
+            continue;
+        }
+        /* Never start a stream the application has not registered yet:
+         * the AV layer reaches avconned_open before the app's A2DP
+         * CONNECTED lands, and a start issued in that gap raced the
+         * remote's own AVDTP setup — it then dropped the link (Anyka
+         * closed AVDTP 60ms after our premature start) and the drop
+         * cascaded into a wedged reconnect. The app kicks
+         * app_a2dp_share_reconcile_streams() right after registering, so
+         * the link streams a few ms later instead. */
+        if (desired && (connection->st >= avconned_open))
+        {
+            uint8_t mac[6];
+
+            bt_addr_convert(&connection->av_rmt_addr, mac);
+            if (!app_bt_is_link_registered(mac))
+            {
+                continue;
+            }
+            if (app_bt_is_disconnecting(mac))
+            {
+                continue;
+            }
+        }
+        if (desired)
+        {
+            if ((connection->st == avconned_open) &&
+                    !connection->start_pending &&
+                    !connection->suspend_pending)
+            {
+                rt_tick_t now = rt_tick_get();
+                if ((g_start_retry_tick[index] == 0U) ||
+                    ((now - g_start_retry_tick[index]) >=
+                     rt_tick_from_millisecond(APP_SHARE_START_RETRY_MS)))
+                {
+                    bt_av_start_stream(index);
+                    g_start_retry_tick[index] = now;
+                }
+            }
+            else if ((connection->st == avconned_streaming) &&
+                     connection->suspend_pending &&
+                     (connection->pending_cmd != A2DP_START_CMD))
+            {
+                bt_av_start_stream(index);
+            }
+            if (connection->st == avconned_streaming)
+            {
+                g_start_retry_tick[index] = 0U;
+            }
+        }
+        else if (((connection->st == avconned_streaming) &&
+                  !connection->suspend_pending) ||
+                 (connection->start_pending &&
+                  (connection->pending_cmd != A2DP_SUSPEND_CMD)))
+        {
+            bt_av_suspend_stream(index);
+        }
+    }
 }
 
 bool app_a2dp_share_is_stopped(void)

@@ -969,6 +969,319 @@ max_used=used 表明是泄漏顶满，不是 free 链踩坏。）
 条件。验证点：跑双耳机连接 + 长时间转发后 `list_mem`/异常转储的
 used 应远低于 total（此前 1–2s 即顶满）。`main.bin` 915,772B 重建通过。
 
+### 1.11 未提交（2026-10-21）「L3 藏抖动落地：ACL 连接时写 Write_Automatic_Flush_Timeout 防配对窗丢包」
+
+**现象**：双耳机场景，配对第二副耳机的瞬间，第一副耳机的 A2DP 转发
+出现 231ms / 419ms 的空窗——sniffer 抓到 AVDTP seq 丢号（113/1715），
+host 侧媒体泵（§1.8/§1.9 已证不丢包）确认是 **controller 侧自动 ACL
+flush**：配对突发抢空口，控制器对来不及发的 ACL 数据按默认 flush timer
+丢弃，sink 端 jitter buffer 等不到数据 → 听感卡顿/爆音。
+
+**根因**：控制器默认 Automatic_Flush_Timeout 太短（~200ms 级），配对
+风暴导致的短暂空口拥堵（231ms/419ms）即触发 flush。Audio ACL 链路的
+数据被静默丢掉——lateness 本可被 sink jitter buffer（225ms）吸收。
+
+**注入路径选型**（三选一，前两个死路已实锤）：
+1. **DM/`hcia_*` 路径（死）**：`hcia_wr_auto_flush_timeout()` 在
+   `hci_api.h:1776` 有声明，但 `lib_bt_gcc.a` 无实现（nm 查无符号）；
+   且 `format_hc`（`hci_pkt_cmd.o`，203 个 `format_hci_*` 函数）没有
+   `format_hci_wr_auto_flush_timeout` 条目——手工构造 DM 消息会在序列
+   化时被 TBB 丢弃。OCF 0x28 连格式化器都不存在。
+2. **结构化 `hcicm_send_to_hci` 路径（可用但有竞态）**：绕过 format_hc
+   直接走 co_util_pack OGF 表（OGF-3 OCF 0x28 → plen=4, msg_size=0x14），
+   20 字节消息布局 `opcode@0, handle@4, BD@8, timeout@16`，CC 能配对到
+   `hciev_cc_wr_auto_flush_timeout`。但 `tx_cmd_to_hci` 的 credit/队列
+   无临界区保护——从 app 线程调用会与 hcicm 任务竞态。
+3. **raw `hcid_send_hci_cmd` 路径（选定）**：`hci_drv.h:55` 声明的公开
+   注入 API。内部走 `hci_send_pk_2_controller` → `ke_msg_alloc` +
+   `ke_msg_send`（RW 内核原语，任意线程安全）→ 传输层。绕过 hcicm
+   credit 队列，无竞态。CC 回来后 `hciev_hdl_hci_cmd_cmp` 在队列里查
+   无 opcode 直接 `cbz r0, return`（typed CC 派发跳过）；唯一副作用是
+   无条件 credit=1 + delayed-list drain——与任何正常 CC 一致，无害。
+
+**修复**：`app_bt.c` 新增 `app_bt_set_acl_flush_timeout()`：`rt_malloc(7)`
+分配 7 字节 raw HCI 命令 `28 0C 04 [hdl_lo hdl_hi] FF 07`，调
+`hcid_send_hci_cmd(cmd, 7)`（内部走 `bt_mem_free` 释放——池内指针回池、
+池外 `rt_free`，§1.10 修复后区间判定正确）。在
+`app_bt_handle_acl_connected()` 的 `info->res == HCI_SUCC` 分支调用
+（handle 来自 `info->handle`，`bt_connection_manager.c:1187` 填入的
+`ind->phdl`），**在 ACL 连接时刻**即写入——早于 A2DP ready（
+`app_bt_prepare_acl_for_audio`），确保第二副耳机配对风暴到来前第一副
+的 flush timeout 已生效。`app_bt_prepare_acl_for_audio` 的 L3 注释更新
+为指向本实现。
+
+**Timeout 取值 0x07FF（1.28s）而非 0xFFFF（never-flush）**：
+0xFFFF = 永不自动 flush，配对间歇期过长时旧包占死 ACL buffer（本芯片
+controller ACL buffer 仅 4 个），新音频反而被 credit 门在 host 侧堵住——
+更糟。0x07FF × 0.625ms = 1.28s，远大于两次观测空窗（231ms/419ms），
+同时保留 flush 安全阀防止死链 wedge。`hci_spec.h` 定义
+`HCI_MAX_FLUSH_TIMEOUT = 0x07FF` 与之一致。
+
+**预期**：配对第二副耳机时，第一副的 ACL 数据不再被 controller 自动
+flush——231ms 级空窗内数据继续在 controller 队列里排队重传，sink jitter
+buffer（225ms）吸收延迟。验证点：sniffer 抓配对窗，AVDTP seq 不再丢号
+（113/1715 位置变为 late delivery 而非 gap）；log 里每次 ACL 连接打印
+`[intercom] ACL %04X flush timeout -> 1.28s`。419ms 事件需设备 log 确认
+是否同类——若伴随 ecc_p256/host 侧停顿则属另一类（§1.8 L2 塑形 + §1.9
+L1 门控的范围）。
+
+### 1.12 未提交（2026-10-21）「应用层三连修：频繁 pause 禁全局停 + 复位重连 EBUSY 重试 + PCM 溢出削块」
+
+三个独立症状、三处独立修复，均在 `example/Dual_Bluetooth_Headset_Walkie-Talkie/src/`。
+
+---
+
+**① 频繁 pause（`app_bt.c` → `app_bt_update_media_for_links`）**
+
+现象：连接第二副耳机期间，第一副耳机的转发音频反复暂停/恢复。
+根因：`disconnect_blocks_media` 置位（HFP teardown 路径 ~9 处）后，
+`app_bt_update_media_for_links` 无条件调 `app_bt_set_media_desired(false)`
+→ share stop/start 循环。`app_a2dp_share_start` 在 STOPPING 态返回
+`-RT_EBUSY` 且静默失败 → share 永久停止。
+
+修复：`disconnect_blocks_media` 只在 **没有任何健康 A2DP 链路** 时才停
+share。健康链路存在时，teardown 的那条链路的断连不再影响另一条正在播
+放的耳机。
+
+```c
+if (blocking && !any_healthy_a2dp) { app_bt_set_media_desired(false); return; }
+app_bt_set_media_desired(app_bt_a2dp_count() != 0U);
+```
+
+---
+
+**② 复位重连后两耳机均不播音（`app_bt.c` → `app_bt_set_media_desired`）**
+
+现象：复位/重连后两个耳机都没有音频。share 处于 STOPPING 窗口期时
+`app_a2dp_share_start` 返回 `-RT_EBUSY`，此前代码只处理 `!= RT_EOK &&
+!= -RT_EBUSY`，EBUSY 被忽略 → share 永久停。
+
+修复：EBUSY 时安排 500ms×8 的 `APP_BT_CMD_MEDIA_RECOVER` 重试链（复用
+已有 recovery 机制），确保 stop/start 竞态窗口关闭后 share 恢复。
+
+```c
+if (desired && (result == -RT_EBUSY))
+{
+    bts2_timer_ev_add(APP_BT_MEDIA_RECOVER_DELAY_MS,
+                      app_bt_media_recover_bts_cb,
+                      APP_BT_MEDIA_RECOVER_MAX, RT_NULL);
+}
+```
+
+---
+
+**③ 电流声残余——PCM 溢出全量清零爆音（`app_a2dp_share.c` → `app_share_producer`）**
+
+现象：编码器生产速度偶尔跟不上 I2S 读入速度时，`g_pcm_buffer` 溢出走
+`g_pcm_used = 0; continue;`——整个缓冲区清零 = 丢一大段 PCM = 爆音/电流声。
+
+修复：溢出时先逐块丢弃最旧的完整 encode-chunk（`memmove` 前移），尽量
+保留最近数据。仅当连丢几块仍不够时才硬清零。
+
+```c
+while ((g_pcm_used + read_length) > sizeof(g_pcm_buffer) &&
+        (g_pcm_used >= g_active_config.bytes_to_rd))
+{
+    g_pcm_used -= g_active_config.bytes_to_rd;
+    memmove(g_pcm_buffer, &g_pcm_buffer[g_active_config.bytes_to_rd], g_pcm_used);
+}
+if ((g_pcm_used + read_length) > sizeof(g_pcm_buffer)) { g_pcm_used = 0U; }
+```
+
+**电音排查结论**（本次代码审计未找到固件侧根因）：
+- SBC 编码器锁：全部生产路径持 `bt_avsrc_sbc_lock`（唯一无锁调用在
+  `#ifdef AUDIO_DATA_TEST` 测试代码内，不参与生产）
+- SBC 配置：`app_share_config_equal` 比较全部 12 个字段；`validate` 拒绝
+  MONO / 零参数
+- 音量：`set_volume` 拒绝 `level > MAX`，gain ≤ unity Q15，`>> 15` 无溢出
+- ring put：`rt_enter_critical` 保护，SPSC 安全
+- 线程优先级：a2dps/a2dptx=11（高于 BT task=12），配对风暴不饿死 TX
+- RTP 头：由 `av_stream_data_req` 填充，share 管线只写 SBC payload + 帧数
+
+残余可能：sink 端 SBC bitpool 协商过低（耳机能力）；或 sink jitter buffer
+不足 225ms 时超长空窗（>419ms）仍导致 decoder underrun——属空口调度层
+面，L1/L2/§1.11 已覆盖 231ms 级，更大空窗需设备 log 确认。
+
+### 1.13 未提交（2026-10-22）「丢包清零 + 电流音消除：组合管线门控 + 配置变更不停编码器」
+
+四个独立修复，分别针对 sniffer 抓到的两类卡顿和连接/断开时的电流音。
+其中 ①② 于同日 13:00 重写：通过反汇编预编译库确认
+`av_get_stream_buffize()` 并非 per-stream 深度（旧分析有误），而是单一
+全局变量 `stream_buffize`，由 `avh_stream_data_req`/`avh_gap_l2c_data_cfm`
+设为**最后操作的那条流**的 FIFO 深度。双流时它在两个深度之间跳动，严重
+低估管线占用。因此 credit 门限改为组合计数器方案。
+
+---
+
+**① AVDTP 丢包（sniffer: missing packet sequence number）**
+
+现象：连接/断开耳机时，sniffer 抓到 AVDTP seq 号缺失（9884/9886/9892/
+9896/9898/9903/9906），间隔不规则（2/6/4/2/5/3）——包已进 AVDTP 层拿到
+seq 号但在下游丢失。
+
+根因（反汇编确认）：
+- `av_get_stream_buffize()` 读全局 `stream_buffize`，仅反映最后入/出队的
+  那条流的 FIFO 深度。双流时另一条流的真实深度被隐藏，门限形同虚设。
+- 每条流的 per-stream FIFO 深 50（偏移 248），满了丢 20 个最老包（已分配
+  seq → gap）。`avh_gap_l2c_data_cfm` 无条件调 `l2ca_datawr_req` 发下一个，
+  不检查 HCI ACL 余量 → controller 4 buffer 耗尽时静默丢包。
+- Frontline sniffer "credits: -4" 证实 controller ACL 被超发 4 个。
+
+修复（组合管线门控）：
+- 新增 `s_tx_pipe_copies` 组合计数器：每次 `av_stream_data_req` 扇出后
+  `+= ncopy`；每 2ms 衰减 1（`BT_AVSRC_TX_DRAIN_MS`，保守估计 ACL slot
+  释放时间）。gate 在发送前检查 `pipe_est + ncopy_est > BT_AVSRC_TX_PIPE_MAX(3)`。
+- `BT_AVSRC_TX_CREDIT_HOLD` 3→2：单流时兜底（全局准确）。
+- 停止/取消时重置计数器（`bt_avsrc_sharing_cancel`）。
+
+---
+
+**② 延迟型卡顿（sniffer: 255.84ms gap > 225ms sink buffer）**
+
+现象：连接/断开时 audio 空窗 255.84ms，超过 sink jitter buffer 225ms →
+decoder underrun。
+
+根因：flush-timeout 1.28s 让包存活但延迟交付。延迟 >225ms 时 sink 丢弃
+迟到包 → 空窗。credit 门限失效导致拥堵窗口过长。
+
+修复：
+- 组合管线门控（同①）：减少拥堵窗口
+- `BT_AVSRC_TX_CATCHUP_MS` 5→2：拥堵结束后 2ms 内追发，16ms 内填满
+  sink 的 225ms jitter buffer（原 5ms 需 40ms）
+
+---
+
+**③ 电流音：SBC 配置不一致时编码器停止**
+
+现象：连接/断开耳机时听到电流音/爆音。
+
+根因：`app_share_collect_links` 的 `config_valid` 要求 `configs_match`。
+第二副耳机 SBC 配置不同（如 bitpool 不同）时 `configs_match=false` →
+`config_valid=false` → encoder 停止 → `app_share_stop_producer` 清 PCM
+buffer + 重置 SBC 状态 → 爆音。断开时恢复又触发 restart → 又一次爆音。
+
+修复：`config_valid` 不再要求 `configs_match`。SBC 帧头自描述（bitpool
+在帧内），用第一个 streaming link 的配置编码，所有 sink 持续出声。代价仅
+是第二个 sink 得到第一个 link 的协商质量。
+
+---
+
+**④ 电流音：all_streaming 门禁在连接窗停编码器**
+
+现象：同③，连接/断开时爆音。
+
+根因：producer 线程的 `!links.all_streaming` 检查要求**所有**已连接链路
+都在 streaming。第二副耳机 A2DP 已连但 AVDTP 还没 started 时
+`all_streaming=false` → producer 停止 → 清 PCM buffer + 重置编码器 → 爆音。
+
+修复：改为 `!links.config_valid`（≥1 条 streaming 即继续）。pump 的
+`all_streaming` 检查同步改为 `config_valid`，确保连接窗内 kick 不断。
+
+### 1.14 未提交（2026-10-23）「连接/断开电流音残余根因：栈层共享编码器被拆」
+
+**修改标记：1023-01**（2026-10-23 当日第 1 项修改，用于固件测试对照）
+
+1.13③④ 只修了**应用层**的停编码器路径；栈层还有两处无条件拆共享
+SBC 编码器的调用，恰好只在连接/断开窗口触发——这解释了为什么电流音
+"只在连接时出现"且 1.13 后仍有残余。
+
+---
+
+**① 第二副耳机 AVDTP start 时重配共享编码器（连接窗电流音）**
+
+现象：第二副耳机连接瞬间第一副耳机出电流音；共享帧下两副耳机都出。
+
+根因：`bt_avsrc_prepare_sbc`（`bts2_app_av_src.c`）无条件调
+`bts2_sbc_encode_cfg()`——该函数**重初始化全局编码器**（滤波器组复位）。
+第二副耳机的 `bt_avsrc_hdl_start_cfm`/`bt_avsrc_hdl_start_ind` 在第一副
+正在编码的中途执行它 → 在途帧在所有 sink 上解码成噪声。官方单流流程
+里此调用发生在"没有其他流在编码"时，永远不会踩到；双流共享是我们新加
+的数据处理，与 origin/main（基线 437d7da）行为分叉点就在这里。
+
+修复：`prepare_sbc` 增加 busy 判断——存在其他 `st==avconned_streaming &&
+cfg==AV_AUDIO_SRC` 连接时，改用纯计算 `bts2_sbc_calculate_framelen()`
+（反汇编确认无编码器状态访问，帧长公式与 `encode_cfg` 同源）只填
+`frmsize` 等簿记字段，不动编码器；否则维持原 `encode_cfg`。
+
+---
+
+**② 第二副耳机断开时拆编码器（断开窗电流音）**
+
+现象：断开第二副耳机时剩余耳机爆音。
+
+根因：`bt_avsrc_hdl_disc_handler` 无条件调 `bts2_sbc_encode_completed()`
+（释放编码器状态），哪怕另一条流还在共享这个编码器。
+
+修复：仅当 `bt_av_get_src_streaming_number() == 0`（本连接已置
+`st==avdisced`，计数天然排除它）才执行 `encode_completed`。
+
+---
+
+**③ 全量 HCI dump 恢复**
+
+此前为降串口负载做的 1-in-8 媒体抽样使抓包无法做 SBC 分析，已恢复
+`tl_log_write` 原始全量 `LOG_BIN_MIX`。A/B 证实 dump 风暴是电流音的
+**贡献项而非元凶**（静音 tap 后电流音减小但不消失，残余即①②）。
+
+### 1.15 已撤销（2026-10-23）「单流对照实验：只给第一条链路开流」
+
+**修改标记：1023-02（已撤销，勿烧录）**
+
+曾做"单流对照"开关（`APP_SHARE_SINGLE_STREAM`，只给第一条链路开流、
+第二副耳机只连不播），用于隔离"电流音是否由第二条流的 start/stop 闯入
+共享编码器引起"。**当日撤销**：破坏双耳机同播的产品功能，与需求冲突
+（双耳机工程必须两副同时出声）。代码已从 `app_a2dp_share.c` 移除，
+双耳机行为完整恢复（即 1023-01 状态）。对照实验待换方式。
+
+### 1.16 未提交（2026-10-23）「第二副耳机无声：双流空中时间减负」
+
+**修改标记：1023-03**（2026-10-23 当日第 3 项修改；第 2 项 1023-02 已
+撤销作废。本固件 = 1023-01 + 1023-03，`main_1023-03.bin`）
+
+现象：先连第一副耳机正常出声；播放中连第二副耳机，**第二副不出声**，
+断开第一副后第二副才恢复声音。
+
+排查（串口 pcap 全量还原，2026-10-23 12:34 窗口）：主机侧**完全清白**——
+两条 ACL 链路媒体满速无缺口（0x080: 1025 包 / 0x081: 445 包，seq 无缺口）；
+按全局 RTP 时间戳对齐后扇出字节级一致；SET_CFG 两副完全相同
+（`21 15 02 19`，bp2..25）；两副 AVDTP START 均被接受；12:33:55 切换测试中
+第一副断开时第二副的 RTP seq/ts/ssrc **连续无重启**——主机在切换点什么都没
+改，声音却"恢复"，失败面必在 RF 交付或 sink 渲染。同窗口排除项：无
+MODE_CHANGE（未进 sniff，两链路策略 0x0000 禁 sniff/hold/park）；两链路
+MAX_SLOTS 均为 5（无单槽限制）；WRITE_AUTO_FLUSH_TIMEOUT=0x07FF（1.28s，
+足够长）；num_completed 两链路各 ~35/s 与发送速率一致。顺带纠正一处误读：
+`09 08 02 80 00` 是 **Role Discovery（0x0809，合法，plen=2）**，并非此前
+误判的"畸形 QoS Setup（0x0807）"——QoS 从未被设置，走默认 best-effort，
+两链路对称，不是病因。
+
+根因（定位）：**空中时间/交付**，非主机数据面。双流各 178 kbps、各
+~35 pkt/s、每包 647B = 2-DH5（5-slot 连续突发）。第二副是 TWS 耳机，
+自身还要伺候耳间镜像转发，RX 窗口碎片化，5-slot 突发排不进镜像忙碌
+间隙 → 包被 flush/迟到 → jitter buffer 起不来 → 整段静音。断开第一副后
+第二副独占空中时间，交付变稳，声音"恢复"。耳机相关性（"有的耳机会卡顿"）
+也由此解释：镜像调度策略因耳机而异。
+
+修复：`bt_avsrc_prepare_sbc`（`bts2_app_av_src.c`，CFG_AV_SHARING）双流
+空中时间减负——
+
+1. **bitpool 封顶 16**（`AV_SHARING_BIT_POOL_MAX`）：SBC 帧头自描述，
+   帧内 bitpool 在协商范围 2..25 内合法下调，**无需 AVDTP 重协商**；
+   帧 63B→45B，码流 172→122 kbps，空中字节 −29%。
+2. **每包帧数封顶 7**（`AV_SHARING_FRMS_PER_PKT`）：10×45 会得到 467B
+   的 2-DH5；7×45 → HCI ACL 332B ≤ 367，单个 **2-DH3（3-slot）** 突发，
+   且 ≤339B 时即使 BR 回退也只需一个 DH5。49 pkt/s 小包比 35 pkt/s 大包
+   更容易塞进碎片化 RX 窗口。RTP ts 步进 = 帧数×blocks×subbands 自动
+   跟上（896 采样/包，20.3ms 节奏），pump/生产者簿记全部由 act_cfg 派生。
+
+对称性与安全边界：共享编码器一份码流扇出两条链路，两副耳机解码**完全
+相同**的帧；各连接 act_cfg 一致，不触发 config 变更重启；**SET_CFG 字节
+不变**（与已知良好抓包一致）；不碰串口驱动；1023-01 共享编码器生命周期
+守卫原样保留。单流/双流统一码流——不能在第二副加入瞬间改编码器（那要
+重启共享编码器，正是被禁止的连接窗爆音/暂停）。
+
+代价：音质 bp25→bp16（joint stereo 44.1k，122 kbps），对讲语音无感；
+丢包/卡顿理论上同时受益（每链路空中 slot −14%、字节 −29%）。
+
 ## 2. 累计改动清单（按主题）
 
 ### 2.1 ACL / 连接管理器（`bt_connection_manager.c`，净 +112/−15）
@@ -1017,6 +1330,30 @@ used 应远低于 total（此前 1–2s 即顶满）。`main.bin` 915,772B 重�
 
 产品策略均在应用层覆写：`app_bt.c:5520` 返回 `BT_LINK_MASTER`；
 `app_bt.c:5582` 实现"转外连"判定并投递 `APP_BT_CMD_CONVERT_INCOMING`。
+
+### 2.5 应用层（`example/Dual_Bluetooth_Headset_Walkie-Talkie/src/`）
+
+| # | 修改 | 作用 | 提交 |
+| --- | --- | --- | --- |
+| 25 | `app_bt_update_media_for_links` 频繁 pause 禁全局停 | 健康 A2DP 存在时 teardown 不再停 share | 未提交 1.12 |
+| 26 | `app_bt_set_media_desired` EBUSY 重试 | stop/start 竞态窗口关闭后 share 自动恢复 | 未提交 1.12 |
+| 27 | `app_share_producer` PCM 溢出削块 | 丢最旧 encode-chunk 替代全清零，消除爆音 | 未提交 1.12 |
+| 28 | `app_bt_set_acl_flush_timeout` ACL 连接注入 | controller 不再 flush 配对窗内的音频包 | 未提交 1.11 |
+| 29 | `config_valid` 不再要求 `configs_match` | SBC 配置不同不停车载编码器，消除电流音 | 未提交 1.13 |
+| 30 | producer `all_streaming`→`config_valid` | 一条链路 streaming 即继续，连接窗不停车载 | 未提交 1.13 |
+| 31 | pump `all_streaming`→`config_valid` + reconcile_streams 移入主分支 | 连接窗内 kick 不断；第二副耳机的 AVDTP stream 不再被饿死 | 未提交 1.13 |
+
+### 2.6 A2DP 发送路径（`bts2_app_av_src.c`，净 +45/−10）
+
+| # | 修改 | 作用 | 提交 |
+| --- | --- | --- | --- |
+| 32 | `BT_AVSRC_TX_CREDIT_HOLD` 3→2 + `BT_AVSRC_TX_PIPE_MAX 3` | 单流兜底 + 双流组合门控，总深度 ≤3/4 ACL slots | 未提交 1.13 |
+| 33 | `BT_AVSRC_TX_CATCHUP_MS` 5→2 | 拥堵后 16ms 内填满 sink jitter buffer | 未提交 1.13 |
+| 34 | `s_tx_pipe_copies` 组合管线计数器（扇出累加 + 2ms 衰减） | 双流时正确追踪总管线占用（`av_get_stream_buffize()` 仅反映单流） | 未提交 1.13 |
+| 35 | `bt_avsrc_prepare_sbc` busy 守卫：有其他 SRC 流时改用 `bts2_sbc_calculate_framelen` 填 frmsize | 第二副耳机 start 不再重置共享编码器（连接窗电流音） | 未提交 1.14（1023-01） |
+| 36 | `bt_avsrc_hdl_disc_handler` 的 `encode_completed` 加 `streaming_number == 0` 守卫 | 断开一条流不再释放仍在用的共享编码器（断开窗电流音） | 未提交 1.14（1023-01） |
+| 37 | `AV_SHARING_BIT_POOL_MAX 16`：prepare_sbc bitpool 封顶（协商 2..25 内下调） | 双流码流 172→122 kbps，空中字节 −29%，第二副 TWS 耳机 RX 窗容得下 | 未提交 1.16（1023-03） |
+| 38 | `AV_SHARING_FRMS_PER_PKT 7`：每包帧数封顶 | 媒体包 647B 2-DH5→332B 单个 2-DH3，小突发适配碎片化 RX 窗；RTP ts 步进自动跟上 | 未提交 1.16（1023-03） |
 
 ---
 

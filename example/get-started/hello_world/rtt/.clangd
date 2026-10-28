@@ -1,0 +1,23 @@
+# BEGIN SiFli CodeKit clangd config
+CompileFlags:
+  CompilationDatabase: 'project/build_dpi-hdk_lb575ybbn6_n16_dbi_hcpu'
+
+Index:
+  Background: Build
+
+Completion:
+  HeaderInsertion: Never
+
+Diagnostics:
+  ClangTidy: false
+---
+If:
+  PathMatch: '.*\.(c|h|s|S)$'
+CompileFlags:
+  Compiler: 'C:/Users/YBL/.sifli/tools/arm-none-eabi-gcc/14.2.1/bin/arm-none-eabi-gcc.exe'
+---
+If:
+  PathMatch: '.*\.(cc|cpp|cxx|hh|hpp|hxx)$'
+CompileFlags:
+  Compiler: 'C:/Users/YBL/.sifli/tools/arm-none-eabi-gcc/14.2.1/bin/arm-none-eabi-g++.exe'
+# END SiFli CodeKit clangd config
