@@ -76,7 +76,7 @@ static const uint8_t device_quality_descriptor[] = {
 static const char *string_descriptors[] = {
     (const char[]){ 0x09, 0x04 },            /* Langid */
     "SiFli",                                  /* Manufacturer */
-    "sifli_R390x450_Ergb16_Fps15_Bl128",     /* Product */
+    "sifli_R800x480_Ergb16",     /* Product sifli_R800x480_Ergb16  sifli_R800x480_Ejpg70 */
     "2025010101",                             /* Serial Number */
 };
 
@@ -151,16 +151,21 @@ static void usbd_event_handler(uint8_t busid, uint8_t event)
  * Frame buffers are allocated from PSRAM heap to save SRAM.
  * Adjust resolution and format to match your LCD and product string above.
  */
-#define DISPLAY_WIDTH   390
-#define DISPLAY_HEIGHT  450
+/*可定义为自动适配形式*/
+#define DISPLAY_WIDTH   800
+#define DISPLAY_HEIGHT  480
 #define DISPLAY_BPP     2   /* 2 for RGB565, 3 for RGB888 */
-#define FRAME_BUF_SIZE  (DISPLAY_WIDTH * DISPLAY_HEIGHT * DISPLAY_BPP)
+/*
+ * 类驱动按 16384 字节分包读取，帧尺寸必须是 16384 的整数倍；
+ * 且缓冲要容纳 16 字节帧头 + payload（800x480x2 + 16 = 768016 → 47*16384 = 770048）
+ */
+#define FRAME_BUF_SIZE  (((DISPLAY_WIDTH * DISPLAY_HEIGHT * DISPLAY_BPP + 16 + 16383) / 16384) * 16384)
 
 /* PSRAM buffer for frame buffer allocation (manual pool) */
-static uint8_t usb_display_psram_pool[FRAME_BUF_SIZE + 4096] L2_RET_BSS_SECT(usb_display_psram);
+static uint8_t usb_display_psram_pool[FRAME_BUF_SIZE * 2 + 4096] L2_RET_BSS_SECT(usb_display_psram);
 static uint32_t usb_display_psram_offset = 0;
 
-static struct usbd_display_frame frame_pool[1];
+static struct usbd_display_frame frame_pool[2];
 static struct usbd_interface intf0;
 
 /* ================ Public API ================ */
@@ -175,24 +180,25 @@ void usb_display_init(uint8_t busid, uintptr_t reg_base)
     rt_kprintf("USB display: init (%dx%d, %d bpp, %d bytes/frame)\n",
                DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_BPP * 8, FRAME_BUF_SIZE);
 
-    /* Allocate frame buffer from PSRAM pool */
-    uint8_t *fb0 = (uint8_t *)&usb_display_psram_pool[usb_display_psram_offset];
-    usb_display_psram_offset += FRAME_BUF_SIZE;
-    if (usb_display_psram_offset > sizeof(usb_display_psram_pool)) {
-        rt_kprintf("ERROR: PSRAM pool exhausted!\n");
-        return;
-    }
+    /* Allocate frame buffers from PSRAM pool (double buffered) */
+    for (int i = 0; i < 2; i++) {
+        uint8_t *fb = (uint8_t *)&usb_display_psram_pool[usb_display_psram_offset];
+        usb_display_psram_offset += FRAME_BUF_SIZE;
+        if (usb_display_psram_offset > sizeof(usb_display_psram_pool)) {
+            rt_kprintf("ERROR: PSRAM pool exhausted!\n");
+            return;
+        }
 
-    /* Setup frame pool */
-    frame_pool[0].frame_buf = fb0;
-    frame_pool[0].frame_bufsize = FRAME_BUF_SIZE;
+        frame_pool[i].frame_buf = fb;
+        frame_pool[i].frame_bufsize = FRAME_BUF_SIZE;
+    }
 
     /* Register USB descriptors */
     usbd_desc_register(busid, &usbdisplay_descriptor);
 
     /* Add display interface */
     usbd_add_interface(busid,
-        usbd_display_init_intf(&intf0, DISPLAY_OUT_EP, DISPLAY_IN_EP, frame_pool, 1));
+        usbd_display_init_intf(&intf0, DISPLAY_OUT_EP, DISPLAY_IN_EP, frame_pool, 2));
 
     /* Initialize USB device */
     usbd_initialize(busid, reg_base, usbd_event_handler);

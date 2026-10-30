@@ -25,8 +25,8 @@
 /**
   * @brief  LCD IC Size
   */
-#define  LCD_IC_PIXEL_WIDTH    (480)
-#define  LCD_IC_PIXEL_HEIGHT   (272)
+#define  LCD_IC_PIXEL_WIDTH    (800)
+#define  LCD_IC_PIXEL_HEIGHT   (480)
 
 static LCDC_InitTypeDef lcdc_int_cfg =
 {

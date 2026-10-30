@@ -56,6 +56,16 @@ uint8_t usb_dispay_dummy[512];
 volatile uint32_t usb_display_buf_offset;
 volatile bool usb_display_ignore_frame;
 
+/* 帧边界判断必须用总线真实包长(FS=64/HS=512)，
+   不能用usbd_get_ep_mps()——它返回描述符声明值，FS+512描述符时会错配 */
+#ifdef CONFIG_USB_HS
+#define USBD_DISPLAY_BUS_MPS 512
+#else
+#define USBD_DISPLAY_BUS_MPS 64
+#endif
+
+volatile uint32_t usb_display_out_pkt_cnt = 0; /* DEBUG probe */
+
 static void display_notify_handler(uint8_t busid, uint8_t event, void *arg)
 {
     switch (event) {
@@ -65,7 +75,7 @@ static void display_notify_handler(uint8_t busid, uint8_t event, void *arg)
             usb_display_buf_offset = 0;
             usb_display_ignore_frame = true;
             g_usbd_display.current_frame = NULL;
-            usbd_ep_start_read(busid, g_usbd_display.out_ep.ep_addr, usb_dispay_dummy, usbd_get_ep_mps(0, g_usbd_display.out_ep.ep_addr));
+            usbd_ep_start_read(busid, g_usbd_display.out_ep.ep_addr, usb_dispay_dummy, USBD_DISPLAY_BUS_MPS);
             break;
         default:
             break;
@@ -74,9 +84,12 @@ static void display_notify_handler(uint8_t busid, uint8_t event, void *arg)
 
 void usbd_display_bulk_out(uint8_t busid, uint8_t ep, uint32_t nbytes)
 {
+    // usb_display_out_pkt_cnt++;
+    // if ((usb_display_out_pkt_cnt <= 3) || ((usb_display_out_pkt_cnt % 1000) == 0))
+    //     USB_LOG_ERR("bulk_out pkt#%u nbytes=%u\r\n", usb_display_out_pkt_cnt, nbytes);
     if (usb_display_ignore_frame) {
         // alloc frame for next at the end of current frame
-        if ((nbytes % usbd_get_ep_mps(0, g_usbd_display.out_ep.ep_addr)) || (nbytes == 0)) {
+        if ((nbytes % USBD_DISPLAY_BUS_MPS) || (nbytes == 0)) {
             if (g_usbd_display.current_frame == NULL) {
                 g_usbd_display.current_frame = usbd_display_frame_alloc();
                 if (g_usbd_display.current_frame) {
@@ -109,7 +122,7 @@ void usbd_display_bulk_out(uint8_t busid, uint8_t ep, uint32_t nbytes)
 
         usb_display_buf_offset += nbytes;
 
-        if ((nbytes % usbd_get_ep_mps(0, g_usbd_display.out_ep.ep_addr)) || (nbytes == 0)) {
+        if ((nbytes % USBD_DISPLAY_BUS_MPS) || (nbytes == 0)) {
             frame = g_usbd_display.current_frame;
             g_usbd_display.current_frame = NULL;
 
@@ -136,7 +149,7 @@ void usbd_display_bulk_out(uint8_t busid, uint8_t ep, uint32_t nbytes)
 
 drop_frame:
     // drop current frame
-    usbd_ep_start_read(busid, g_usbd_display.out_ep.ep_addr, usb_dispay_dummy, usbd_get_ep_mps(0, g_usbd_display.out_ep.ep_addr));
+    usbd_ep_start_read(busid, g_usbd_display.out_ep.ep_addr, usb_dispay_dummy, USBD_DISPLAY_BUS_MPS);
     return;
 get_frame:
     usbd_ep_start_read(busid, g_usbd_display.out_ep.ep_addr, &g_usbd_display.current_frame->frame_buf[usb_display_buf_offset], 16384);
@@ -166,7 +179,9 @@ struct usbd_interface *usbd_display_init_intf(struct usbd_interface *intf,
     usbd_add_endpoint(0, &g_usbd_display.in_ep);
 
     for (uint32_t i = 0; i < count; i++) {
-        USB_ASSERT_MSG(frame[i].frame_bufsize % 16384, "frame_bufsize must be the multiple of 16384");
+        /* upstream bug: the original condition was inverted, it failed when
+         * frame_bufsize WAS a multiple of 16384 */
+        USB_ASSERT_MSG((frame[i].frame_bufsize % 16384) == 0, "frame_bufsize must be the multiple of 16384");
     }
 
     usbd_display_frame_create(frame, count);
