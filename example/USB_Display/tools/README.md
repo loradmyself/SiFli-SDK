@@ -7,6 +7,7 @@
 | `touch_map.py` | 把触摸屏绑定到指定的那块显示器（多显示器环境必做） |
 | `diag_usb_display.py` | 一键自检：显示器拓扑 / 触摸设备 / 绑定状态 |
 | `install_driver.ps1` | 驱动重签（Inf2Cat + signtool）+ 安装 |
+| `version_snapshot.py` | 记录 / 校验 SDK 与驱动源码的版本基线 |
 | `debug/*.py` | 排查用的底层探针，平时不用 |
 
 ---
@@ -204,7 +205,92 @@ powershell -ExecutionPolicy Bypass -File tools\install_driver.ps1
 
 ---
 
-## 4. `debug/` —— 底层探针
+## 4. `version_snapshot.py` —— 版本基线记录 / 校验
+
+配套文档：工程根的 `VERSIONS.md`。
+
+```bash
+python tools\version_snapshot.py              # 打印当前版本 YAML
+python tools\version_snapshot.py --write      # 写入 VERSIONS.md 的标记块
+python tools\version_snapshot.py --check      # 与 VERSIONS.md 比对，不一致返回 1
+
+python tools\version_snapshot.py --paths      # 我到底找到的是哪个 SDK / 哪个工程？
+python tools\version_snapshot.py --sdk F:\SiFli\SDK\SiFli-SDK\main    # 单次指定
+python tools\version_snapshot.py --set-sdk    # 把找到的路径写成用户配置，长期生效
+```
+
+它同时记录两层仓库：**SDK 主仓**（`main\`）和 **嵌套的驱动源码仓**（`main\tools\win-idd`）。
+
+### 4.1 脚本放哪儿都能跑（SDK 根怎么找）
+
+脚本不绑死自己的位置，按下面顺序找 SDK 根，**先命中先用**：
+
+| 顺序 | 来源 | 说明 |
+|---|---|---|
+| 1 | `--sdk <path>` | 支持传父目录（`SiFli-SDK` 会自动下探到 `main`） |
+| 2 | 环境变量 `SIFLI_SDK_PATH` / `SIFLI_SDK_ROOT` / `SIFLI_SDK` / `SIFLI_SDK_HOME` / `SDK_PATH` | 任意一个命中即可 |
+| 3 | 从**当前工作目录**向上找 | 在 SDK 里任何子目录下运行都能命中 |
+| 4 | 从**脚本所在目录**向上找 | 脚本留在 `tools\` 里时的常规路径 |
+| 5 | 用户配置文件 `C:\Users\<你>\.sifli\sdk_path` | 由 `--set-sdk` 写入，全局兜底默认 |
+| 6 | `<ENV_ROOT>\..\SDK\SiFli-SDK\main` | 有 `ENV_ROOT` 时的最后兜底 |
+
+局部上下文（当前所在的树）优先于全局配置，所以同时存在多个 SDK 副本时，跑在哪个里面就用哪个。
+
+判定标准：既有 `.version` + `version.txt`（严格），或 git 仓 + `rtconfig.py` + `example\` + `tools\`（宽松，兼容新版本 SDK）。
+
+**工程目录**（`VERSIONS.md` 所在处）另外单独定位：`--project` → 环境变量 `SIFLI_DISPLAY_PROJECT` →
+脚本的上级目录（脚本放在 `tools\` 下时就是工程根）→ 从 cwd 向上找 `VERSIONS.md` → `SDK\example\USB_Display`。
+
+想知道实际命中了哪一条：
+
+```bash
+$ python version_snapshot.py --paths
+[i] SDK   : F:\SiFli\SDK\SiFli-SDK\main   <- 向上查找 cwd（F:\SiFli\SDK\...\example\USB_Display -> ...\main）
+[i] 工程  : F:\SiFli\SDK\SiFli-SDK\main\example\USB_Display   <- 脚本位置
+[i] 配置文件: C:\Users\YBL\.sifli\sdk_path（未创建）
+```
+
+### 4.2 拷到别的目录 / 别的终端
+
+典型场景：把 `version_snapshot.py` 复制到 `D:\work\` 用，那里不属于任何 SDK 树，向上查找必然失败。
+三个办法，按推荐顺序：
+
+```powershell
+# ① 一次性写入用户配置（之后 anywhere 都能跑，包括重开终端）
+python version_snapshot.py --set-sdk F:\SiFli\SDK\SiFli-SDK\main
+
+# ② 不想有配置文件，就用环境变量（用户级，新开的终端自动继承）
+setx SIFLI_SDK_PATH "F:\SiFli\SDK\SiFli-SDK\main"
+
+# ③ 只影响当前这次调用
+python version_snapshot.py --sdk F:\SiFli\SDK\SiFli-SDK\main --check
+```
+
+`--set-sdk` 写的是 `%USERPROFILE%\.sifli\sdk_path`，纯文本一行，想撤就删掉这个文件。
+注意 `setx` 只对**之后新开**的终端生效，当前窗口要继续用就得 `$env:SIFLI_SDK_PATH = "..."`。
+
+`--check` 只比 `branch` / `commit` / `dirty` 三项，输出 `[OK ]` 或 `[DIFF]`：
+
+```
+  [OK ] sdk      branch  recorded=nuonuo current=nuonuo
+  [OK ] sdk      commit  recorded=a0155f00329f... current=a0155f00329f...
+  [DIFF] win_idd commit  recorded=c2de0f56f778... current=9ab1234c...
+[!] 有 1 处与记录不符
+```
+
+两个细节：
+
+- **工程目录自身的改动会被过滤**（工程目录相对 SDK 的路径前缀，如 `example/USB_Display/`），否则每写一次
+  文档 `dirty` 就变一次，基线永远对不上。工程不在 SDK 树内时不做过滤。
+- **`dirty: true` 表示"内容与 commit 不一致"**，此时光有哈希不能复现，必须看 `dirty_files` 清单。
+  当前 `tools\win-idd` 就有 5 个文件未提交，那正是 460 KB DLL 的来源——详见 `VERSIONS.md` 第 4.2 节。
+
+> 诊断信息（`[i] SDK : ...`）走 `stderr`，YAML 走 `stdout`，所以 `python version_snapshot.py > v.yaml`
+> 拿到的仍是干净的 YAML。
+
+---
+
+## 5. `debug/` —— 底层探针
 
 平时用不到，怀疑"到底是设备没发、还是系统没收"时用。
 
@@ -225,7 +311,7 @@ hid_read_test 读不到      →  问题在固件侧（端点/发送/描述符�
 
 ---
 
-## 5. 典型工作流
+## 6. 典型工作流
 
 ### A. 全新机器首次部署
 

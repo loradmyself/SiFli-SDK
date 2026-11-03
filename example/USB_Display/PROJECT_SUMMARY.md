@@ -4,6 +4,7 @@
 - 目标板：`sf32lb58-lcd_a128r32n1_qspi_hcpu`（SF32LB58x，NAND）
 - 屏幕：`HTM_H070A20_RGB_A01`，1024×600，RGB565
 - 主机：Windows 10/11 x64
+- 版本基线：SDK `nuonuo@a0155f003`（v2.5.0）、win-idd `main@c2de0f56` —— 详见 **[VERSIONS.md](VERSIONS.md)**
 
 ---
 
@@ -52,9 +53,11 @@ USB_Display/
 │   ├── touch_map.py               触摸屏 → 指定显示器 绑定（含立即生效）
 │   ├── diag_usb_display.py        环境自检：拓扑 / 触摸设备 / 绑定状态
 │   ├── install_driver.ps1         驱动重签（Inf2Cat+signtool）+ pnputil 安装
+│   ├── version_snapshot.py        版本基线记录 / 校验（生成 VERSIONS.md 的 YAML 块）
 │   ├── README.md                  **工具使用说明（含排查对照表）**
 │   └── debug/                     排查用底层探针（HID 直读 / RawInput / USB 抓描述符）
-└── PROJECT_SUMMARY.md             本文件
+├── PROJECT_SUMMARY.md             本文件
+└── VERSIONS.md                    版本基线：SDK / win-idd 的分支 + commit + dirty 状态
 ```
 
 ---
