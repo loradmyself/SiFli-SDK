@@ -32,8 +32,8 @@ extern void usb_display_release_frame(struct usbd_display_frame *frame);
 extern bool usb_display_is_ready(void);
 
 /* USB frame resolution (must match product string in usb_display_device.c) */
-#define FRAME_WIDTH   800
-#define FRAME_HEIGHT  480
+#define FRAME_WIDTH   1024    //width
+#define FRAME_HEIGHT  600    //height
 #define FB_BPP        2   /* RGB565 = 2 bytes/pixel */
 
 /* LCD device */
@@ -99,7 +99,7 @@ static void display_frame(struct usbd_display_frame *frame)
 int main(void)
 {
     rt_kprintf("=== USB Display Example ===\n");
-    rt_kprintf("LCD:ST7265 800x480 RGB565\n");
+    rt_kprintf("LCD:RGB565\n");
     rt_kprintf("USB Frame: %dx%d RGB565\n", FRAME_WIDTH, FRAME_HEIGHT);
 
     /* Find and open LCD device */
@@ -126,7 +126,7 @@ int main(void)
     usb_display_init(0, (uintptr_t)USBC_BASE);
 
     rt_kprintf("Ready. Waiting for USB frames...\n");
-    rt_graphix_ops(lcd_dev)->draw_rect(screen_fb, 0, 0, 799, 479);
+    rt_graphix_ops(lcd_dev)->draw_rect(screen_fb, 0, 0, FRAME_WIDTH - 1, FRAME_HEIGHT - 1);
     while (1) {
         struct usbd_display_frame *frame;
         static uint32_t rx_cnt = 0, last_cnt = 0;

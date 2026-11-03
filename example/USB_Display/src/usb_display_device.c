@@ -62,7 +62,10 @@ static const uint8_t device_quality_descriptor[] = {
     0x00,
     0x00,
 };
-
+/*可定义为自动适配形式*/
+#define DISPLAY_WIDTH   1024
+#define DISPLAY_HEIGHT  600
+#define DISPLAY_BPP     2   /* 2 for RGB565, 3 for RGB888 */
 /*
  * Product string encodes display parameters for the PC driver:
  *   R<width>x<height>_E<encoding>_Fps<fps>_Bl<block_size>
@@ -73,10 +76,18 @@ static const uint8_t device_quality_descriptor[] = {
  *   yuv420 - YUV 4:2:0
  *   jpg    - JPEG compressed (recommended for bandwidth)
  */
+#define _STRINGIFY_IMPL(x) #x
+#define STRINGIFY(x) _STRINGIFY_IMPL(x)
+
+#define DISPLAY_PRODUCT_STRING \
+    "sifli_R" STRINGIFY(DISPLAY_WIDTH) "x" STRINGIFY(DISPLAY_HEIGHT) "_Ergb16"
+
 static const char *string_descriptors[] = {
     (const char[]){ 0x09, 0x04 },            /* Langid */
     "SiFli",                                  /* Manufacturer */
-    "sifli_R800x480_Ergb16",     /* Product sifli_R800x480_Ergb16  sifli_R800x480_Ejpg70 */
+    // 正确：使用C语言的字符串字面量拼接技巧
+// 注意：LCD_HOR_RES_MAX 和 LCD_VER_RES_MAX 必须是数字，不能是字符串
+    "sifli_R1024x600_Ergb16",     /* Product sifli_R800x480_Ergb16  sifli_R800x480_Ejpg70 */
     "2025010101",                             /* Serial Number */
 };
 
@@ -151,10 +162,7 @@ static void usbd_event_handler(uint8_t busid, uint8_t event)
  * Frame buffers are allocated from PSRAM heap to save SRAM.
  * Adjust resolution and format to match your LCD and product string above.
  */
-/*可定义为自动适配形式*/
-#define DISPLAY_WIDTH   800
-#define DISPLAY_HEIGHT  480
-#define DISPLAY_BPP     2   /* 2 for RGB565, 3 for RGB888 */
+
 /*
  * 类驱动按 16384 字节分包读取，帧尺寸必须是 16384 的整数倍；
  * 且缓冲要容纳 16 字节帧头 + payload（800x480x2 + 16 = 768016 → 47*16384 = 770048）

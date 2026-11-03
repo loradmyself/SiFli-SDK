@@ -7,6 +7,7 @@
 #include "usbd_core.h"
 #include "usbd_display.h"
 #include "chry_mempool.h"
+#include <rtthread.h>
 
 struct usbd_disp_frame_header {
     uint16_t crc16; //payload crc16
@@ -84,9 +85,22 @@ static void display_notify_handler(uint8_t busid, uint8_t event, void *arg)
 
 void usbd_display_bulk_out(uint8_t busid, uint8_t ep, uint32_t nbytes)
 {
-    // usb_display_out_pkt_cnt++;
-    // if ((usb_display_out_pkt_cnt <= 3) || ((usb_display_out_pkt_cnt % 1000) == 0))
-    //     USB_LOG_ERR("bulk_out pkt#%u nbytes=%u\r\n", usb_display_out_pkt_cnt, nbytes);
+    usb_display_out_pkt_cnt++;
+    if (usb_display_out_pkt_cnt <= 3)
+        USB_LOG_ERR("bulk_out pkt#%u nbytes=%u\r\n", usb_display_out_pkt_cnt, nbytes);
+    {
+        /* 每秒打印一次包速率：与主循环 USB fps 对比，判断丢帧在哪一侧 */
+        static rt_tick_t rate_last = 0;
+        static uint32_t rate_acc = 0;
+        rate_acc++;
+        if (rate_last == 0)
+            rate_last = rt_tick_get();
+        if ((rt_tick_get() - rate_last) >= rt_tick_from_millisecond(1000)) {
+            USB_LOG_ERR("bulk_out rate=%u pkt/s total=%u\r\n", rate_acc, usb_display_out_pkt_cnt);
+            rate_acc = 0;
+            rate_last = rt_tick_get();
+        }
+    }
     if (usb_display_ignore_frame) {
         // alloc frame for next at the end of current frame
         if ((nbytes % USBD_DISPLAY_BUS_MPS) || (nbytes == 0)) {
