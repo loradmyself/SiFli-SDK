@@ -10,19 +10,31 @@ ClassGUID = {4D36E968-E325-11CE-BFC1-08002BE10318}
 Class = Display
 ClassVer = 2.0
 Provider=%ManufacturerName%
-DriverVer=08/05/2024,1.2.0.1
+CatalogFile = xfz1986_usb_graphic.cat
+DriverVer=11/03/2026,1.2.2.0
 
 [Manufacturer]
 %ManufacturerName%=Standard,NTamd64
 
 [Standard.NTamd64]
-%DeviceName%=MyDevice_Install, USB\VID_303A&PID_2986
-%DeviceName%=MyDevice_Install, USB\VID_303A&PID_2987
+;
+; 加入 HID 触摸接口后，设备变成“复合设备”（2 个接口）：
+;   MI_00 = vendor 显示接口（本驱动）
+;   MI_01 = HID 触摸屏（Windows 自带 hidusb + Windows Touch 免驱）
+; 因此匹配串必须带 &MI_00，否则会去匹配复合设备的父节点而装不上。
+;
+%DeviceName%=MyDevice_Install, USB\VID_303A&PID_2986&MI_00
+%DeviceName%=MyDevice_Install, USB\VID_303A&PID_2987&MI_00
+;
+; 单接口（无触摸）固件的匹配串，回退旧固件时取消下面两行的注释、
+; 并把上面的 &MI_00 两行注释掉：
+; %DeviceName%=MyDevice_Install, USB\VID_303A&PID_2986
+; %DeviceName%=MyDevice_Install, USB\VID_303A&PID_2987
 
-[SourceDiskFiles]
+[SourceDisksFiles]
 xfz1986_usb_graphic.dll=1
 
-[SourceDiskNames]
+[SourceDisksNames]
 1 = %DiskName%
 
 ; ==================== UMDF Device ====================

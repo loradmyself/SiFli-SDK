@@ -1,5 +1,14 @@
 # Hello World示例（RT-Thread）
 
+> **本目录已改造为 USB Display（USB 副屏 + 触摸）例程**，下面的 hello_world 说明只保留作编译参考。
+> 工程结构、PC 端驱动、触摸绑定工具与今天定位过的所有坑，见 **[PROJECT_SUMMARY.md](PROJECT_SUMMARY.md)**。
+>
+> 快速上手：
+> ```bash
+> python tools/diag_usb_display.py        # 先自检
+> python tools/touch_map.py apply         # 触摸绑到虚拟屏（多显示器必做）
+> ```
+
 源码路径: example/get-started/hello_world/rtt
 
 ## 概述

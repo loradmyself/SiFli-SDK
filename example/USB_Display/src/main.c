@@ -24,6 +24,8 @@
 #include "bf0_hal.h"
 #include "mem_section.h"
 #include "usbd_display.h"
+#include "usb_display_config.h"
+#include "usb_touch.h"
 
 /* Defined in usb_display_device.c */
 extern void usb_display_init(uint8_t busid, uintptr_t reg_base);
@@ -31,10 +33,10 @@ extern bool usb_display_poll_frame(struct usbd_display_frame **frame);
 extern void usb_display_release_frame(struct usbd_display_frame *frame);
 extern bool usb_display_is_ready(void);
 
-/* USB frame resolution (must match product string in usb_display_device.c) */
-#define FRAME_WIDTH   1024    //width
-#define FRAME_HEIGHT  600    //height
-#define FB_BPP        2   /* RGB565 = 2 bytes/pixel */
+/* USB 帧分辨率（统一来自 usb_display_config.h） */
+#define FRAME_WIDTH   DISPLAY_WIDTH
+#define FRAME_HEIGHT  DISPLAY_HEIGHT
+#define FB_BPP        DISPLAY_BPP
 
 /* LCD device */
 static rt_device_t lcd_dev = NULL;
@@ -91,8 +93,8 @@ static void display_frame(struct usbd_display_frame *frame)
     }
 
     /* 3. 整屏推送：把 LCDC 图层指向合成后的帧缓冲 */
-    // rt_graphix_ops(lcd_dev)->draw_rect((const char *)screen_fb, 0, 0,
-    //                                    FRAME_WIDTH - 1, FRAME_HEIGHT - 1);
+    rt_graphix_ops(lcd_dev)->draw_rect((const char *)screen_fb, 0, 0,
+                                       FRAME_WIDTH - 1, FRAME_HEIGHT - 1);
 }
 
 
@@ -125,7 +127,14 @@ int main(void)
     /* Initialize USB display device */
     usb_display_init(0, (uintptr_t)USBC_BASE);
 
+    /* 启动触摸采集线程（HID 触摸屏，与显示接口共用一条 USB 线） */
+    usb_touch_start();
+
     rt_kprintf("Ready. Waiting for USB frames...\n");
+    /* 清零帧缓冲再推一次：自定义 section 不保证被启动代码清零，
+     * 否则上电会显示 PSRAM 随机数据（满屏彩色横纹） */
+    memset(screen_fb, 0, sizeof(screen_fb));
+    SCB_CleanDCache_by_Addr((uint32_t *)screen_fb, sizeof(screen_fb));
     rt_graphix_ops(lcd_dev)->draw_rect(screen_fb, 0, 0, FRAME_WIDTH - 1, FRAME_HEIGHT - 1);
     while (1) {
         struct usbd_display_frame *frame;
