@@ -19,5 +19,8 @@
     ],
     "cmake.sourceDirectory": "F:/SiFli/SDK/SiFli-SDK/main/tools/flash",
     "C_Cpp.default.compileCommands": "F:/SiFli/SDK/SiFli-SDK/main/example/Dual_Bluetooth_Headset_Walkie-Talkie/project/build_spi-hdk_lb57bun3n6_hcpu/compile_commands.json",
-    "C_Cpp.default.intelliSenseMode": "gcc-arm"
+    "C_Cpp.default.intelliSenseMode": "gcc-arm",
+    "python.autoComplete.extraPaths": [
+        "c:/Users/YBL/.vscode/extensions/rt-thread.rt-thread-micropython-1.0.11/microExamples/code-completion"
+    ]
 }
