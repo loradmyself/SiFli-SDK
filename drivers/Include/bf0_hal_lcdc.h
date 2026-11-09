@@ -702,6 +702,17 @@ HAL_StatusTypeDef HAL_LCDC_Init(LCDC_HandleTypeDef *lcdc);
 */
 HAL_StatusTypeDef HAL_LCDC_DeInit(LCDC_HandleTypeDef *lcdc);
 
+/**
+* @brief  Optional EPD start hook, called by the HAL right before the LCDC
+*         START command is issued for an EPD interface. A panel driver may
+*         implement it to start the frame itself (e.g. PTM writes the
+*         COMMAND START register so the first CKV edge cannot be missed).
+* @param  lcdc LCD controller handle
+* @retval true: hook already started the frame, HAL must not write START;
+*         false: HAL writes COMMAND START normally (weak default)
+*/
+bool HAL_LCDC_EPD_StartHook(LCDC_HandleTypeDef *lcdc);
+
 //Obsolete
 HAL_StatusTypeDef HAL_LCDC_ResetLCD(LCDC_HandleTypeDef *lcdc, uint8_t pulse_type, uint32_t pulse_us);
 

@@ -3,6 +3,18 @@ from building import *
 cwd = GetCurrentDir()
 src = Glob('*.c')
 CPPPATH = [cwd + '/../common', cwd]
-group = DefineGroup('Drivers', src, depend = ['LCD_USING_EPD_B082A05'], CPPPATH = CPPPATH)
+
+# The B082A05 reader uses hardware PTM SPV timing on every refresh.
+# Keep an explicit build-time escape hatch for comparison with TCON SPV:
+#   scons --board=... EPD_SPV_PTM_PHASE=0
+spv_phase = ARGUMENTS.get('EPD_SPV_PTM_PHASE', '1')
+if spv_phase not in ('0', '1'):
+    raise ValueError('EPD_SPV_PTM_PHASE must be 0 or 1')
+local_defines = []
+if spv_phase == '1':
+    local_defines.append('EPD_SPV_PTM_PHASE=1')
+
+group = DefineGroup('Drivers', src, depend = ['LCD_USING_EPD_B082A05'], CPPPATH = CPPPATH,
+                    LOCAL_CPPDEFINES = local_defines)
 
 Return('group')

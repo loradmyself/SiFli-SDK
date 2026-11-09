@@ -14,6 +14,9 @@
 #include "epd_tps.h"
 #include "mem_section.h"
 #include "epd_waveform.h"
+#ifdef EPD_SPV_PTM_PHASE
+#include "ptm_ins.h"
+#endif
 
 /**
   * @brief B082A05_EPD chip IDs
@@ -36,7 +39,7 @@ static const LCDC_InitTypeDef lcdc_int_cfg_edp_16bit =
             .SDMODE = 0, //Source driver mode
             .SDCLK_polarity = 0, //Source driver clock polarity
             .GDSP_polarity = 0,
-            .GDCLK_polarity = 1, //Gate clock polarity
+            .GDCLK_polarity = 0, //Gate clock polarity
 
             .LSL = 15, //Line start length
             .LBL = 15, //Line begin length
@@ -293,6 +296,166 @@ static uint32_t lut[HAL_LCDC_LOOKUP_TABLE_SIZE >> 2];
 static volatile int epd_flushing = 0;   //1: a frame sequence is running
 static uint32_t force_frames = 0;       //0: use the frame count of the wave table
 
+#ifdef EPD_SPV_PTM_PHASE
+/* Ported from the shared-reader E0470A03 patch: PTM1 Core0/TCM[0..7]/CH0
+ * regenerates SPV so both its edges can be placed relative to CKV edges.
+ * - PTM issues the LCDC START command itself (PTM_STM to COMMAND) when
+ *   HAL_LCDC_EPD_StartHook enables Core0, so the first CKV edge of the frame
+ *   cannot be missed by CPU latency.
+ * - WAIT_PA25 samples the CKV pad input; PA25 keeps its LCDC1_TCON_GDCLK mux,
+ *   so TCON keeps driving CKV as before.
+ * - PA27 is re-muxed from LCDC1_TCON_GDSP to PTM1_CH0 while PTM takes over.
+ * Program (runs once per frame, ends with EVT0):
+ *   X = LCD_IF_COMMAND_START, store -> LCDC COMMAND   (start the frame)
+ *   wait CKV low; wait CKV high + SPV_PHASE_NS  -> SPV active edge
+ *   wait CKV low; wait CKV high + SPV_PHASE_NS  -> SPV idle edge, END
+ * B082A05 CKV is high for ~7us, so 3500ns (half of the high phase) puts both
+ * SPV edges near the middle of CKV high: SPV falls before CKV falls and rises
+ * after CKV rises, satisfying the datasheet tSU/tH >= 100ns with margin.
+ * Build-time escape hatch: scons ... EPD_SPV_PTM_PHASE=0 to compare TCON SPV. */
+#define SPV_PHASE_NS 3500u
+#define SPV_PTM_CH (1u << 0)
+#define SPV_PTM_END 7u
+#define SPV_PTM_FLAGS (PTM_ISR_EVT0 | PTM_ISR_ERR0 | PTM_ISR_TCM0)
+static bool spv_ptm_enabled = true;
+static bool spv_ptm_ready, spv_ptm_armed, spv_ptm_clock_was_enabled;
+static uint32_t spv_ptm_hz, spv_delay_cycles, spv_started, spv_pulses, spv_failures;
+static uint32_t spv_last_isr, spv_last_pc;
+static bool spv_frame_failed;
+
+static void configure_spv_core(uint32_t last)
+{
+    /* No PTM IRQ is needed: the frame completion callback checks EVT0. Explicit
+     * END addresses prevent execution into another core's TCM. PSC=0, REP=0. */
+    hwp_ptm1->CER |= PTM_CER_RST0;
+    hwp_ptm1->ISR = SPV_PTM_FLAGS;
+    MODIFY_REG(hwp_ptm1->IER, PTM_IER_EVTIE0 | PTM_IER_ERRIE0 | PTM_IER_EVTAUTO0,
+               PTM_IER_EVTAUTO0);
+    hwp_ptm1->CCR0 = (last << PTM_CCR0_END0_Pos) | (last << PTM_CCR0_END1_Pos);
+    hwp_ptm1->ICR0 = 0;
+    hwp_ptm1->OCR0 = 0; /* CH0 = OUT0; no FIFO-induced stalls. */
+}
+
+static void release_spv_ptm(void)
+{
+    if (!spv_ptm_ready) return;
+    hwp_ptm1->CER |= PTM_CER_RST0;
+    hwp_ptm1->DOSR = SPV_PTM_CH;   /* park SPV at idle (high, active low) */
+    hwp_ptm1->DOECR = SPV_PTM_CH;
+    CLEAR_BIT(hwp_ptm1->IER, PTM_IER_EVTIE0 | PTM_IER_ERRIE0 | PTM_IER_EVTAUTO0);
+    hwp_ptm1->ISR = SPV_PTM_FLAGS;
+    spv_ptm_ready = spv_ptm_armed = false;
+    if (!spv_ptm_clock_was_enabled && !(hwp_ptm1->CER & 0xffu))
+        HAL_RCC_DisableModule(RCC_MOD_PTM1);
+}
+
+static int prepare_spv_ptm(LCDC_HandleTypeDef *lcdc)
+{
+    spv_ptm_hz = HAL_RCC_GetHCLKFreq(CORE_ID_DEFAULT);
+    uint64_t cycles = ((uint64_t)spv_ptm_hz * SPV_PHASE_NS + 500000000u) / 1000000000u;
+    if (!spv_ptm_hz || !cycles || cycles > 65535u) return -RT_ERROR;
+    spv_delay_cycles = (uint32_t)cycles;
+    if (!HAL_DBG_DWT_IsInit()) HAL_DBG_DWT_Init();
+    spv_ptm_clock_was_enabled = !!(hwp_hpsys_rcc->ENR1 & HPSYS_RCC_ENR1_PTM1);
+    HAL_RCC_EnableModule(RCC_MOD_PTM1);
+    /* Refuse a competing PTM user (e.g. USE_PTM_DVP_8WIRE). */
+    if ((hwp_ptm1->CER & 0xffu) || (hwp_ptm1->DOER & SPV_PTM_CH)) return -RT_EBUSY;
+    spv_ptm_ready = true;
+
+    /* Check TCM execution before enabling panel rails. Interrupts remain
+     * enabled; this bounded poll checks readiness, not output timing. */
+    configure_spv_core(1);
+    volatile uint32_t *code = PTM1_CORE0_TCM;
+    code[0] = PTM_SET(PTM_X, PTM_ZERO, OP_OR, 0x5757);
+    code[1] = PTM_SET(PTM_OS, PTM_ZERO, OP_OR, SPV_PTM_CH);
+    __DSB();
+    hwp_ptm1->CER |= PTM_CER_EN0;
+    uint32_t start = DWT->CYCCNT;
+    while (!(hwp_ptm1->ISR & SPV_PTM_FLAGS))
+    {
+        if ((uint32_t)(DWT->CYCCNT - start) > spv_ptm_hz / 10000u) goto fail;
+    }
+    if ((hwp_ptm1->ISR & SPV_PTM_FLAGS) != PTM_ISR_EVT0 ||
+        hwp_ptm1->X0 != 0x5757 || !(hwp_ptm1->DOR & SPV_PTM_CH)) goto fail;
+
+    configure_spv_core(SPV_PTM_END);
+    const uint32_t program[] = {
+        PTM_SET(PTM_X, PTM_ZERO, OP_OR, LCD_IF_COMMAND_START),
+        PTM_STM(PTM_X, (uint32_t)&lcdc->Instance->COMMAND),
+        PTM_WAIT(WAIT_PA25, 0, 0),
+        PTM_WAIT(WAIT_PA25, 1, spv_delay_cycles),
+        PTM_SET(PTM_OC, PTM_ZERO, OP_OR, SPV_PTM_CH),
+        PTM_WAIT(WAIT_PA25, 0, 0),
+        PTM_WAIT(WAIT_PA25, 1, spv_delay_cycles),
+        PTM_SET(PTM_OS, PTM_ZERO, OP_OR, SPV_PTM_CH),
+    };
+    RT_ASSERT(sizeof(program) / sizeof(program[0]) == SPV_PTM_END + 1u);
+    for (unsigned i = 0; i <= SPV_PTM_END; ++i) code[i] = program[i];
+    __DSB();
+    for (unsigned i = 0; i <= SPV_PTM_END; ++i)
+        if (code[i] != program[i]) goto fail;
+    hwp_ptm1->DOSR = SPV_PTM_CH;   /* SPV idle level before arming */
+    hwp_ptm1->DOESR = SPV_PTM_CH;
+    if (HAL_PIN_Set(PAD_PA27, PTM1_CH0, PIN_NOPULL, 1) != 0) goto fail;
+    HAL_PIN_SetMode(PAD_PA27, 1, PIN_DIGITAL_IO_NORMAL);
+    return RT_EOK;
+fail:
+    spv_last_isr = hwp_ptm1->ISR;
+    spv_last_pc = hwp_ptm1->PC0;
+    ++spv_failures;
+    release_spv_ptm();
+    return -RT_ERROR;
+}
+
+static bool arm_spv_ptm(void)
+{
+    if (!spv_ptm_enabled) return true;
+    if (!spv_ptm_ready)
+        return true; /* prepare fell back to TCON, hook will not fire */
+    if (hwp_ptm1->CER & PTM_CER_EN0)
+    {
+        ++spv_failures;
+        return false;
+    }
+    configure_spv_core(SPV_PTM_END);
+    hwp_ptm1->DOSR = SPV_PTM_CH;
+    __DSB();
+    spv_ptm_armed = true;
+    return true;
+}
+
+bool HAL_LCDC_EPD_StartHook(LCDC_HandleTypeDef *lcdc)
+{
+    if (!spv_ptm_enabled || !spv_ptm_armed ||
+        lcdc->Init.lcd_itf != LCDC_INTF_EPD_16BIT)
+        return false;
+    spv_ptm_armed = false;
+    ++spv_started;
+    /* PTM issues LCDC START and drives both SPV edges from TCM. No CPU edge
+     * wait, GPIO toggle or interrupt masking is used for the pulse. */
+    hwp_ptm1->CER |= PTM_CER_EN0;
+    return true;
+}
+
+static bool complete_spv_ptm(void)
+{
+    if (!spv_ptm_enabled || !spv_ptm_ready) return true;
+    spv_last_isr = hwp_ptm1->ISR;
+    spv_last_pc = hwp_ptm1->PC0;
+    if ((spv_last_isr & SPV_PTM_FLAGS) != PTM_ISR_EVT0 ||
+        (hwp_ptm1->CER & PTM_CER_EN0) || !(hwp_ptm1->DOR & SPV_PTM_CH))
+    {
+        ++spv_failures;
+        spv_frame_failed = true;
+        hwp_ptm1->CER |= PTM_CER_RST0;
+        hwp_ptm1->DOSR = SPV_PTM_CH;
+        return false;
+    }
+    ++spv_pulses; /* Completed programs; pin captures validate physical edges. */
+    return true;
+}
+#endif /* EPD_SPV_PTM_PHASE */
+
 static void epd_flush_wait_idle(void)
 {
     uint32_t start = rt_tick_get();
@@ -318,6 +481,14 @@ static uint32_t StartFrame(LCDC_HandleTypeDef *hlcdc, uint32_t frame_idx)
         BSP_LCD_GMODE_Set(0);
         HAL_Delay_us(1);
         BSP_LCD_GMODE_Set(1);
+#ifdef EPD_SPV_PTM_PHASE
+        if (!arm_spv_ptm())
+        {
+            spv_frame_failed = true;
+            tps_enter_sleep();
+            return 1; //Abort the sequence, PTM could not be armed
+        }
+#endif /* EPD_SPV_PTM_PHASE */
         HAL_LCDC_SendLayerData_IT(hlcdc);
 
         return 0;
@@ -330,9 +501,25 @@ static uint32_t StartFrame(LCDC_HandleTypeDef *hlcdc, uint32_t frame_idx)
 }
 static void LCDC_SendLineCpltCbk(LCDC_HandleTypeDef *hlcdc)
 {
+    bool epd_done = false;
+#ifdef EPD_SPV_PTM_PHASE
+    if (!complete_spv_ptm() || spv_failures)
+        epd_done = true; //PTM went wrong, stop the sequence after cleanup
+#endif /* EPD_SPV_PTM_PHASE */
+    if (!epd_done)
+        epd_done = StartFrame(hlcdc, curr_frame++);
 
-    if (StartFrame(hlcdc, curr_frame++))
+    if (epd_done)
     {
+#ifdef EPD_SPV_PTM_PHASE
+        if (spv_ptm_enabled && spv_ptm_ready)
+            rt_kprintf("[epd-spv] source=%s target_phase_ns=%u ptm_hz=%u delay_cycles=%u started=%u completed=%u failures=%u isr=%08x pc=%08x\n",
+                       spv_ptm_enabled ? "PTM" : "TCON", (unsigned)SPV_PHASE_NS,
+                       (unsigned)spv_ptm_hz, (unsigned)spv_delay_cycles,
+                       (unsigned)spv_started, (unsigned)spv_pulses, (unsigned)spv_failures,
+                       (unsigned)spv_last_isr, (unsigned)spv_last_pc);
+        release_spv_ptm();
+#endif /* EPD_SPV_PTM_PHASE */
         LOG_I("Take %d ticks", rt_tick_get() - start_tick);
 
         HAL_LCDC_LayerSetFormat(hlcdc, HAL_LCDC_LAYER_DEFAULT, ori_format); //Restore layer format
@@ -359,6 +546,17 @@ static void epd_flush_begin(LCDC_HandleTypeDef *hlcdc)
 
     Ori_XferCpltCallback = hlcdc->XferCpltCallback;
     hlcdc->XferCpltCallback = LCDC_SendLineCpltCbk;
+#ifdef EPD_SPV_PTM_PHASE
+    spv_started = spv_pulses = spv_failures = spv_last_isr = spv_last_pc = 0;
+    spv_frame_failed = false;
+    if (spv_ptm_enabled && prepare_spv_ptm(hlcdc) != RT_EOK)
+    {
+        /* TCM/pad check failed before panel rails are up: fall back to the
+         * TCON direct SPV for this refresh instead of aborting the frame. */
+        rt_kprintf("[epd-spv] PTM prepare failed (%u), fall back to TCON SPV\n",
+                   (unsigned)spv_failures);
+    }
+#endif /* EPD_SPV_PTM_PHASE */
     tps_exit_sleep(); //Power up TPS rails before flush (thread context, contains mdelay)
     StartFrame(hlcdc, 0);
 }
@@ -583,5 +781,29 @@ MSH_CMD_EXPORT(epd_black, force a full black refresh);
 MSH_CMD_EXPORT(epd_white, force a full white refresh);
 MSH_CMD_EXPORT(epd_normal, restore the normal waveform table);
 MSH_CMD_EXPORT(epd_force, force EPD LUT code);
+
+#ifdef EPD_SPV_PTM_PHASE
+static int epd_spv_phase(int argc, char **argv)
+{
+    if (argc == 2 && (!strcmp(argv[1], "0") || !strcmp(argv[1], "1")))
+    {
+        if (epd_flushing)
+        {
+            rt_kprintf("[epd-spv] busy; mode unchanged\n");
+            return -RT_EBUSY;
+        }
+        spv_ptm_enabled = argv[1][0] == '1';
+    }
+    else if (argc != 1)
+    {
+        rt_kprintf("epd_spv_phase [0=TCON | 1=PTM (boot default)]\n");
+        return -RT_EINVAL;
+    }
+    rt_kprintf("[epd-spv] mode=%u source=%s target_phase_ns=%u\n",
+               (unsigned)spv_ptm_enabled, spv_ptm_enabled ? "PTM" : "TCON", (unsigned)SPV_PHASE_NS);
+    return RT_EOK;
+}
+MSH_CMD_EXPORT(epd_spv_phase, Select SPV phase while idle; resets to PTM);
+#endif /* EPD_SPV_PTM_PHASE */
 #endif /* RT_USING_FINSH */
 
