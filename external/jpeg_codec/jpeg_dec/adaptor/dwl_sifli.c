@@ -131,6 +131,14 @@ void JPEG_DEC_IRQHandler(void)
         release_sem = 1;
     }
 
+    /* 58x 实测补丁：DEC_BUS_INT(bit13, AXI 总线错误) 原来无人处理，
+     * 既不放信号量也不打印 → DWLWaitHwReady 必然白等 1s 超时。
+     * 总线错误意味着本次解码失败，应立即唤醒等待者并报错。 */
+    if (swreg1 & JPEGDEC_SWREG1_DEC_BUS_INT)
+    {
+        DWL_LOG_E("JPEG_DEC_IRQHandler BUS error (check stream/output memory domain)");
+        release_sem = 1;
+    }
 
     if (swreg1 & JPEGDEC_SWREG1_DEC_RDY_INT) release_sem = 1;
 
