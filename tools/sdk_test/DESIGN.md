@@ -1,0 +1,722 @@
+# SiFli SDK 自动化测试框架（test_fwk）设计方案
+
+## Context
+
+**为什么要做**。当前 SDK 的质量把关只有"编得过"：`.gitlab-ci.yml` → `tools/ci/dynamic_pipeline.py` 只跑 `scons`，`build_job.sh` 用 exit code 判成败；根目录 `tests/` 是 stdlib unittest（220 个方法）但**没有任何 CI 或 make 目标调用它**；真机测试依赖 `tools/autotest/*.bat`，而其中的关键执行器（`Thinker.exe`、`SwitchReset.exe`）**不在仓库里**，是 Jenkins 上的外部工具，路径还硬编码到 `Z:\\gitroot`、`\\\\ftpserver`。结果是：没有统一的用例收集、没有硬件分配、没有可复现的结果上报。
+
+**做成什么样**。按 `SDK自动化测试.docx` 建两个系统：**SDK 侧**（收集 testcase、pytest 调度、定义 scheme，不绑定具体硬件）+ **Lab Agent**（持有真实硬件的 runner，控制平面 + 去中心化 runner）。两者靠 binding 文件连接。schema 对齐 Zephyr twister，宿主编排对齐 ESP-IDF pytest-embedded。覆盖需求 1（模块 API/边界单测）、2（端到端 console 断言）、3（硬件行为打桩）、4（多设备协同）。
+
+**已确认决策**（用户，含两轮修正）：
+- 交付物 = 设计文档 + 可运行 MVP。
+- **MVP 只做 Tier A（真板卡）**；Tier B（mock 单测）本期只出设计与接口。
+- C 测试框架 = **引入 Unity**（能力是 utest 的超集：setUp/tearDown、浮点/数组/内存断言族、runner 生成），存量 utest 用例不回迁。
+- 需求 3 打桩 = **CMock**（Unity 配套），机制是**不编译被 mock 的 HAL 实现**，不走手写桩、不依赖 weak。
+- Tier B 载体路线 = **先 pc 仿真板打样 → 之后 QEMU**（`E:\code2\qemu-support` worktree 已打通）。
+- Lab Agent = MVP 单机 runner + 手工 binding。
+- MVP 必通链路 = hello_world console 端到端 + 真板卡 Unity 单测跑通调度。
+
+**一个关键澄清（改变了分层）**：用户指出"mock flash 驱动就不会真的上板测试了，因为没有真实 flash 驱动板子无法运行程序"。精确地说——XIP 取指走硬件 MPI 映射、不经由 `drv_spi_flash.c`，所以只排这一个文件未必起不来；但**整个 `drivers/hal` 不编译**则时钟/RCC、UART、pinmux、MPI 全无，板子确实跑不起来，也没有串口上报通道。更根本的是语义：被测对象是 flash 驱动本身时，在真 flash 上跑它没有意义。**结论：mock 层必须有非板卡载体**（指整树跳过 `drivers/` 的方案；个别可隔离的依赖在真板上仍按指南 §7.3 处理）——这也正好解释了 docx 那句"SDK 侧的测试可以不需要依赖任何硬件"。
+
+---
+
+## 交付状态（as-built，本文其余部分为设计意图）
+
+> **本次提交的范围**：测试框架本身（发现 / 能力匹配 / 编排 / 三种 harness /
+> 后端 / 日志与报告）+ Lab Agent + 板上 Unity 运行时 + 用例注册表生成器
+> + QEMU 载体（`customer/boards/qemu_*`、`rtos/rtthread/bsp/sifli/drivers_qemu/`、
+> `tools/qemu/`、`example/qemu/`，连同它要求的构建侧改动：`SOC_QEMU` 与每块载体板
+> 各自的 `BSP_USING_BOARD_QEMU_*` 等 Kconfig 符号、`tools/build/building.py`）。
+>
+> **不在内的**只剩一处，见下一笔：
+>
+> | 不在本次提交里 | 内容 |
+> |---|---|
+> | CMock 打桩的两个示例工程（需求 3） | 库（`external/cmock/`）与 mock 生成物（`middleware/test_fwk/mocks/`）已随本提交入库；`example/test/cmock_unit/` 与 `example/test/hal_mock/` 见下一笔 |
+>
+> 下文凡提到这些的地方，请按这个边界读：**`backends/qemu.py` 这个后端本来就在框架那一笔里，
+> 载体随后一笔才到，现在两者都在树里**——QEMU 这条路线是跑通了的既成事实，不再是设计意图。
+>
+> **当前分支状态（2026-11）**：`external/cmock/` 与 `middleware/test_fwk/mocks/` 已在树内；
+> `example/test/cmock_unit/`、`example/test/hal_mock/` 仍不在本分支，下文标"已交付"的记录指
+> 设计/后续分支，不代表本分支可直接运行。QEMU 路线的可用性优先级低于真板。
+>
+> （示例用例工程 `example/test/unit_test/` 与 `example/get-started/hello_world/` 的
+> `testcase.yaml` 曾列在上面，现已随框架一起提交。）
+
+| 部分 | 状态 |
+|---|---|
+| SDK 侧 `tools/sdk_test/`：发现 / 能力匹配 / 编排 / 报告上报 | ✅ 完成，**350 个自测全绿** |
+| Lab Agent `tools/lab_agent/`：独占占用 / 串口 / 探针 / 烧录 | ✅ 完成，**105 个自测全绿**，不需要硬件 |
+| `sdk.py test` 入口（list / plan / run / info） | ✅ 完成 |
+| harness `console` / `unity` / `pytest` | ✅ 完成（`pytest` 由设计态提前到本期） |
+| harness `shell` | ⬜ 仍会明确 raise |
+| 板上 Unity：`external/unity` + `middleware/test_fwk` | ✅ 在本次提交里；用例工程 `example/test/unit_test/` 与 `example/test/hal_real/` 同批 |
+| 后端 `board`（Tier A，真板卡） | ✅ 完成 |
+| 后端 `qemu`（Tier B，无硬件） | ✅ 完成，`example/qemu` 与 `-t unit_test.qemu` 都在它上面跑过 |
+| 后端 `pc_sim` | ⬜ 只有接口 |
+| 带芯片身份的 QEMU 板（`qemu_sf32lb{52x…58x}`） | ✅ 五块都已构建并跑通过 |
+| CMock 打桩用例（需求 3） | ✅ mock 生成物已入库、两个用例工程都已跑通并反向验证过；**用例工程见下一笔** |
+| 日志与报告（按 twister 对齐） | ✅ 完成：每实例 `device.log` + `runner.log`、run 级 `runner.log`、JSON 主文档 + JUnit 派生、失败阶段标记 |
+| 需求 4（多设备） | 🟡 仪表控制台流已实现（第二块板作为 fixture，pytest 的 `bt_peer:ble`）；多 DUT 调度（`dut:` / `dut_client:`）未实现 |
+
+**自测怎么跑**（不需要硬件、不需要 Lab Agent）：
+
+```bash
+python -m unittest discover -s tools/sdk_test/tests -p "test_*.py"
+python -m unittest discover -s tools/lab_agent/tests -p "test_*.py"
+```
+
+使用手册见 [`autotest_guide.md`](../../docs/source/zh_CN/app_note/autotest_guide.md)；SDK 侧实现说明见
+[`README.md`](README.md)。
+
+---
+
+## 分层模型（本方案的骨架）
+
+| | **Tier A：真板卡** | **Tier B：mock 单测** |
+|---|---|---|
+| 用例 | console 端到端、Unity 真外设单测 | 模块 API/边界 + CMock 打桩 |
+| 载体 | 真板卡（Lab Agent 分配） | **非板卡**：`pc` 板打样 → `qemu_sf32lb52x` |
+| HAL | 真实 HAL | **不编译 `drivers/hal`** |
+| 需求覆盖 | 1 / 2 / 4 | 1 / 3 |
+| MVP | ✅ 本期交付 | ❌ 本期只出设计与接口 |
+
+**载体在 SDK 里天然统一**：真板卡、`pc_hcpu`、`qemu_sf32lb52x` 都是 `scons --board=<name>` 的取值。区别只在"要不要向 Lab Agent 申请硬件"——真板卡要，pc/QEMU 不要（无硬件，也就没有 testbed 分配与互斥）。
+
+---
+
+## 现状盘点（已核实，作为设计约束，不要重复探索）
+
+| 事实 | 位置 / 结论 |
+|---|---|
+| 板上 C 测试框架 | RT-Thread **utest** 已在树内：`rtos/rtthread/components/utilities/utest/`，Kconfig `RT_USING_UTEST`（`rtos/rtthread/components/utilities/Kconfig:210`）。40+ 链接脚本模板已保留 `UtestTcTab` 段。**Unity 不在树内**（`external/lvgl_v9/tests/unity/` 是上游死代码，无 SConscript）。 |
+| 现成真机测试套件 | `example/hal_example/`：37 个 `src/example/example_*.c`，`UTEST_TC_EXPORT`，`proj.conf` 里 `CONFIG_RT_USING_UTEST=y`。MSH 命令 `utest_list` / `utest_run <name>`。 |
+| utest 结果契约 | `utest.c` 打印 `[  PASSED  ] [ result   ] testcase (%s)` / `[  FAILED  ]`。解析先例：`tools/audio_test_script/utestClient.py`。 |
+| 宿主载体（两个） | ① `customer/boards/pc`：`BSP_USING_PC_SIMULATOR`，MSVC/`ARCH='sim'`/x86 `.exe`，**`drivers/SConscript` 整树跳过 `drivers/`**，用 `drivers_pc/` 假驱动替代。② `customer/boards/qemu_sf32lb52x`（同类载体共五块，各带一个芯片身份）：`SOC_QEMU` 同样整树跳过 `drivers/`，走 arm-none-eabi + QEMU mps2-an505，控制台是模拟 UART0（**不是** semihosting，理由见需求 3）。 |
+| 命令扩展点 | `tools/sdk_py_actions/cli/registry.py` `CommandRegistry`，自动发现 `*_ext.py`；**`test` 路径未被占用**。参考 `flash_ext.py`（含 `build_<board>` 解析）。 |
+| 烧录 | `sftool -p COMx -b 1000000 -c <chip> -m <nor\|nand> write_flash f@addr ...`，文件清单来自 `build_<board>/sftool_param.json`（机读）。J-Link 走生成的 `download.jlink`。`sdk.py flash` 已封装两条路径。 |
+| 控制台 | 设备固定 `uart1`（`customer/peripherals/console/Kconfig`），**波特率 1000000**（`drv_usart.c:29`）。 |
+| 串口坑 | `FINSH_ECHO_DISABLE_DEFAULT=1` → **输入不回显**；`RT_CONSOLEBUF_SIZE=128` → 长行会**截断/拆行**；无全局锁 → 行间可能插噪声。期望逻辑必须容忍。 |
+| 复位 | 必须**带外**：J-Link（`tools/segger/halt_all_cpu_and_disable_all_wdt_*.jlink` + `tools/autotest/reset.txt`）或电源继电器。串口 DTR 不是复位。 |
+| 板卡元数据 | `customer/boards/<board>/{hcpu,lcpu,acpu}/{rtconfig.py,board.conf,Kconfig.board}`（`JLINK_DEVICE`/`CHIP`/`CORE`）+ `ptab.{json,yaml}`。`build_config.yaml`/`build_config_gcc.yaml` 已给出 example×board 矩阵。 |
+| 依赖现状 | 依赖不再按 feature 文件安装：`install.* --enable-<feature>` 机制**已在 commit 8259175ea 移除**，全部来自 `tools/locks/<profile>/uv.lock` 这一个锁定环境（`pyserial`/`pyyaml`/`jsonschema`/`pytest` 都在里面）。框架本身不需要额外依赖——`tools/requirements/` 下那几个 `requirements.*.txt` 是那个已移除机制的遗留，不再被任何东西读取。串口编程纪律参考 `tools/sdk_py_actions/sifli_uart_dap.py`（惰性 import、context manager、reset 缓冲区）。 |
+| CI 许可证扫描 | `tools/autotest/copyright_check.bat` + scancode → 新引入第三方源码必须带 LICENSE 并过白名单。 |
+
+---
+
+## 架构
+
+![SiFli SDK 自动化测试框架架构](assets/autotest_architecture.svg)
+
+> 两个版本，同一份内容：上面这张 SVG 是给文档内嵌用的（跟着阅读器的明暗主题走）；
+> `assets/autotest_architecture.html` 是**独立可浏览版**，同一套内容外加"尚未收敛"清单，
+> 直接用浏览器打开即可。**改内容时两边都要改**——它们没有生成关系。
+
+同一张图的纯文本版本（终端里读、diff 里看）：
+
+```
++-- SDK 侧 tools/sdk_test/（不绑定硬件） ------------------------------------------------+
+|                                                                                        |
+| example/**/testcase.yaml -> discovery -> TestInstance[] -> ①平台过滤 <- features.yaml  |
+| 用例只声明要什么              schema 校验     id=路径+tests 键  ②申请硬件 -> Lab Agent |
+|                                                            （binding 在 agent 侧）     |
+|                               |                                                        |
+|                               v                                                        |
+| runner.py 编排                                                                         |
+|   1. plan   选平台 / 找工程目录 / 定 build_<board>_hcpu                                |
+|   2. build  scons --board=<board> -j<n>      （构建函数由 CLI 注入，库不认识 scons）   |
+|   3. open   backend.open() -> Session{console}                                         |
+|   4. run    harness.run(instance, console, timeout)                                    |
+|   5. close  backend.close() -- 在 finally 里，崩了也要把硬件还回去                     |
+|                                                                                        |
+| harness：[x] console  [x] unity  [x] pytest  [ ] shell    shell 会 raise，不静默空转   |
+| report： JSON 主文档 + JUnit 派生 + run 级日志 + 终端汇总（默认产出）                  |
+|                                                                                        |
++----------------------------------------------------------------------------------------+
+                                            | backends/：按平台名自动选
++--------------------------+   +--------------------------+   +--------------------------+
+| board [x] Tier A         |   | qemu [x] Tier B          |   | pc_sim [ ] Tier B        |
+| 真板卡                   |   | 无硬件载体               |   | 无硬件载体               |
+|                          |   |                          |   |                          |
+| 申请 -> 烧录 -> 开串口   |   | 本机跑 qemu-system-arm   |   | 本机跑 .exe              |
+| -> 复位（顺序是关键）    |   | 控制台 = 模拟 UART0      |   | MSVC，只能 Windows       |
+|                          |   | 不需要 Lab Agent         |   | 只有接口，未实现         |
+| 经 Lab Agent             |   |                          |   |                          |
+|                          |   | 可跑 harness: unity      |   |                          |
++--------------------------+   +--------------------------+   +--------------------------+
+                                             | 本机 HTTP（stdlib urllib）
++-- Lab Agent tools/lab_agent/（机器侧） ------------------------------------------------+
+| 独占占用 testbed（一次一个测试程序） - 复位 / 烧录 / 开串口                            |
+| transport：serial - jlink - sftool - relay（只有接口，会抛 RelayNotAvailable）         |
+| 控制台用游标读，不在 HTTP 上做流                                                       |
++----------------------------------------------------------------------------------------+
+                                            | sftool（1 Mbaud）/ J-Link
+                                  真实板卡（跑 Unity 或 msh）
+```
+
+**两条载体路线是同一个抽象**：真板卡、`qemu_sf32lb52x`、`pc_hcpu` 都是
+`scons --board=<name>` 的取值，区别只在"要不要向 Lab Agent 申请硬件"。
+所以用例自己不需要知道跑在哪；`integration_platforms` 声明了平台的用例
+连 binding 文件都不需要。
+
+**分工原则**（对应 docx）：SDK 侧只声明**要什么**，永远不出现真实端口号；端口、调试器 ID、mux 通道全在 runner 的 binding 里。fixture 同名即等价——分到哪块板子结果必须一致。
+
+这条线现在划在**两个问题**上，各由一个文件回答，互不越界：
+
+| 问题 | 谁来答 | 谁去问 |
+|---|---|---|
+| 这条用例能不能跑在这块**平台**上 | `customer/boards/<board>/<core>/features.yaml`（板子声明它有哪些总线实例） | `depends_on:` |
+| 这块平台上**哪块板、怎么接的线** | binding（硬件团队维护） | `harness_config.fixture:` |
+
+阶段一（平台过滤）在 SDK 侧、不读 binding，阶段二（testbed 匹配）在 agent 侧、不读 features——所以
+"有 flash 接在 spi1，但板子没声明 spi" 这类矛盾不会再静默存在：两处一旦
+同时在手就会报出来（`fixtures.wiring_problems`）。
+
+---
+
+## 固件怎么过去：一个包，不是一条路径
+
+**旧做法**：SDK 侧把 `build_<board>/` 的**绝对路径当字符串**发给 agent，agent 拿自己的
+文件系统去开。于是隐式要求是"两台机器共享同一个文件系统、且路径一致"——而这条**哪里都没
+写**。远端 agent 会走成两种：文件不存在（还算诚实），或者同盘符的另一份旧 checkout 正好在
+那个路径上，**烧了旧镜像而测试照样绿**。测试只验证了字符串：端到端用例里 `FakeProbe` 记下
+的 `build_dir` 压根不存在，所以这个假设一直没被覆盖，直到包这条路上线才暴露。
+
+**现在**：SDK 侧打一个 tar 上传，agent 解到自己的临时目录，**从那里烧**。`build_dir` 从线
+上删掉。
+
+```
+POST /testbed/{id}/firmware   body = tar
+   → {"token": "<sha256>", "bytes": N, "platform": ...}
+POST /testbed/{id}/prepare    {firmware: "<token>", reset}
+POST /testbed/{id}/flash      {firmware: "<token>"}
+```
+
+包 = `firmware.json` + 两份清单 + 清单点名的镜像，全部相对包根。`firmware.json` 里是
+`platform`（agent 硬校验）、`board` / `sdk_commit`（记录）和 `jlink_device`。共用的解析代码在
+`sdk_test/firmware.py`，**两侧都 import 它**——打包和解包用同一份清单解析，才不可能对不上。
+
+**为什么两份清单都装**：哪一份有意义是 lab 的 `flash.method` 决定的，而那个决定发生在包发出
+**之后**；实测两条点名的是同样三个文件，所以取并集不花钱。两个都没有 → 打包时就报"先编译"。
+
+**为什么 `jlink_device` 也要装**：sftool 那条路是自足的（`sftool_param.json` 里有 `chip` 和
+`memory`），**jlink 那条不是**——`download.jlink` 只写镜像和地址，device 名（`SF32LB52X_NAND`，
+决定用哪套 flash loader）来自板子自己的 `rtconfig.py`。包里不带，agent 就只能读**它那份
+checkout**，而那份可能是另一个 revision：板子文件过期不会报错，探针会安静地用错 flash 算法，
+然后烧写"成功"。解析链是 `jlink.device`（lab 配置，人写的覆盖）→ **包里的** → 自己 checkout 的
+兜底，`sdk_test.platforms.jlink_device()` 是唯一读板子文件的地方，两侧共用。
+
+**为什么上传和烧录是两个调用**：agent 不烧"最近一次上传的那个"。否则一次忘了上传的运行会
+悄悄烧上一轮的固件然后报绿——正是这套代码一贯拒绝的那种"自信的错误答案"。`token` 是内容的
+sha256，两边各自算，**不由调用方指定**（调用方能指定的名字，调用方就能指定错）。
+
+**清单里的路径原样带走**，只要求"清单点到的文件按相对路径都能在包里找到"。这样 agent 从哪
+解出来都能烧：两条 transport 都拿工作目录解析相对路径，而探针现在**从解包目录启动**
+（`JLinkTransport.flash` 的 `cwd`）。构建自己的 `download.bat` 也是先 `cd` 进构建目录才起
+JLink——这条以前漏了，只在 agent 恰好在构建目录里启动时才工作。
+
+**解包是攻击面**：只收普通文件，拒绝对路径 / `..` / 反斜杠 / 符号链接，限成员数与总大小，
+而且**先全部检查再落盘**（被拒的包不能留下半份让下一次烧录捡到）。包是另一台机器发来的，
+不能给它"大概没问题"的余地。
+
+**store 有界**：每个 testbed 一份、按 token 去重、上限 8 个、testbed 释放时清空。一个只涨不
+落的 store 就是实验室机器悄悄塞满的磁盘。
+
+---
+
+## 两侧版本：协议硬校验，revision 只记录
+
+agent 是**长驻进程**，SDK 侧一直在变，两者不同步是常态而非异常。
+
+| | 是什么 | 处理 | 为什么 |
+|---|---|---|---|
+| `PROTOCOL`（`sdk_test/version.py`） | 一个整数，只在接口真的不兼容时 +1 | **对不上就拒**，报出两边各是什么 | "我发的字段你读不懂"这类问题的机械答案，版本号猜不出来 |
+| 两侧 `revision` | `git rev-parse --short HEAD`，被改过的 tracked 文件加 `-dirty` | **只记录**，进报告 `<properties>` | 脏 worktree 是正常工作状态；拿它当门槛会在最需要它工作时（正在改这个框架）全线误拒 |
+
+`revision()` 的根从 `version.py` **自己的位置**推（`package_root()`），不从 `SIFLI_SDK_PATH`：
+要回答的是"正在跑的是哪份代码"，而实验室机器上那个变量可能指着另一份 checkout。
+
+untracked 文件不算 dirty：这个仓库的 checkout 里堆着构建树和下载物，一个永远为真的标记什么
+都记不下来。
+
+报告里的 `sdk_revision` / `agent_revision` / `sdk_protocol` 是事后解释"这次结果到底是哪两份
+代码跑出来的"的唯一线索——长驻 agent 拿着旧代码，是这里最常见的真事故。
+
+---
+
+## 目录与文件
+
+### 1. SDK 侧：`tools/sdk_test/`（twister 等价物）
+
+| 文件 | 职责 |
+|---|---|
+| `cli.py` + `tools/sdk_py_actions/test_ext.py` | 注册 `sdk.py test`（`CommandRegistry`，路径 `test`/`test/run`/`test/list`）。`test_ext.py` 只转发。 |
+| `discovery.py` | 从 `-T/--testsuite-root` 递归找 `testcase.yaml`，按 `common:` + `tests:` 展开为 `TestInstance`，ID = 相对路径 + tests 键（twister 规则）。 |
+| `schema/testcase.schema.json` | jsonschema 校验。字段对齐 twister：`tags / type / depends_on / platform_allow / platform_exclude / integration_platforms / extra_args / extra_configs / filter / build_only / timeout / harness / harness_config / min_flash / min_ram / slow / skip`；多设备另加 `dut:` / `dut_client:`。 |
+| `model.py` | `TestInstance` / `TestBed` / `FixtureRef` / `RunnerConfig` 数据类。 |
+| `binding.py` | 载入 binding/hardware-map YAML（testbed、console、connections、muxes），校验 fixture 引用存在。 |
+| `fixtures.py` | fixture 能力匹配、`fixture:name:param` 后缀解析（twister 语义）。 |
+| `harness/{console,unity,shell,pytest}.py` | 四种 harness 的判定逻辑（见下）。 |
+| `pytest_plugin.py` | 提供 `testbed` / `dut` / `console` / `fixture` / `apppath` / `build_dir` fixture，形态对齐 pytest-embedded。 |
+| `backends/{board,pc_sim,qemu}.py` | 执行后端。**MVP 只实现 `board`**；`pc_sim`（`customer/boards/pc`）与 `qemu`（`customer/boards/qemu_sf32lb52x`）定义接口 + `NotImplementedError`，但**接口按"无需 Lab Agent 分配"设计**（它们在 SDK 里就是 board 名，构建+执行都在本地）。 |
+| `runner.py` | 编排：解析 → 匹配 testbed → 构建 → （Tier A）申请 testbed → 烧录 → 执行 pytest → 收集。 |
+| `agent_client.py` | 与 Lab Agent runner 的 HTTP 客户端（stdlib `urllib`，不引 FastAPI）。申请硬件时核对对方的协议版本。 |
+| `firmware.py` | 固件包的打包/解包，**两侧共用**（agent 也 import 它）：清单解析、成员表、`build_package` / `unpack_package`。见"固件怎么过去"。 |
+| `version.py` | `PROTOCOL` 与两侧 `revision()`。见"两侧版本"。 |
+| `report.py` | 结果聚合、每实例日志落盘、run 日志、JSON 主文档与 JUnit 派生、终端汇总。全部用标准库（`json` / `xml.etree`），不引依赖；`junit_xml` 这个包虽然还在 lock 里，但**无人 import**。 |
+| `tests/` | **框架自身**的 pytest 单测（discovery / binding / harness 解析），不需要硬件。 |
+
+### 2. Lab Agent：`tools/lab_agent/`
+
+| 文件 | 职责 |
+|---|---|
+| `runner.py` | 服务入口：读 `--config runner.local.yaml`（本机有哪些 testbed），暴露 localhost HTTP：`GET /testbeds`、`POST /allocate`、`POST /release`、`POST /testbed/{id}/{reset,flash,console/open,console/close}`。MVP 用 stdlib `http.server` + JSON。 |
+| `testbed.py` | testbed 生命周期与**互斥占用**（docx：同一时刻只能被一个测试程序占用）。前置准备（复位、烧录、fixture 就绪）对用例透明且不可跳过。 |
+| `firmware.py` | 每个 testbed 一份、按内容摘要命名的固件包 store（解包、去重、上限、释放时清空）。 |
+| `transport/serial.py` | pyserial 封装：惰性 import、context manager、`reset_input_buffer()`、`expect(regex, timeout)`（容忍拆行/噪声）、`sendline()`。**1 Mbaud 默认**。 |
+| `transport/jlink.py` | 复位/烧录：`tools/segger/halt_all_cpu_and_disable_all_wdt_*.jlink` + `r`；或 `sdk.py flash -u jlink`。 |
+| `transport/relay.py` | 电源/mux 带外控制。**接口先定**（`power_on/off`、`mux_select(channel)`），MVP 只留桩——`SwitchReset.exe` 不在仓库。 |
+| `fixture_drivers/` | `passive.py`（纯接线，MVP）+ 驱动的注册/`setup/teardown/action` 接口（active 驱动预留）。 |
+
+### 3. Unity 引入：`external/unity/`
+
+新增 `unity.c/unity.h/unity_internals.h` + `SConscript`（`DefineGroup('unity', src, depend=['RT_USING_UNITY'])`）+ `Kconfig`（`RT_USING_UNITY`）+ **`LICENSE`/`README`**（CI scancode 会扫）。不重用 `external/lvgl_v9/tests/unity/`，避免和上游树耦合。
+
+注：Unity 用显式 `RUN_TEST()` 注册，**不需要新的链接段**，与已有的 `UtestTcTab` 段模板互不干扰。
+
+### 4. 板上胶水：`middleware/test_fwk/`
+
+| 文件 | 职责 |
+|---|---|
+| `unity_config.h` | `UNITY_OUTPUT_CHAR` 重定向到 `rt_kprintf`；输出格式开关固定，保证文本契约稳定。 |
+| `sifli_unity_runner.c` | `UNITY_BEGIN()/RUN_TEST()/UNITY_END()` 的 main；导出 MSH 命令 **`unity_run [suite\|case]`** 与 **`unity_list`**，形态与 `utest_run` 对称，让宿主只靠串口就能选择/枚举用例。 |
+| `SConscript` / `Kconfig` | 由 `CONFIG_USING_TEST_FWK` 门控。 |
+| `mocks/` | CMock 生成物落点。**本期建目录 + 设计说明，不实现**（Tier B）。 |
+
+### 5. MVP 的测试工程（Tier A）
+
+- `example/get-started/hello_world/rtt/testcase.yaml` — `harness: console`，断言 banner + `Hello world!` + `msh />`。
+- `example/test/unit_test/` — 新工程，链接 `external/unity` + **纯逻辑模块用例**（首批 `external/lz4/lz4.c`、`external/cJSON-1.7.17/cJSON.c`、`middleware/ipc_queue/common/circular_buf.c`），`harness: unity`。用纯逻辑模块是因为它们不依赖特殊外设（任意 testbed 都能跑），正好验证 fixture 能力匹配；同时不需要打桩，与 Tier A 的边界一致。
+
+### 6. 示例配置 + 文档
+
+`examples/binding.local.yaml`、`examples/runner.local.yaml`（带注释的可抄模板）、`tools/sdk_test/DESIGN.md`（含 Tier A/B 分层说明与打桩规则）。
+
+---
+
+## 四种 harness 的判定契约
+
+| harness | 板上有没有测试代码 | 宿主怎么判 | MVP |
+|---|---|---|---|
+| `console` | 没有 | 正则匹配串口输出；`harness_config.record` 支持 twister 的 `type: one_line\|multi_line`、`ordered`、`repeat`、`separator` | ✅ |
+| `unity` | 有（Unity） | **固件上电自己把每个 suite 跑一遍**（`TEST_FWK_AUTORUN`），宿主只读串口；一份转录含全部 suite，按 `<file>:<line>:<suite.case>:PASS\|FAIL` 里 case 名前那段 suite 名归属，写了 `suite` 的用例只看自己那几条 | ✅ |
+| `shell` | 没有 | 按序下发 `{command, regex, ordered, repeat}` 到 msh | 设计 |
+| `pytest` | 可选 | 用例目录自带 `test_*.py`，拿 `dut` fixture 自由编排（多设备/外部仪器）；解析 Unity 时用 `dut.expect_unity_test_output()` | 设计 |
+
+`harness_config` 键名沿用 twister：`fixture`、`record`、`pytest_root`、`pytest_args`、`dut_fixture`、`pytest_dut_client`；`unity` 另有 `prompt`（默认 `msh [^>\n]*>`，两种拼法都收）、`cmd`、`suite`、`autorun`。
+
+**unity 为什么不让宿主发命令。** 发命令必须落在正确时刻，而**没有可靠的时刻**：
+`unity_run` 只在 shell 起来之后才有效，可没有任何东西能可靠地宣告那一刻——启动
+banner 由 main 线程打印，且**早于**提示符（提示符是优先级更低的 tshell 线程在 main
+阻塞之后才打的）；提示符的文本还跟着构建设置走（它是 `"msh " + cwd + ">"`，只有开
+`RT_USING_DFS && DFS_USING_WORKDIR` 时才恰好是 `msh />`，否则是 `msh >`）。命令发早
+了就丢，而症状是耗完超时后报 `no Unity summary line found`——**它指向固件，不指向
+时机**。
+
+**`prompt` 的默认值因此收两种拼法**（`msh [^>\n]*>`）。这一点当初写对了原因、写错了
+结论：默认值被钉在 `msh />` 上，而无 DFS 的载体（QEMU 就是）永远不打印那一版，于是
+每个实例先在**串口安静里白等满整个 timeout** 才发命令——症状是"设备慢"，不是"正则
+没匹配上"。实测 `example/test/hal_real`：132.5 s/实例 → 13.8 s/实例。等待有界这件事
+在这里是双刃的：它保证了不会挂死，也把"永远匹配不上"藏成了一段正常的耗时。
+
+能控制复位也不解决问题：探针只保证"板子会启动"，不保证"shell 起来了"。
+
+所以默认路径是**固件自己跑**（`TEST_FWK_AUTORUN`；`sifli_unity_autorun()` 在 `main()`
+里调一次，跑完仍落回循环，shell 照常可用）。决定由固件做，宿主只读，时机问题从根上
+消失。把它关掉就回到发命令那条路。
+
+**发命令那条路为什么先等提示符**：`unity_run` 是一条 msh 命令，发早了 shell 还不
+存在。**不是"等串口安静"**（试过，不行）：板子还没开始启动时也是安静的，"静默"被
+当成了"已经说完"，命令照样发丢——**需要的是正向信号，不是没有信号**。等提示符不算
+额外假设，因为 `unity_run` 本身就是 msh 命令。等不到提示符**不算失败**，命令照发、
+由原有检查判；否则就是凭一个新启发式造出一种新的失败，把提示符不同的固件误判成坏的。
+
+**`autorun` 下"自己那几条没出现"要判失败**：一份转录只有一行汇总（一把
+`UnityBegin`/`UnityEnd` 包住整个循环），所以汇总属于固件而不属于任何单个 suite；
+把它交给一个什么都没跑的 suite，就是一个什么都证明不了的绿灯。
+
+---
+
+## 需求 3 的设计（Tier B，已交付）
+
+**选型**：CMock（ThrowTheSwitch，Unity 的配套 mock 框架）。按头文件自动生成 mock，自带调用次数期望、参数捕获、返回值序列、`Verify`、严格顺序检查，正好覆盖"擦除失败 / 写超时 / ID 不匹配"这类硬件复现不出的分支。
+
+**机制：不编译被 mock 的 HAL 实现**（按用户要求）。mock 就是该符号的唯一定义——无重复定义、不依赖 weak、不与 ROM 表竞争。
+
+**为什么载体必须在 Tier B**：Tier A 是真板卡，而结果上报走串口 console（→ `drv_usart.c` → `bf0_hal_usart.c`）、启动依赖 RCC/pinmux/PMU，所以**真板卡上不能整树不编译 `drivers/hal`**。两个非板卡载体都天然满足这个前提：
+
+- `qemu_sf32lb52x`（**首选**）：`SOC_QEMU` 让 `drivers/SConscript` 整树跳过 `drivers/`。同一份 ARM elf、同一套工具链，跨平台、能进 CI，且控制台完全双向（已跑通 `harness: unity`，见下）。
+- `pc` 板（`BSP_USING_PC_SIMULATOR`）：同样整树跳过 `drivers/`，用 `drivers_pc/` 假驱动替代。代价：MSVC / 只能 Windows，Linux CI 跑不了。
+  - **`sim/x86` vs `sim/win32` 的疑点已被推翻**：`SifliMsvcEnv()` 会把 `rtconfig.CPU` 覆写成 `win32`，路径推导是对的。
+  - `--board=pc` 的全量构建原本编不过，原因是 `external/liblc3` 需要 C11 `<stdalign.h>` 而 MSVC 2017 没有；已在 `external/liblc3/SConscript` 上对模拟器跳过，pc 全量构建现在能过。
+
+**旧结论作废：HAL 外设函数在 QEMU 载体上可以打桩。**
+下面这段曾是"两个非板卡载体都做不到"的论证，**它对 `pc` 板成立，对 QEMU 不成立**，
+保留作对照——因为卡点的真正性质当初判错了：
+
+1. `bf0_hal_qspi.h` 无条件 `#include "qspi.h"`，该头只在 `drivers/cmsis/sf32lb55x/`、`sf32lb58x` 下有；
+   `drv_config.h` 要的 `dma_config.h` 在 `customer/boards/include/config/<chip>/`。
+2. `bf0_hal.h` 要求 `SOC_BF0_HCPU`/`SOC_BF0_LCPU`，而 QEMU 是伪 SoC（`SOC_QEMU`）。
+3. `drivers/cmsis/<chip>/register.h` 依赖 `core_cm33.h`，该文件整个仓库里都没有
+   （它来自 arm-none-eabi 的 CMSIS）——**MSVC（`pc` 板）上无解，这就是老结论的来源**；
+   但 QEMU 走 arm-none-eabi，那个工具链自带，芯片头能干净编过。
+
+**真正的卡点不是"有没有芯片头"，而是芯片身份从哪来、include 顺序对不对。**
+在测试工程的 `SConstruct` 里手工注入 `-DSOC_BF0_HCPU -DSF32LB52X -DUSE_HAL_DRIVER`
+加三条 `PrependUnique`，能编过，但错在两处：
+
+- **编译器宏不是 Kconfig 符号。** `drv_spi_flash.c` 的分支条件是 `#ifndef SOC_SF32LB55X`，
+  `-DSF32LB55X` 满足不了它，会静默编错分支，报出来的是"缺某个声明"，看不出是身份问题。
+- **include 顺序是承重的。** `bf0_hal.h` 按名字 `#include "register.h"`，芯片那份必须压过
+  载体自己的 `drivers_qemu/register.h`；写成 `Append` 则报"缺寄存器映射"，与根因无关。
+
+**解决办法：给每个系列一块带芯片身份的 QEMU 板**，共五块
+（`customer/boards/qemu_sf32lb{52x,55x,56x,57x,58x}`，同一个 mps2-an505 机器、
+同一份 `link.lds`，只有芯片身份不同）。板子的 `Kconfig.board` 里 `select SOC_SF32LB5<nnn>X`，
+`rtos/rtthread/bsp/sifli/drivers_qemu/SConscript` 把 Kconfig 身份翻译成 include 路径与宏，
+**顺序也在那里保证**。测试工程里一行芯片相关的东西都不用写，也就没有"两个身份不一致"的可能。
+
+这些在真板卡上分别来自 `drivers/cmsis/<chip>/SConscript`（芯片头路径 + `SF32LB<nnn>X`）与
+`drivers/hal/SConscript`（`SOC_BF0_HCPU` + `USE_HAL_DRIVER`），两者都在 `drivers/` 整树里、
+被 `SOC_QEMU` 一并跳过，所以由载体侧补上等价物。
+
+**已交付（两个工程，都做了反向验证）**：
+
+- `example/test/cmock_unit/` —— 打**中间件**函数 `circular_buf_*` / `ipc_hw_*`，
+  测 `ipc_queue` 的写路径（5 个用例）。
+- `example/test/hal_mock/` —— 打**HAL** 函数 `HAL_QSPI_GET_SR`，
+  测 `drv_spi_flash.c` 的 `rt_flash_get_status_register()`（3 个用例）；
+  在五个系列的新板上都构建并跑通。52x/56x/57x/58x 用 `mock_bf0_hal_mpi_ex.*`，
+  55x 用 `mock_bf0_hal_qspi_ex.*`——两份 mock 不是冗余，是 HAL 家族按系列分岔，
+  选哪份由板子的芯片身份决定。
+
+**打桩的成本比预想小得多。** `drv_spi_flash.c` 有 1908 行、`nm -u` 列出 35 个外部符号，
+看着要 mock 一大片，但 gcc 构建默认 `-ffunction-sections` + `--gc-sections`
+（`SifliGccEnv`，`tools/build/building.py:4223`），链接期只保留被测函数真正到达的部分。
+`rt_flash_get_status_register()` 的闭包是**两个符号**：
+
+```
+Addr2Handle -> BSP_Flash_get_handle     板级，测试里给个两行定义
+HAL_QSPI_GET_SR                         HAL，由 CMock 生成
+```
+
+独立佐证：ROM 镜像自己的链接映射
+（`example/rom_bin/lcpu_general_ble_img/lcpu_img_56x_52.axf`）里这个函数同样只有这两条边。
+
+唯一容易漏的是**镜像级闭包比"这个函数的闭包"多一个符号**：`drv_spi_flash.c` 用了
+`INIT_BOARD_EXPORT(rt_sys_spi_flash_init)`，而 QEMU 的 `link.lds` 有
+`KEEP(*(SORT(.rti_fn*)))`（不 KEEP 就没 shell、没 components），`--gc-sections` 丢不掉它，
+于是 `rt_hw_flash_init -> BSP_Flash_Init` 也被拉进来，测试里因此有两个板级定义。
+
+**基建**：`external/cmock/` 已入库（`external/unity/` 见上）；
+`external/unity/auto/type_sanitizer.rb` 是 CMock 的硬依赖，已补回；
+`middleware/test_fwk/mocks/cmock_config.yml` 是验证过的配置（含 `:strippables` 的必要写法）；
+`mock_circular_buf.c/h` 已生成入库。详见该目录的 `README.md`。
+
+**实测的符号表边界（已核实）**：
+
+先说一句结论上的简化：**在 QEMU 载体上这段完全不适用**——挂符号表的逻辑
+（`drivers/hal/SConscript:142`）本身就在 `drivers/` 整树里，被 `SOC_QEMU` 跳过，
+所以载体上永远不会挂 `sifli_rom_<chip>_gcc.sym`（在新板子的构建产物里搜 `sifli_rom`：0 处）。
+下面这段只在**把 mock 用例搬回真板卡**时才需要看——本文风险 7 提到的那种做法。
+
+`drivers/hal/SConscript:142` 的条件是 `if not GetDepend('ROM_ATTR') ...`，普通工程（`ROM_ATTR` 只被 `example/lcpu_rom/Kconfig.proj` 打开）**会**把 `sifli_rom_<chip>_gcc.sym` 用 `-T` 挂上。但表里导出的是 `_rom` 后缀名，我们关心的外设 API 普通名**不在表内**：
+
+```
+HAL_ADC_Init                plain:[]   _rom:[HAL_ADC_Init_rom = 0x000028cd]
+HAL_ADC_PollForConversion   plain:[]   _rom:[HAL_ADC_PollForConversion_rom = 0x00002979]
+HAL_I2C_Master_Transmit     plain:[]   _rom:[HAL_I2C_Master_Transmit_rom = 0x00006af1]
+HAL_QSPI_GET_SR             plain:[]   _rom:[]          <- 完全不在表中
+HAL_QSPIEX_WRITE_PAGE       plain:[]   _rom:[]          <- 完全不在表中
+```
+
+→ 外设 API 打桩与链接脚本零冲突。表内另有 **414 个普通名绝对定义**（`sifli_rom_52x_gcc.sym` 共 422 条，`_rom` 只 8 条：`rt_hw_interrupt_disable`、`HAL_LPAON_EnterDeepSleep`、`HAL_GPIO_ClearInterrupt` 等内核/电源/AON 符号）；非板卡载体上这些符号本来也不需要 ROM 版本，若要 mock 它们，用 `CONFIG_ROM_ATTR=y` 让 `-T sym` 不被挂上（先例 `example/lcpu_rom`）。
+
+**落地形态（已完成）**：
+- ✅ `external/cmock/`：CMock 2.7.0 源码 + LICENSE 已入库，**故意没有 SConscript / Kconfig**（不接入构建）。
+- ✅ 生成器是 **Ruby**，本机已装 3.3.12。策略：**生成一次后把 `mock_*.c/h` 提交进仓库**，构建路径零 Ruby 依赖；头文件变更时手工重跑（已写进 `mocks/README.md`，否则是长期摩擦点）。
+- ✅ mock 落点 `middleware/test_fwk/mocks/`，配置与四份 mock 就位。
+- ✅ **用例已写**：`example/test/cmock_unit/`（中间件）与 `example/test/hal_mock/`（HAL），
+  见上文"已交付"。
+- ✅ **载体已从"无芯片"改为"带芯片身份"**：五块 `qemu_sf32lb<nnn>x` 板。
+  芯片相关的东西（include 路径、`SF32LB<nnn>X`、`SOC_BF0_HCPU`、`USE_HAL_DRIVER`、
+  以及 include 顺序）全由板子与载体给出，测试工程不再注入。
+- ⚠️ **`customer/boards/Kconfig`（v1 流程）没有为新板子加条目**，所以不带 `--board=`
+  的旧版 `menuconfig` 里看不到它们——v1 的芯片是 choice、`SOC_QEMU` 与
+  `SOC_SF32LB<nnn>X` 无法共存，而这个特性恰恰要求两者同时为 y。
+  `--board=` 走的 KCONFIG_V2 流程里 `SOC_*` 都是普通 bool，所以能共存，新板子据此工作。
+  要支持 v1 需要先动芯片 choice 的结构，本期没做。
+
+---
+
+## 日志与报告（按 twister 对齐）
+
+**为什么**。手动跑 `sdk.py test run` 时有两条诉求：完整的串口日志要留存用于事后分析；一旦有用例红了，要知道是**哪几条**。改动前两条都答不上——完整的串口原文**已经存在但被丢掉**：`QemuConsole.transcript`（`backends/qemu.py`）与 `ConsoleStream.transcript`（`lab_agent/testbed.py`，docstring 写的就是"for logging a failed run"）都是死代码，session 一关就销毁；逐条用例结果被 unity harness 解析成 `HarnessOutcome.cases` 后在 `runner.run_one` 里被丢弃；而全包唯一的文件写入是 `--report` 触发的 JUnit。
+
+**布局**。产物按**"谁产生这段文字"**分层，这是 twister 的结构——失败可能出在任一层，混在一起会互相淹没：
+
+```
+<outdir>/                        默认 test-out/，--outdir 可改
+  <stamp>/                       每次 run 一个，2026-10-03T17-09-22
+    runner.log                   run 级：这次跑成什么样、跑在什么之上
+    sifli.json                   主文档
+    sifli.xml                    从 JSON 派生
+    <platform>/<instance-id>/
+      build.log                  编译器原文（--no-build 时不存在）
+      device.log                 设备原文，逐字节，零添加
+      runner.log                 该实例的记录：元信息 + 裁决 + 逐条用例 + harness 原文
+```
+
+`device.log` 故意保持"纯"（无表头、无分隔线），这样能 `diff`、能 `grep`、能原样贴进工单；叙述性的东西全在 `runner.log` 里。
+
+**为什么每次 run 要一个目录**（`report.run_dir`）。原先所有 run 写进同一棵树，后一次直接盖掉前一次——而**通过用例的日志正是判断下一次 flaky 的基线**，静默丢掉它恰好是这套布局要避免的那一件事。目录名用本地时间、`2026-10-03T17-09-22` 这个格式：不含冒号（Windows 文件名禁止），且**字典序即时间序**，`ls` 出来最新的在最后。同一秒内起的两次 run 由 `run_dir` 加 `-2`/`-3` 后缀分开，不会并成一棵树。
+
+代价是失去了固定路径，所以**报告与日志被拆成两条独立路径**：`--report-dir` 可以把报告钉到固定目录（CI 收 junit 用），日志仍按 run 分目录。不指定时报告跟着时间戳走。
+
+时间戳在 `TestRunner.__init__` 里**只算一次**——三处调用点（实例日志目录、`RunSummary.out_dir`、`_write_artifacts`）各算各的会差几秒，把同一次 run 的实例日志和 run 日志劈到两个目录里。
+
+**为什么不是 `<build_dir>/`**（twister 放 `instance.build_dir`）：我们的 `build_dir` 是 per 工程+板、不是 per 实例，而且它是 scons 的地盘——`scons -c` 会把日志一起删掉。另外 `instance.id` 不足以唯一定位：一个 testcase 写多个 `integration_platforms` 会产出多个共享 id 的 planned run，所以 `<platform>/` 那层是必需的。还有一点：**id 随 `-T` 变**（`discovery.py:117`，id 相对 `-T` 根算），同一个测试用宽根和窄根跑，日志路径不同——不能从测试名反推。
+
+**三层日志的分工**（沿用 twister 的名字）：`build.log` = 编译器说的；`device.log` = 设备说的；`runner.log` = harness 据此怎么判的。
+
+**`build.log` 是后补的**，而且补的理由很直接：构建输出原先直通终端、不落盘，于是构建失败的 `reason` 只有"退出码 2"——同一个 2，可能是缺头文件也可能是类型错，答案全在被滚过去的那段里。现在 `build_fn` 的契约是**返回**编译器输出而不是往外流，`_do_build` 返回它、`run_one` 在 `BuildError` 上也要接住（失败时恰恰最需要那段），最后由 `write_instance_logs` 落到 `build.log`。
+
+只在这一层做捕获，副作用正好是想要的：**控制台不再刷屏**。`--no-build` 不写这个文件——没调用过编译器，写个空文件等于声称调用过而它没话说。
+
+**报告是同一份数据的投影**。JSON 是主文档，JUnit 由它派生（twister 的 `xunit_report(json_file, ...)` 就是打开 `.json` 再拼 XML）。这样终端 / JSON / JUnit 三个渲染器不会各自拼数据、不会漂移。日志只在**失败**时内联进报告（twister `reports.py:374`），通过实例的 transcript 留在磁盘上——否则每个绿实例都可能往报告里塞最多 4 MB。
+
+**JUnit 展开成逐条用例**：有 `cases` 的实例一个用例一条 `<testcase>`，而 `tests/failures/errors/skipped` 头部属性从**实际输出的元素**重算，免得头和身子对不上。没有 cases 的（console / pytest harness，或根本没能跑到 harness）退回实例级一条。
+
+**`stage` 区分失败阶段**。`ERROR` 是个筐：规划失败、构建失败、目标打不开、串口断掉都落进来，原先只能靠读消息文本分辨。`TestResult.stage` 取 `plan/build/open/run/close`，记录**最后进入的阶段**——所以通过实例恒为 `run`，而 `at build` 才有含义：这次根本没走到 run。
+
+**保留策略在两个维度上都与 twister 相反**：
+
+- **run 内**：twister 默认删通过用例的产物（`--runtime-artifact-cleanup=pass`），我们不删。
+- **run 间**：twister 启动时清空 `twister-out/`（`--clobber-output` 默认开），我们每次 run 另起一个时间戳目录。
+
+它那套是因为每个实例的构建目录装着一整个 Zephyr 构建（数百 MB）；我们只有几个文本文件，而**通过用例的日志恰恰是排查 flaky 时最需要的基线**——这条理由在 run 间同样成立，甚至更成立：横跨两次 run 的对比才是判断"这次是不是偶发"的唯一依据。
+
+**两个已如实标注的缺口**：
+
+- **板卡路径未端到端验证**。`BoardSession.transcript` 走 `read_from(0, 0.0)`（agent 端 `ConsoleStream.read_from` 在 `_end > cursor` 时立即返回整个保留缓冲，不等超时），语义核过源码，但**没有真板卡跑过**——QEMU 通过不等于板卡可用。
+- **transcript 是保留窗口不是全量**。两端都有 4 MB 上限（`qemu.py` 的 `max_buffer`、`lab_agent/config.py`），超出从头部裁剪。实例 `runner.log` 的表头会写明保留了多少、裁掉了多少。
+
+---
+
+## 需求 4 的设计（多设备；仪表控制台已实现，多 DUT 调度未实现）
+
+- **多 DUT**：`testcase.yaml` 支持 `dut:` / `dut_client:` 列表（twister 语义），每项可带 `platform_allow`；`runner.py` **原子地**一次申请 N 个 testbed（按 testbed id 排序申请，避免死锁）；pytest 插件在 N>1 时把 `dut` 暴露成 list（pytest-embedded 风格）。
+- **I2C 双板**：一块板跑用例，另一块作为对端 fixture。对端板 = 一个 `fixture` + 一个 active driver。
+- **已实现：仪表的控制台流（2026-11）**。第二块板作为**仪表**接入，不是第二个 testbed：binding 的
+  `connections[].console` 给出它自己的串口，`connection.options` 原样保留该配置；Lab Agent 的
+  `TestBedRuntime` 按 fixture 名维护独立的 `ConsoleStream`，控制台路由增加 `stream=<fixture>`
+  （默认 `dut`，旧调用不变），且只允许打开**本次分配申请过**的 fixture；SDK 侧
+  `LabAgentClient`/`RemoteConsole` 带上 stream，pytest 插件按注册表提供 `bt_peer` fixture
+  （`fixture: bt_peer:ble`，BLE 能力经 `bt_peer.ble.*` 暴露）。宿主实现位于
+  `tools/sdk_test/instruments/`，与仪表固件之间是 `@info`/`@ok`/`@err`/`@evt` 行协议——
+  命令集、规则与宿主 API 见 [`BT_PEER_DESIGN.md`](BT_PEER_DESIGN.md)。仪表不编译、不烧录、不复位——
+  固件由实验室固定。多 DUT 调度（`dut:` / `dut_client:`、一次申请 N 个 testbed）仍未实现。
+- **手机**：建模成 fixture（如 `fixture: android_phone:pixel_01`），由 runner 侧 driver 插件驱动（adb / BLE central），手机池化后按能力分配；多台手机＝同名 fixture 多实例，等价性由硬件团队保证。
+- **带外硬约束**（docx 强调两次）：mux/电源/复位**不得**用 MCU 自己的 IO 做控制信号，必须走 runner 的 relay/driver。`transport/relay.py` 与 fixture driver 接口就是为此预留。
+
+---
+
+## MVP 交付边界（原计划只做 Tier A；实际多做了 QEMU 与 pytest harness）
+
+**做**：
+- `tools/sdk_test/`：discovery + 能力匹配 + 两种 harness（console/unity）+ pytest 插件 + 日志与报告（每实例 / run 级 / JSON / JUnit）+ 框架自身单测。
+- `tools/lab_agent/`：单机 runner（serial expect + J-Link 复位 + sftool 烧录 + testbed 互斥占用）。
+- `external/unity` + `middleware/test_fwk`（unity_config + sifli_unity_runner + SConscript/Kconfig）。
+- 两个测试工程 + 示例 binding/runner 配置 + 一份文档。
+
+**不做（但接口留好）**：`backends/pc_sim.py`（抛 `NotImplementedError`，接口按"无需 Lab Agent"设计）、CMock 与全部打桩实现（`middleware/test_fwk/mocks/` 只建目录 + 设计说明 + 生成好的 mock）、`transport/relay.py` 实体、active fixture driver、控制平面/dashboard、多 DUT 实际调度（schema 与插件接口先支持）。
+
+**实际交付比原计划多做了两件**（都被"先做出来才能验"推着走）：
+
+1. **`harness: pytest` 提前到本期**——原本只是设计态。
+2. **`backends/qemu.py` 提前到本期**，连带把 QEMU 载体一起做了。
+   这是最有价值的一次超范围：它让**板上的那套 Unity 单测可以完全不用硬件跑**，
+   也第一次让 Tier B 有了现实载体。**后端与它要驱动的载体都在本次提交里**（见开头的范围说明）。
+   代价是 QEMU BSP 上踩了一串坑（链接脚本谎报 RAM 大小、链接脚本缺 init 段、
+   semihosting 输入会把 vCPU 阻塞住、UART 基址是 AN505 特有的 0x40200000），
+   记在 `docs/source/zh_CN/app_note/autotest_guide.md` 第 4 节。
+
+**依赖新增**：无。框架自己（`console` / `unity` harness、Lab Agent、自测）是纯标准库；
+`pyyaml` / `jsonschema` / `pyserial` 本就在锁定环境里，`pytest` 也已加入
+`tools/locks/default/`（只有 `harness: pytest` 的用例需要它）。
+串口按 `sifli_uart_dap.py` 的惰性 import 纪律。
+
+---
+
+## 验证方式
+
+✅ = 已实际跑过。
+
+1. ✅ **框架自测**：`python -m unittest discover -s tools/sdk_test/tests -p "test_*.py"` → **350 全绿**；
+   `tools/lab_agent/tests` → **105 全绿**。都不需要硬件，也不需要 Lab Agent。
+   （写成 stdlib `unittest` 而非 pytest：默认 SDK python 环境里没有 pytest，
+   而这套自测必须开箱即用；两者兼容。）
+2. ✅ **用例发现**：`sdk.py test list -T example` 列出 ID 与 harness；`--json` 给 CI 生成矩阵用。
+3. ◐ **真板卡端到端（需求 2）**，2026-10-07 首次在真硬件上跑起来：
+   - ✅ **`unity` harness 在真板上**：`sdk.py test run -T example/test/unit_test -t unit_test.board
+     -p sf32lb52-lcd_a128r16`，30.4 s，9 条用例，`stage: run`、`console: 3025 bytes, complete`
+     ——预算 / 构建 / 烧录 / 开串口 / autorun / 判定全链路走通，`reset: auto` 的时序也对
+     （banner 从 `Serial:c2,Chip:4…` 起就在转录里）。唯一的红是 `unit_test.lz4.boundaries`，
+     即下面风险 9 那条未定论的断言——它在这块板上和 QEMU 上**给出同样的结果**，所以与载体无关。
+   - ⬜ **`console` harness 在真板上**：`sdk.py test run -T example/get-started/hello_world
+     -p <platform>` 仍未跑过。后端本身已在真硬件上验证（上一条），差的只是这个 harness 的路径。
+4. ✅ **无硬件端到端（QEMU）**：`sdk.py test run -T example/qemu` 通过；
+   板上那套 Unity 单测也能整个搬过来跑：`-t unit_test.qemu`。
+   ⚠️ 但它现在**不是全绿**：`unit_test.lz4.boundaries` 会红，那是风险 9 那条未定论的
+   断言（与载体无关——`test_lz4.c` 无条件编译，任何板子上都在镜像里）。`unit_test.qemu`
+   原本跑在无芯片的 `qemu_cortex_m33` 上（那块板后来删掉了，树里只剩带芯片身份的载体），
+   `circular_buf` 那套进不去；改用 `qemu_sf32lb52x`
+   之后三套都在（9 条用例），其中 8 条通过。
+5. ✅ **反例必须失败**：期望串写成 `Hello worldXYZ!` 时判定为 FAIL；
+   Unity 的空转（`0 Tests` + `OK`）被拒；乱序的启动日志被拒。
+   （这一条是这套框架最容易做假的地方，单测里钉死了。）
+6. ✅ **退出码**：失败 → 1、通过 → 0，两条都实测过。
+7. ⬜ **复位/释放鲁棒性连跑**：需要真板卡，未做。
+8. ⬜ **CI 接入点**：`.gitlab/` 里加 test stage，artifact 收 `test-out/**`（用 `--report-dir` 把 `sifli.xml`
+   钉到固定路径给 GitLab 当 `junit` 报告——时间戳目录让它不再有固定位置；`device.log` / `runner.log`
+   当普通 artifact，`when: always`）；本次未启用。
+9. ✅ **日志与报告**（都用 `example/test/hal_mock` 在 QEMU 上实测）：
+   - 默认产出 `test-out/<时间戳>/{runner.log, sifli.json, sifli.xml}` 与每实例的 `{device.log, runner.log}`；
+     `device.log` 里**含启动 banner**——那正是 unity harness 的 `_discard_pending` 会丢掉、只能从后端
+     transcript 拿到的部分。
+   - **每次 run 一个时间戳目录**，上一次的不被覆盖；同秒的两次 run 拿到 `-2` 后缀；run 目录在开跑前
+     就打印出来（`[outdir]` 那行），可以照着 tail 正写着的 `device.log`。
+   - **失败清单**：断言改红后终端列出红的子用例、`file:line` 与 `Expected/Was`，退出码 1；
+     `-i` 把日志路径换成内联全文。
+   - **逐条展开**：`sifli.xml` 里 hal_mock 从 1 条 `<testcase>` 变 3 条，头部计数与实际元素一致；
+     通过用例是自闭合元素、无子元素。
+   - **stage 的区分能力**：`#error` 造构建失败 → `error`/`build`；断言改红 → `failed`/`run`。
+   - **兼容别名**：`--report legacy/junit.xml` 写出 `legacy/junit.{xml,json}`。
+
+**Tier B（打桩）相关**：
+- 反向验证**已做**（两个工程都做了）：故意让 mock 的期望不匹配，必须报 FAIL——否则证明不了
+  mock 真被链接进去。见需求 3 一节。
+- 载体用**带芯片身份的 QEMU 板**（`qemu_sf32lb52x` 等）。`pc_hcpu` 的路径疑点已排除，但后端仍是 stub。
+
+---
+
+## TODO：删掉的字段原本要做什么
+
+2026-10 清掉了 `testcase.yaml` 里六个**被解析、但没有任何代码读**的字段。删而不是留，
+因为"schema 接受、写了却不生效"是个陷阱——跟更早删掉的 `default`、`capabilities`
+同一条理由。**它们原本的意图记在这里**，要做的时候照这个加回来：
+
+| 删掉的字段 | 原意 | 加回来时要注意 |
+|---|---|---|
+| `min_flash` / `min_ram` | twister 用它俩在构建后比对镜像大小，放不下就不调度 | 它需要**构建产物**的大小，所以只能放在构建**之后**——阶段一"构建前过滤"那条路够不着它 |
+| `slow` | twister 的 `--slow`：把慢用例排除在常规轮次之外 | 更自然的表达是加一个 `slow` **tag**（`tags` 已经能做筛选），不必再开一个字段 |
+| `type`（`unit`/`integration`/`functional`） | twister 按它分类筛选 | 分类已经有 `tags`，`type` 是第二个没人用的真相来源。真要加就先定清楚它和 `tags` 的分工 |
+| `dut` / `dut_client` | 多设备：一条用例需要第二块板（对端、仪器） | 设计见上面「需求 4」那节；**在那之前，多设备要走 `pytest` harness 自己编排** |
+| `harness_config.dut_fixture` / `pytest_dut_client` | 同上，pytest harness 侧的两个开关 | 与 `dut`/`dut_client` 一起实现 |
+
+同一次清理还删掉了一个**构建期检查**（它不是配置字段，所以不走上面那张表）：
+`platforms.py` 的 `check_declaration`，连同只服务于它的 `unresolved`、`feature_symbol`
+与 `_SYMBOL_PREFIX`，以及它们的用例。**`declared_features` 不在此列**——Lab Agent 的接线
+检查（`lab_agent/config.py`）在用它，而且"文件缺失是沉默、空列表是主张"这个区分正是那里需要的，
+所以它留下，并补上了自己的直接测试。
+它由测试工程的 `src/SConscript` 调用，把 `features.yaml` 的声明对到构建的 `GetDepend` 上，
+声明与构建不符就让构建失败。删的理由：它把框架的职责摊进了每个测试工程，而这份信息本来就在
+产物里——`build_<board>_hcpu/rtconfig.h` 里的 `BSP_USING_*` 直接说明了某条总线有没有使能，
+不需要谁来"自动检查"。要恢复时也不必再让工程配合：**框架侧在构建之后读那份 `rtconfig.h`**
+就够了，那才是它该在的地方。`features.yaml` 本身留着——`sdk.py test plan` 的平台过滤仍然读它。
+
+指南第 5 节那张"现状"表指向这里。
+
+## 风险与待确认
+
+1. **hello_world 期望字符串有坑**：工作区 `example/get-started/hello_world/rtt/src/main.c` 是**未提交**的 `rt_kprintf("Hello world3!\n")`，而 `README.md` 写的是 `Hello world!`。期望串必须**写在 testcase.yaml 里**，绝不能从源码推导。
+2. **Unity 引入成本**：新引入 `external/unity` + 输出重定向 + runner（Ruby 生成 runner，策略同 CMock：生成物入库）。CI 的 scancode 会扫许可证，需带 LICENSE 过白名单。
+3. **两套框架并存**：存量 37 个 utest 用例（`example/hal_example`）不回迁，需明确"新用例写 Unity"。Unity 用显式 `RUN_TEST()`、不需要链接段，与 40 多个已保留 `UtestTcTab` 段的模板不冲突。
+4. **串口物理限制**：1 Mbaud、`FINSH_ECHO_DISABLE_DEFAULT=1`（无回显，别把 expect 逻辑建在回显上）、`RT_CONSOLEBUF_SIZE=128`（长行拆块）——expect 必须是"累积缓冲 + 正则跨块匹配"。
+5. **`SwitchReset.exe` 不在仓库**：MVP 复位只能靠 J-Link；纯串口（无调试器）的 testbed 在 MVP 里支持不了电源复位，需求 4 的 mux/电源部分要等硬件团队提供带外继电器方案。
+6. **QEMU 载体**：`customer/boards/qemu_*`、`rtos/rtthread/bsp/sifli/drivers_qemu/`、
+   `example/qemu/`、`tools/qemu/` 都已做好并跑通过。剩下的只是 BSP 自身的坑
+   （链接脚本 RAM 大小、init 段、semihosting 输入阻塞 vCPU、UART 基址 0x40200000），
+   见 `docs/source/zh_CN/app_note/autotest_guide.md` 第 4 节。
+7. ~~**Tier B 的 HAL 排除粒度**~~ —— **已解决，且原先的判断是错的。**
+   原文说"HAL 外设函数的打桩在两个非板卡载体上都做不到"。它对 `pc`（MSVC）成立，
+   对 QEMU 不成立：QEMU 走 arm-none-eabi，`core_cm33.h` 由工具链提供，
+   `qspi.h`/`dma_config.h` 只要芯片身份正确就能找到。真正的卡点是**芯片身份从哪来**
+   （Kconfig 符号而非编译器宏）和 **include 顺序**，两者现在都由板子承担。
+   详见需求 3 一节。
+   仍然成立的那半句：若将来要把 mock 用例搬回真板卡跑，粒度必须收成**按文件排除**
+   （保留 UART/RCC/pinmux/PMU），否则症状是镜像起不来或结果不打印、而不是链接报错，排查成本高。
+8. ~~**pc 板可用性未验证**~~ —— **已查实**：`sim/x86` vs `sim/win32` 的疑点是**假警报**
+   （`SifliMsvcEnv()` 会把 `rtconfig.CPU` 覆写成 `win32`）；`--board=pc` 的全量构建原本编不过，
+   原因是 `external/liblc3` 缺 C11 `stdalign.h`，已修。`backends/pc_sim.py` 仍是 stub。
+
+**本轮新暴露、尚未收敛的**：
+
+9. **`unit_test.lz4` 的 `boundaries` 断言失败**（第一次真正被执行到）。
+   它期望 `LZ4_decompress_safe(..., dstCapacity=4)` 在解出 1024 字节时返回**负值**，
+   实测返回 **+1024**。LZ4 头文件的契约明说这种情况要返回负的错误码，
+   且入库的 `lz4.c` 是未改动的上游副本、`_output_error` 分支也在。
+   已排除是 Unity 报错格式的误读（Unity 先打 actual 再打 threshold）。
+
+   **已在真板上复现**（此前只是记录在案、从未执行过）。事后补了两条：
+   契约原文是 `necessarily <= dstCapacity` 且"不够时返回负值"，**实测两条都违反**；
+   而 `restored[]` 实际是 1024 字节，所以没写坏内存——但返回 `op - dst = 1024`
+   意味着它确实推进了 1024 字节，**若调用方真给 4 字节缓冲就是溢出**。
+
+   **仍未定论，且机制没查明**：把安全解码路径里应当返回负值的分支（`cpy > oend`
+   → `_output_error`）读了一遍，没找到 1024 是怎么出来的。这份 lz4 是上游 1.9.3
+   原样，版本很成熟，所以不凭读代码下结论。开发机上没有 C 编译器，无法脱离板子复现。
+   没有为了让套件变绿而弱化断言。
+10. **QEMU 控制台没有走中断，是轮询的**。已实测：使能 UART 接收中断、把所有向量都指向探针、
+    放开全部 32 条 NVIC 线，**没有任何设备中断产生**。所以别拿它验证中断相关行为；
+    成因也还没查清（QEMU 的 mps2-an505 是否根本没把 UART 的 IRQ 连到 NVIC，未验证）。
+11. ~~**`tools/qemu/` 下的脚本已过期**~~ —— **已对齐**：`qemu_run.bat` / `qemu_run.sh` /
+    `qemu_smoke_test.py` 现在都走 `-display none -monitor none -serial stdio`（QEMU 不在 PATH 上时
+    由 `SIFLI_QEMU_EXE` 指路），`qemu_smoke_test.py` 已对 `example/qemu/hello_qemu` 实跑通过。
+12. ~~**CMock 打桩用例仍未交付**~~ —— **已交付两个**：
+     `example/test/cmock_unit/`（中间件，5 个用例）与 `example/test/hal_mock/`
+     （HAL 函数，3 个用例）。都是 `sdk.py test run -T example/test/<工程名>`，
+     不需要硬件，反向验证都做过。踩到的点记在 `middleware/test_fwk/mocks/README.md`。
+13. **真机首跑抓出的两个问题**（这一轮 `unit_test` 三条用例第一次在真板上跑）：
+
+     - **`circular_buf_putchar_force` 少存一次写指针** —— **已修**。
+       它丢掉最旧一字节（推进读指针）后**没有** `cb->write_idx_mirror = ...`，
+       于是"丢一个收一个"变成了纯丢一个：满载 16 字节日志变成 15。函数自己的注释
+       （"discard one old data"）和 `return 1` 都与实现矛盾。对照 `circular_buf_putchar`
+       一眼可见——那边两个分支算完 idx/mirror 后统一存回，这边没有那一步。
+       修法即在末尾补上同一句。
+       顺带证伪了一个顾虑：`__ROM_USED` **不是**"放进 ROM 段"，它展开成 `RT_WEAK`
+       或空；也没有任何 ROM 符号表导出这个函数，所以改的这一份就是生效的那一份。
+     - **`unit_test.lz4` 的 `boundaries`** —— 见风险 9，仍未定论。
+14. **测试工程引工程外源文件的坑**（`example/test/unit_test/src/SConscript`）。
+    lz4/cJSON 原先是在这里手工 `src += [os.path.join(SIFLI_SDK, 'external/...')]` 引入的。
+    **裸路径字符串经 `DefineGroup` 不会变成 SCons Node**，它会一路进链接对象列表；
+    而在真板上（`drivers/` 被编进来，SPI 驱动那个带 `LOCAL_CCFLAGS` 的组存在；
+    QEMU 上整树跳过 `drivers/`，所以不复现）有个去重循环会对每个对象取 `.abspath`，
+    整个构建就这么死了：
+
+    ```
+    AttributeError: 'str' object has no attribute 'abspath'
+      tools/build/building.py:3651
+    ```
+
+    现在 lz4/cJSON 改走 Kconfig（`CONFIG_PKG_USING_LZ4/CJSON=y`，组件自己的
+    SConscript 负责源文件与 include 路径），只剩 `circular_buf` 一处手工引入——
+    它的组件是按芯片分叉的目录树、不是一个文件。
+    那一处保留 `File(...)` 包裹，**已反向验证**：去掉就复现上面的报错。
+
+**关于 `example/test/unit_test` 的那处改进（已做）**：
+`unit_test/src/SConscript` 现在无条件编 `circular_buf.c`：它要的只是一个芯片，
+而每个载体都有——`ipc_hw.h` 碰的 `bf0_hal.h` 只有选中真实核（`SOC_BF0_HCPU/LCPU`）才编得过，
+`qemu_*` 载体和真板卡一样另有一个真实的 `SOC_SF32LB5<nn>X`。于是 `testcase.yaml`
+那条 QEMU 用例钉死在 `qemu_sf32lb52x` 上，`unit_test.circular_buf` 在两边跑同一份用例。

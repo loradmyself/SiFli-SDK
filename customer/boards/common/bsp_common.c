@@ -26,6 +26,36 @@ __weak void BSP_SD_PowerUp(void)
     // Default implementation - can be overridden by board-specific implementation
 }
 
+__weak void BSP_MIC1_PowerUp(void)
+{
+    // Default implementation - can be overridden by board-specific implementation
+}
+
+__weak void BSP_MIC1_PowerDown(void)
+{
+    // Default implementation - can be overridden by board-specific implementation
+}
+
+__weak void BSP_MIC2_PowerUp(void)
+{
+    // Default implementation - can be overridden by board-specific implementation
+}
+
+__weak void BSP_MIC2_PowerDown(void)
+{
+    // Default implementation - can be overridden by board-specific implementation
+}
+
+__weak void BSP_SPK_PowerUp(void)
+{
+    // Default implementation - can be overridden by board-specific implementation
+}
+
+__weak void BSP_SPK_PowerDown(void)
+{
+    // Default implementation - can be overridden by board-specific implementation
+}
+
 
 __weak void BSP_Flash4_PowerUp(void)
 {

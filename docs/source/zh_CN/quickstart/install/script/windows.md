@@ -4,6 +4,8 @@
 
 ## 安装准备
 
+如果研发电脑安装了文件加密管控软件，请先按照[研发环境中的文件加密策略](../index.md#file-encryption-policies-in-development-environments)配置相关工具的白名单或解密策略，尤其要确保 `uv.exe` 和 SDK 实际使用的 `python.exe` 均能读取临时构建结果文件的明文。如果安装时出现 `prepare_metadata_for_build_wheel.txt` 或 `stream did not contain valid UTF-8` 相关错误，请参照该说明检查文件访问策略。
+
 ### `uv` 环境
 
 Windows 脚本主链路不再要求用户预装系统 Python。当前支持的方式是通过 `uv` 按需准备 SDK 管理的 Python 运行时。
@@ -277,6 +279,38 @@ $env:SIFLI_SDK_TOOLS_PATH="D:\SIFLI\tools"
 `export.ps1` 会在导出环境前检查当前 SDK 环境是否仍然完整。如果本地 Python 环境、工具版本或 Conan 配置不匹配，交互式终端可能会提示修复；非交互场景下会直接以确定性错误退出。
 
 `export.ps1` 需要 PATH 中存在 `uv`，以便运行 SDK 环境管理流程。
+```
+
+### 断网或内网环境下使用
+
+如果电脑无法访问外网，但已经成功运行过 `.\install.ps1`，且当前 SDK 所需的环境仍然完整、兼容，可以使用本地环境离线激活。SDK 代码更新本身不一定需要重新安装环境，是否需要更新取决于环境兼容性检查结果，而不只是编译器版本是否相同。
+
+建议在断网前，使用同一个用户完成安装并成功运行一次 `export.ps1`，保留 SDK 工具目录（默认是 `$HOME\.sifli`）、`uv` 缓存和 `uv` 管理的 Python 运行时。如果项目还需要下载外部构建依赖，也应提前准备好。
+
+在断网或只能访问内网的 PowerShell 终端中，运行：
+
+```powershell
+cd C:\OpenSiFli\SiFli-SDK
+$env:UV_OFFLINE="1"
+.\export.ps1 --offline
+```
+
+如果使用了自定义工具安装路径，请先设置安装时使用的 `SIFLI_SDK_TOOLS_PATH`。
+
+`UV_OFFLINE=1` 禁止外层 `uv` 启动流程访问网络，只使用本地缓存和文件；`--offline` 让 SDK 环境管理流程使用离线模式。激活成功后，可以在同一个终端中进入工程目录，正常执行编译命令。
+
+```{warning}
+离线模式不会自动补齐缺失的依赖。`sifli-sdk-env.json`（默认位于 `$HOME\.sifli`）记录的是已安装环境的信息，文件存在并不代表 Python、工具链和缓存仍然完整。
+
+如果提示找不到 Python、缺少 `rich` 或 `tomli_w` 缓存，或者环境不兼容，应在可联网环境中重新准备所需依赖。仅添加 `--offline` 不能解决外层 `uv` 启动时的联网问题，因此需要同时设置 `UV_OFFLINE=1`。
+
+首次安装不能仅靠上述命令在完全断网环境中完成。内网机器需要提前准备完整的安装依赖，或使用可访问的内网依赖源；切换到公网国内镜像并不能解决完全断网的问题。
+```
+
+恢复联网后，如需允许 `uv` 下载或更新依赖，可以在当前终端中取消离线设置：
+
+```powershell
+Remove-Item Env:UV_OFFLINE -ErrorAction SilentlyContinue
 ```
 
 ### Windows Terminal 快捷配置

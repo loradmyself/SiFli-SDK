@@ -16,7 +16,8 @@ if (not GetDepend(['BSP_USING_PC_SIMULATOR'])
         if os.path.isfile(os.path.join(path, 'SConscript')):
             if (d=='hal') and GetDepend(['BSP_USING_PC_SIMULATOR'])==True:
                 continue
+            if ((d == 'hal') or (d == 'hal_epic_ex'))  and GetDepend('SOC_QEMU') and not GetDepend('QEMU_HAL_DRIVER_ENABLED'):
+                continue
             objs = objs + SConscript(os.path.join(d, 'SConscript'))
 
 Return('objs')
-

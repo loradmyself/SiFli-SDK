@@ -5,8 +5,8 @@
         "base": "0x12000000",
         "regions": [
             {
-                "offset": "0x00020000",
-                "max_size": "0x000800000",
+                "offset": "0x00020000", 
+                "max_size": "0x00080000",
                 "tags": [
                     "HCPU_FLASH_CODE"
                 ],

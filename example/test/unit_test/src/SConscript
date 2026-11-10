@@ -1,0 +1,95 @@
+import os
+from building import *
+
+cwd = GetCurrentDir()
+Import('SIFLI_SDK')
+
+import rtconfig
+
+src = Glob('*.c')
+CPPPATH = []
+
+# ---------------------------------------------------------------------------
+# Modules under test.
+#
+# lz4 and cJSON are enabled in proj.conf, so their own SConscripts add the
+# source and the include path. Reaching into `external/` from here instead --
+# which is what this file used to do -- meant naming a path that has to stay in
+# step with someone else's directory layout, and passing a bare path string
+# into `DefineGroup`, which SCons does not turn into a Node the way one would
+# expect: the string survives into the linker's object list, and a group with
+# `LOCAL_CCFLAGS` (the SPI driver on a real board, but not on the emulator)
+# then calls `.abspath` on it and the whole build dies.
+#
+# circular_buf is named here instead, because its component is a tree of
+# per-chip ports rather than one file, and this project does not turn that
+# component on.
+#
+# All three are pure logic -- no peripheral, no board dependency -- so the
+# tests written against them need no stubbing and run unchanged on any board.
+# ---------------------------------------------------------------------------
+
+# middleware/ipc_queue/common/circular_buf.c  (group gated by USING_IPC_QUEUE)
+#
+# circular_buf.c includes ipc_hw.h, which in turn includes the per-chip
+# hardware port header and the OS port header. No IPC code is linked, but
+# those headers must be reachable for the file to compile, so the same include
+# paths the ipc_queue component uses have to be spelled out here.
+#
+# Built on every board, because what it needs is a chip and every board has
+# one: ipc_hw.h reaches bf0_hal.h, which compiles only once a real core is
+# selected (SOC_BF0_HCPU/LCPU). Every qemu_* carrier names a real
+# SOC_SF32LB5<nn>X beside SOC_QEMU, as every real board does, and the chipless
+# carrier this was once conditional on is gone.
+#
+# `File(...)` is load-bearing, not decoration: a bare path string survives
+# into the linker's object list un-converted, and the build dies later in a
+# loop that has nothing to do with this file. Verified by taking it off.
+src += [File(os.path.join(SIFLI_SDK, 'middleware/ipc_queue/common/circular_buf.c'))]
+CPPPATH += [os.path.join(SIFLI_SDK, 'middleware/ipc_queue/common')]
+CPPPATH += [os.path.join(SIFLI_SDK, 'middleware/ipc_queue/porting/os/rtthread')]
+CPPPATH += [os.path.join(SIFLI_SDK, 'middleware/include')]
+
+# middleware/ipc_queue/porting/<chip>/<core>
+chip_port = os.path.join(SIFLI_SDK, 'middleware/ipc_queue/porting', rtconfig.CHIP.lower())
+if GetDepend(['BF0_LCPU']):
+    chip_port = os.path.join(chip_port, 'lcpu')
+else:
+    chip_port = os.path.join(chip_port, 'hcpu')
+CPPPATH += [chip_port]
+
+# ---------------------------------------------------------------------------
+# The Unity case registry, generated from the test sources above.
+#
+# A case used to be written three times -- its definition, a prototype, and a
+# `sifli_unity_cases[]` row -- and its suite name once more in testcase.yaml.
+# Now the definition carries a `case:` hint only where the display name should
+# differ from the function name, and everything else follows from this source
+# list: a module the carrier cannot build is dropped from `src` above, and its
+# suite leaves the registry with it, with no `#if` to keep in step.
+#
+# The manifest written beside the .c lets the host check a testcase.yaml suite
+# name against this firmware before it opens a serial port.
+#
+# `gen/` is load-bearing, not tidiness: `Glob('*.c')` above sees the variant
+# directory as well as this one, so a registry written directly into the build's
+# src/ would be picked up by the next run's Glob *as well as* by the Command
+# that produced it, and the object would go to the linker twice.
+# ---------------------------------------------------------------------------
+import test_registry
+
+test_sources = [f for f in src if os.path.basename(str(f)).startswith('test_')]
+try:
+    board = GetOption('board')
+except Exception:
+    board = None
+
+registry = GetCurrentEnv().Command(
+    'gen/unity_suites_gen.c',
+    test_sources,
+    test_registry.action(board=board))
+src += registry
+
+group = DefineGroup('Applications', src, depend=[''], CPPPATH=CPPPATH)
+
+Return('group')

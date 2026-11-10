@@ -88,7 +88,11 @@
     #define LWIP_MQTT                   0
 #endif
 
-#define LWIP_HAVE_LOOPIF            0
+#ifdef AIC_WLAN_AIC8800D40L
+    #define LWIP_HAVE_LOOPIF            1
+#else
+    #define LWIP_HAVE_LOOPIF            0
+#endif
 
 #define LWIP_PLATFORM_BYTESWAP      0
 
@@ -425,7 +429,7 @@
     #define TCPIP_THREAD_STACKSIZE      4096
 #endif
 #define TCPIP_THREAD_NAME           "tcpip"
-#define DEFAULT_TCP_RECVMBOX_SIZE   10
+#define DEFAULT_TCP_RECVMBOX_SIZE   32
 
 /* ---------- ARP options ---------- */
 #define LWIP_ARP                    1
@@ -448,7 +452,15 @@
 /* Define IP_FORWARD to 1 if you wish to have the ability to forward
    IP packets across network interfaces. If you are going to run lwIP
    on a device with only one network interface, define this to 0. */
-#define IP_FORWARD                  0
+
+/* SiFli local modification: originally fixed as #define IP_FORWARD 0;
+ * changed to allow IP forwarding via RT_LWIP_IP_FORWARD (needed by NAT /
+ * multi-netif routing) */
+#ifdef RT_LWIP_IP_FORWARD
+    #define IP_FORWARD                  1
+#else
+    #define IP_FORWARD                  0
+#endif
 
 /* IP reassembly and segmentation.These are orthogonal even
  * if they both deal with IP fragments */
@@ -491,7 +503,11 @@
 
 #define LWIP_UDPLITE                0
 #define UDP_TTL                     255
-#define DEFAULT_UDP_RECVMBOX_SIZE   1
+#ifdef AIC_WLAN_AIC8800D40L
+    #define DEFAULT_UDP_RECVMBOX_SIZE   32
+#else
+    #define DEFAULT_UDP_RECVMBOX_SIZE   1
+#endif
 
 /* ---------- RAW options ---------- */
 #ifdef RT_LWIP_RAW
@@ -500,8 +516,13 @@
     #define LWIP_RAW                    0
 #endif
 
-#define DEFAULT_RAW_RECVMBOX_SIZE   1
-#define DEFAULT_ACCEPTMBOX_SIZE     10
+#ifdef AIC_WLAN_AIC8800D40L
+    #define DEFAULT_RAW_RECVMBOX_SIZE   32
+    #define DEFAULT_ACCEPTMBOX_SIZE     32
+#else
+    #define DEFAULT_RAW_RECVMBOX_SIZE   1
+    #define DEFAULT_ACCEPTMBOX_SIZE     10
+#endif
 
 /* ---------- Statistics options ---------- */
 #ifdef RT_LWIP_STATS

@@ -550,7 +550,12 @@ void lv_freetype_set_font_size(lv_font_t *font, uint16_t size)
     {
         FT_Set_Pixel_Sizes(dsc->face, 0, size);
         font->line_height = (dsc->face->size->metrics.height >> 6);
-        font->base_line = -(dsc->face->size->metrics.descender >> 6) + 4;  /*Base line measured from the top of line_height*/
+        /* Base line = |descender| per the official LVGL standard (aligned with the PC/customer
+         * simulator); no extra +4 is added. If the TTF's declared descender is too small, the
+         * descenders of g/j/p/q/y on the last line may exceed the clip edge and lose pixels at
+         * the bottom. Do not compensate globally here (it shifts all text upward); instead leave
+         * bottom space in the app via pad_bottom / a taller widget for the last line. */
+        font->base_line = -(dsc->face->size->metrics.descender >> 6);
     }
 #if USE_CACHE_MANGER
     else if (dsc->face_source)
@@ -568,7 +573,12 @@ void lv_freetype_set_font_size(lv_font_t *font, uint16_t size)
         if (lv_freetype_lookup_size(&scaler, &face_size) == 0 && face_size)
         {
             font->line_height = (face_size->metrics.height >> 6);
-            font->base_line = -(face_size->metrics.descender >> 6) + 4;
+            /* Base line = |descender| per the official LVGL standard (aligned with the PC/customer
+             * simulator); no extra +4 is added. If the TTF's declared descender is too small, the
+             * descenders of g/j/p/q/y on the last line may exceed the clip edge and lose pixels at
+             * the bottom. Do not compensate globally here (it shifts all text upward); instead leave
+             * bottom space in the app via pad_bottom / a taller widget for the last line. */
+            font->base_line = -(face_size->metrics.descender >> 6);
         }
     }
 #endif
@@ -577,9 +587,9 @@ void lv_freetype_set_font_size(lv_font_t *font, uint16_t size)
 }
 
 
-#if FT_CACHE_SIZE > 0
 /**
  * @brief Get the maximum weight allowed for the FreeType cache.
+ * A zero pool size uses the system heap, so the cache still needs a limit.
  * @retval uint32_t Maximum cache weight.
  */
 uint32_t ft_get_cache_size(void)
@@ -588,6 +598,7 @@ uint32_t ft_get_cache_size(void)
     return max_weight;
 }
 
+#if FT_CACHE_SIZE > 0
 static void ft_clean_cache_cb(void)
 {
 #if defined (FREETYPE_CACHE_IN_SRAM_STANDALONE) || defined (FREETYPE_CACHE_IN_PSRAM)
@@ -601,6 +612,7 @@ static void ft_clean_cache_cb(void)
     }
 #endif
 }
+#endif
 
 #if defined (LV_USING_FREETYPE_ENGINE)
 #include <freetype/internal/ftmemory.h>
@@ -634,6 +646,7 @@ static FT_Error ft_convert_bitmap_2bpp_cb(FTC_SBit sbit, FT_Bitmap  *bitmap, FT_
     size = line_bytes * bitmap->rows;
     if (!FT_QALLOC(sbit->buffer, size))
     {
+        sbit->pitch = line_bytes; /* Account for the packed bitmap in FTC. */
         uint8_t *dst = sbit->buffer;
         uint8_t *src = bitmap->buffer;
         FT_Int  pitch_idx = 0;
@@ -715,35 +728,20 @@ static FT_Error ft_convert_bitmap_2bpp_cb(FTC_SBit sbit, FT_Bitmap  *bitmap, FT_
     if (pitch < 0)
         pitch = -pitch;
 
-    size = (FT_ULong)pitch * bitmap->rows;
-
-#if FT_BPP == 4
-    size = (size >> 1) + 1;
-#elif FT_BPP == 2
-    size = (size >> 2) + 1;
-#endif
+    FT_ULong pixel_count = (FT_ULong)pitch * bitmap->rows;
+    size = (pixel_count * FT_BPP + 7) / 8;
 
     if (!FT_QALLOC(sbit->buffer, size))
     {
         uint8_t *dst = sbit->buffer;
         uint8_t *src = bitmap->buffer;
 
-#if FT_BPP == 4
-        for (FT_ULong i = 0; i < size; i++)
+        for (FT_ULong i = 0; i < pixel_count; i++)
         {
-            *dst++ = ((*src) & 0xf0) | (((*(src + 1)) & 0xf0) >> 4);
-            src += 2;
+            FT_ULong bit = i * FT_BPP;
+            if ((bit & 7) == 0) dst[bit >> 3] = 0;
+            dst[bit >> 3] |= (src[i] >> (8 - FT_BPP)) << (8 - FT_BPP - (bit & 7));
         }
-#elif FT_BPP == 2
-        for (FT_ULong i = 0; i < size; i++)
-        {
-            *dst++ = ((*src) & 0xC0)
-                     | (((*(src + 1)) & 0xC0) >> 2)
-                     | (((*(src + 2)) & 0xC0) >> 4)
-                     | (((*(src + 3)) & 0xC0) >> 6);
-            src += 4;
-        }
-#endif
     }
 
     FT_FREE(bitmap->buffer);
@@ -752,8 +750,6 @@ static FT_Error ft_convert_bitmap_2bpp_cb(FTC_SBit sbit, FT_Bitmap  *bitmap, FT_
 #endif
 }
 #endif /* LV_USE_GPU */
-
-#endif
 
 #endif
 
@@ -1046,7 +1042,9 @@ int ft_callback_reg(void)
     lv_freetype_set_parameter(FT_BPP, 512, EXTERN_CACHE_AGINE);
 #if !defined(PKG_SCHRIFT)
     ft_render_pool_apply_mem_register(ft_render_pool_apply_mem, ft_render_pool_rel_mem);
+#if FT_CACHE_SIZE > 0
     ft_cache_clean_register(ft_clean_cache_cb);
+#endif
 #endif
 #if FT_USING_2BPP_INTERNAL
     ft_bitmap_to_bpp_register(ft_convert_bitmap_2bpp_cb, FT_BPP);

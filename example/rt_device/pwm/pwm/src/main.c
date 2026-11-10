@@ -142,7 +142,7 @@ static void pwm_set(uint8_t percentage, uint32_t period)
 #elif defined (SF32LB56X)
     HAL_PIN_Set(PAD_PA36, GPTIM1_CH2, PIN_NOPULL, 1);
 #elif defined (SF32LB57X)
-    HAL_PIN_Set(PAD_PA51, GPTIM1_CH2, PIN_NOPULL, 1);
+    HAL_PIN_Set(PAD_PA29, GPTIM1_CH2, PIN_NOPULL, 1);
 #endif
 
     if (percentage > 100)
@@ -192,7 +192,7 @@ static int incap_start(int argc, char **argv)
 #elif defined (SF32LB56X)
     HAL_PIN_Set(PAD_PA39, GPTIM2_CH1, PIN_NOPULL, 1);
 #elif defined (SF32LB57X)
-    HAL_PIN_Set(PAD_PA21, GPTIM2_CH1, PIN_NOPULL, 1);
+    HAL_PIN_Set(PAD_PA30, GPTIM2_CH1, PIN_NOPULL, 1);
 #endif
 
     /* The capture driver assumes the input starts low (first edge = rising).
@@ -329,12 +329,12 @@ int main(void)
     rt_sem_init(&s_incap_sem, "incap_sem", 0, RT_IPC_FLAG_FIFO);
     rt_mutex_init(&s_incap_mutex, "incap_mtx", RT_IPC_FLAG_PRIO);
 
-    rt_kprintf("Start gtimer pwm + input capture demo!\n");
+    rt_kprintf("Start GPTIM pwm + input capture demo!\n");
 
     /* start PWM output */
     pwm_set(20, PWM_PERIOD);
 
-    rt_kprintf("gtimer pwm + input capture demo started!\n");
+    rt_kprintf("GPTIM pwm + input capture demo started!\n");
     rt_kprintf("connect PWM output pin to INCAP input pin with jumper wire\n");
 
     /* capture consumer: the rx_indicate callback (GPTIM ISR) releases

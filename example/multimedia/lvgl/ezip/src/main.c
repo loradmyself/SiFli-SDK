@@ -30,6 +30,16 @@
 #define SDCARD_READY_RETRY_COUNT 100
 #define SDCARD_READY_RETRY_DELAY_MS 30
 
+static const char *image_storage_name(const char *path)
+{
+    size_t sdcard_path_len = sizeof(SDCARD_MOUNT_PATH) - 1;
+    if (strncmp(path, SDCARD_MOUNT_PATH, sdcard_path_len) == 0 && path[sdcard_path_len] == '/')
+    {
+        return "SD card";
+    }
+    return "filesystem";
+}
+
 typedef enum
 {
     IMG_SRC_INVALID = 0,
@@ -46,7 +56,6 @@ typedef struct img_src_info
         char *file_path;
     } src;
     int use_psram;  // 0: sram, 1: psram
-    int updated;
 } img_src_info_t;
 
 L2_RET_BSS_SECT_BEGIN(psram_heap_pool)
@@ -54,6 +63,7 @@ static uint8_t psram_heap_pool[3 * 1024 * 1024] L2_RET_BSS_SECT(psram_heap_pool)
 L2_RET_BSS_SECT_END
 static struct rt_memheap psram_memheap;
 static img_src_info_t g_img_src_info;
+static rt_mq_t g_image_updates;
 
 /**
  * @brief Initialize PSRAM heap memory pool
@@ -269,6 +279,54 @@ void unload_ezip(lv_img_dsc_t *img_dsc, int use_psram)
     img_dsc->data_size = 0;
 }
 
+static void release_image_source(img_src_info_t *source)
+{
+    if (source->type == IMG_SRC_DSC)
+    {
+        unload_ezip(source->src.img_dsc, source->use_psram);
+        free(source->src.img_dsc);
+    }
+    else if (source->type == IMG_SRC_FILE)
+    {
+        free(source->src.file_path);
+    }
+}
+
+static void apply_image_source(lv_obj_t *img, const img_src_info_t *next)
+{
+    lv_disp_drv_t *driver = lv_obj_get_disp(img)->driver;
+
+    /* Keep the old source alive until all queued drawing and flushing finish. */
+    if (driver->draw_ctx->wait_for_finish)
+    {
+        driver->draw_ctx->wait_for_finish(driver->draw_ctx);
+    }
+    while (driver->draw_buf->flushing)
+    {
+        if (driver->wait_cb)
+        {
+            driver->wait_cb(driver);
+        }
+        else
+        {
+            rt_thread_mdelay(1);
+        }
+    }
+
+    lv_img_cache_invalidate_src(lv_img_get_src(img));
+    if (next->type == IMG_SRC_DSC)
+    {
+        lv_img_set_src(img, next->src.img_dsc);
+    }
+    else
+    {
+        lv_img_set_src(img, next->src.file_path);
+    }
+
+    release_image_source(&g_img_src_info);
+    g_img_src_info = *next;
+}
+
 /**
  * @brief Set image source via console command
  *
@@ -287,6 +345,7 @@ static int set_image(int argc, char **argv)
 {
     if (argc < 3 || argc > 4)
     {
+        rt_kprintf("Set image source: FAILED (invalid arguments)\n");
         rt_kprintf("Usage: set_image [path] [file/dsc] [sram/psram]\n");
         rt_kprintf("  path: image file path\n");
         rt_kprintf("  file/dsc: load as file or descriptor\n");
@@ -298,18 +357,12 @@ static int set_image(int argc, char **argv)
     const char *path = argv[1];
     const char *load_type = argv[2];
     const char *mem_type = (argc == 4) ? argv[3] : "sram";
+    img_src_info_t next = {0};
 
-    // Clean up old image resources
-    if (g_img_src_info.type == IMG_SRC_DSC && g_img_src_info.src.img_dsc != NULL)
+    if (g_image_updates == RT_NULL)
     {
-        unload_ezip(g_img_src_info.src.img_dsc, g_img_src_info.use_psram);
-        free(g_img_src_info.src.img_dsc);
-        g_img_src_info.src.img_dsc = NULL;
-    }
-    else if (g_img_src_info.type == IMG_SRC_FILE && g_img_src_info.src.file_path != NULL)
-    {
-        free(g_img_src_info.src.file_path);
-        g_img_src_info.src.file_path = NULL;
+        rt_kprintf("Image display is not ready\n");
+        return -1;
     }
 
     // Determine memory type
@@ -324,6 +377,7 @@ static int set_image(int argc, char **argv)
     }
     else
     {
+        rt_kprintf("Set image source: FAILED (invalid memory type)\n");
         rt_kprintf("Invalid memory type: %s, use 'sram' or 'psram'\n", mem_type);
         return -1;
     }
@@ -332,17 +386,15 @@ static int set_image(int argc, char **argv)
     if (strcmp(load_type, "file") == 0)
     {
         // Load as file reference
-        g_img_src_info.type = IMG_SRC_FILE;
-        g_img_src_info.src.file_path = (char *)malloc(strlen(path) + 1);
-        if (g_img_src_info.src.file_path == NULL)
+        next.type = IMG_SRC_FILE;
+        next.src.file_path = (char *)malloc(strlen(path) + 1);
+        if (next.src.file_path == NULL)
         {
+            rt_kprintf("Set image source: FAILED (file path allocation)\n");
             rt_kprintf("Failed to allocate memory for file path\n");
             return -1;
         }
-        strcpy(g_img_src_info.src.file_path, path);
-        g_img_src_info.use_psram = use_psram;
-        g_img_src_info.updated = 1;
-        rt_kprintf("Set image source to file: %s\n", path);
+        strcpy(next.src.file_path, path);
     }
     else if (strcmp(load_type, "dsc") == 0)
     {
@@ -350,28 +402,39 @@ static int set_image(int argc, char **argv)
         lv_img_dsc_t *img_dsc = (lv_img_dsc_t *)malloc(sizeof(lv_img_dsc_t));
         if (img_dsc == NULL)
         {
+            rt_kprintf("Set image source: FAILED (descriptor allocation)\n");
             rt_kprintf("Failed to allocate memory for image descriptor\n");
             return -1;
         }
 
         if (load_ezip(img_dsc, path, use_psram) != 0)
         {
+            rt_kprintf("Set image source: FAILED (image load)\n");
             rt_kprintf("Failed to load ezip image from: %s\n", path);
             free(img_dsc);
             return -1;
         }
 
-        g_img_src_info.type = IMG_SRC_DSC;
-        g_img_src_info.src.img_dsc = img_dsc;
-        g_img_src_info.use_psram = use_psram;
-        g_img_src_info.updated = 1;
-        rt_kprintf("Set image source to descriptor: %s (loaded to %s)\n", path, use_psram ? "psram" : "sram");
+        next.type = IMG_SRC_DSC;
+        next.src.img_dsc = img_dsc;
     }
     else
     {
+        rt_kprintf("Set image source: FAILED (invalid load type)\n");
         rt_kprintf("Invalid load type: %s, use 'file' or 'dsc'\n", load_type);
         return -1;
     }
+
+    next.use_psram = use_psram;
+    if (rt_mq_send(g_image_updates, &next, sizeof(next)) != RT_EOK)
+    {
+        release_image_source(&next);
+        rt_kprintf("Image update pending, retry later\n");
+        return -1;
+    }
+    rt_kprintf("Queued image source: %s (%s)\n", path, load_type);
+    rt_kprintf("Set image source: %s%s success\n", image_storage_name(path),
+               strcmp(load_type, "dsc") == 0 ? (use_psram ? " -> PSRAM" : " -> SRAM") : "");
 
     return 0;
 }
@@ -403,28 +466,29 @@ int main(void)
     lv_obj_t *img = lv_img_create(lv_scr_act());
     /* Set initial image source for LVGL V8 */
 #ifdef SOC_SF32LB57X
+    rt_kprintf("Image source: filesystem\n");
     lv_img_set_src(img, "example_57.ezip");
 #else
+    rt_kprintf("Image source: filesystem\n");
     lv_img_set_src(img, "example.ezip");
 #endif
     /* Align the image to the center of the screen */
     lv_obj_align(img, LV_ALIGN_CENTER, 0, 0);
 
+    g_image_updates = rt_mq_create("ezip_img", sizeof(img_src_info_t), 1, RT_IPC_FLAG_FIFO);
+    if (g_image_updates == RT_NULL)
+    {
+        rt_kprintf("Failed to create image update queue\n");
+        return -1;
+    }
+
     /* Infinite loop */
     while (1)
     {
-        /* Update image source if changed */
-        if (g_img_src_info.updated)
+        img_src_info_t next;
+        if (rt_mq_recv(g_image_updates, &next, sizeof(next), RT_WAITING_NO) == RT_EOK)
         {
-            if (g_img_src_info.type == IMG_SRC_DSC)
-            {
-                lv_img_set_src(img, g_img_src_info.src.img_dsc);
-            }
-            else if (g_img_src_info.type == IMG_SRC_FILE)
-            {
-                lv_img_set_src(img, g_img_src_info.src.file_path);
-            }
-            g_img_src_info.updated = 0;
+            apply_image_source(img, &next);
         }
         /* Handle LittlevGL tasks */
         uint32_t ms = lv_task_handler();

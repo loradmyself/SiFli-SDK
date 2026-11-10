@@ -1657,6 +1657,49 @@ int rwnx_send_fhcustmsg_sta_cfg_req(struct rwnx_hw *rwnx_hw, int op, char *ssid,
     return rwnx_host_send_msg(rwnx_hw, req, 1, CUSTOM_MSG_STA_CFG_CFM, cfm);
 }
 
+/*
+ * sn must point to a buffer of at least SN_LEN bytes: the whole fixed-size
+ * payload is copied into the request (callers zero-pad shorter SN values).
+ */
+int rwnx_send_fhcustmsg_set_sn_req(struct rwnx_hw *rwnx_hw, const uint8_t *sn, struct fhcustmsg_set_sn_cfm *cfm)
+{
+    struct fhcustmsg_set_sn_req *req;
+
+    RWNX_DBG(RWNX_FN_ENTRY_STR);
+
+    if (sn == NULL || cfm == NULL)
+        return -1;
+
+    /* Build the message */
+    req = rwnx_msg_zalloc(CUSTOM_MSG_SET_SN_REQ, TASK_DBG, DRV_TASK_ID,
+                          sizeof(struct fhcustmsg_set_sn_req));
+    if (!req)
+        return -12;//ENOMEM;
+
+    rtos_memcpy(req->sn, sn, SN_LEN);
+
+    /* Send the message to LMAC FW */
+    return rwnx_host_send_msg(rwnx_hw, req, 1, CUSTOM_MSG_SET_SN_CFM, cfm);
+}
+
+int rwnx_send_fhcustmsg_get_sn_req(struct rwnx_hw *rwnx_hw, struct fhcustmsg_get_sn_cfm *cfm)
+{
+    void *req;
+
+    RWNX_DBG(RWNX_FN_ENTRY_STR);
+
+    if (cfm == NULL)
+        return -1;
+
+    /* Build the message (REQ carries no payload) */
+    req = rwnx_msg_zalloc(CUSTOM_MSG_GET_SN_REQ, TASK_DBG, DRV_TASK_ID, 1);
+    if (!req)
+        return -12;//ENOMEM;
+
+    /* Send the message to LMAC FW */
+    return rwnx_host_send_msg(rwnx_hw, req, 1, CUSTOM_MSG_GET_SN_CFM, cfm);
+}
+
 #if 0
 int rwnx_send_fhcustmsg_http_req(struct rwnx_hw *rwnx_hw, char *uri)
 {
@@ -1747,6 +1790,66 @@ int rwnx_send_fhcustmsg_stop_p2p_req(struct rwnx_hw *rwnx_hw)
 
     /* Send the message to LMAC FW, use CUSTOM_MSG_STOP_P2PGO_CFM as confirm */
     return rwnx_host_send_msg(rwnx_hw, req, 1, CUSTOM_MSG_STOP_P2PGO_CFM, NULL);
+}
+
+int rwnx_send_fhcustmsg_start_ap_req(struct rwnx_hw *rwnx_hw, const char *ssid, const char *passwd,
+                                     uint8_t band)
+{
+    struct fhcustmsg_start_ap_req *req;
+    int ssid_len, pw_len;
+
+    RWNX_DBG(RWNX_FN_ENTRY_STR);
+
+    if (ssid == NULL || strlen(ssid) == 0)
+        return -1;
+
+    ssid_len = strlen(ssid);
+    if (ssid_len >= AP_SSID_BUF_MAX)
+        return -2;
+
+    if (passwd == NULL)
+    {
+        pw_len = 0;
+    }
+    else
+    {
+        pw_len = strlen(passwd);
+        if (pw_len >= AP_PSWD_BUF_MAX)
+            return -3;
+    }
+
+    /* Build the message */
+    req = rwnx_msg_zalloc(CUSTOM_MSG_START_AP_REQ, TASK_DBG, DRV_TASK_ID,
+                          sizeof(struct fhcustmsg_start_ap_req));
+    if (!req)
+        return -12;//ENOMEM;
+
+    req->band = band;
+    strcpy((char *)req->ssid, ssid);
+    if (passwd && pw_len > 0)
+        strcpy((char *)req->pw, passwd);
+    else
+        req->pw[0] = '\0';
+
+    /* Send the message to LMAC FW, use CUSTOM_MSG_START_AP_CFM as confirm.
+     * The real start result comes later via CUSTOM_MSG_START_AP_IND. */
+    return rwnx_host_send_msg(rwnx_hw, req, 1, CUSTOM_MSG_START_AP_CFM, NULL);
+}
+
+int rwnx_send_fhcustmsg_stop_ap_req(struct rwnx_hw *rwnx_hw)
+{
+    void *req;
+
+    RWNX_DBG(RWNX_FN_ENTRY_STR);
+
+    /* Build the message */
+    req = rwnx_msg_zalloc(CUSTOM_MSG_STOP_AP_REQ, TASK_DBG, DRV_TASK_ID, 1);
+    if (!req)
+        return -12;//ENOMEM;
+
+    /* Send the message to LMAC FW, use CUSTOM_MSG_STOP_AP_CFM as confirm.
+     * CUSTOM_MSG_STOP_AP_IND is sent after the AP is really stopped. */
+    return rwnx_host_send_msg(rwnx_hw, req, 1, CUSTOM_MSG_STOP_AP_CFM, NULL);
 }
 
 int rwnx_send_msg_tx(struct rwnx_hw *rwnx_hw, lmac_task_id_t dst_id, lmac_msg_id_t msg_id, uint16_t msg_len, void *msg, int reqcfm, lmac_msg_id_t reqid, void *cfm)

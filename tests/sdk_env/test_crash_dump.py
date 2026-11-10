@@ -25,6 +25,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 from sdk_py_actions import crash_dump  # noqa: E402
 from sdk_py_actions import crash_dump_ext  # noqa: E402
 from sdk_py_actions.sifli_uart_dap import SifliUartDap  # noqa: E402
+from sdk_py_actions.sifli_uart_dap import extract_probe_port  # noqa: E402
 from sdk_py_actions.cli.context import SdkConfig  # noqa: E402
 from sdk_py_actions.cli.registry import CommandRegistry  # noqa: E402
 
@@ -756,6 +757,23 @@ class BackendTests(unittest.TestCase):
         self.assertNotIn("lpsys_aon", rendered)
         self.assertNotIn("Switch to", rendered)
 
+    def test_default_jlink_script_uses_58x_psramless(self) -> None:
+        script = crash_dump.default_jlink_script(ROOT, "SF32LB58", legacy_layout=True)
+
+        self.assertEqual("sf32lb58x_psramless.jlink", script.name)
+        self.assertNotIn("savebin psram", script.read_text())
+
+    def test_default_jlink_script_selects_58x_model_psram(self) -> None:
+        script = crash_dump.default_jlink_script(
+            ROOT,
+            "SF32LB58",
+            legacy_layout=True,
+            chip_model="LB583",
+            include_psram=True,
+        )
+
+        self.assertEqual("sf32lb58x_psram_8MB_8MB.jlink", script.name)
+
     def test_sftool_read_command(self) -> None:
         command = crash_dump.build_sftool_read_command(
             "sftool",
@@ -1228,6 +1246,119 @@ class BackendTests(unittest.TestCase):
     def test_uart_dap_rejects_unsupported_chip(self) -> None:
         with self.assertRaisesRegex(ValueError, "UART DAP does not support"):
             SifliUartDap("/dev/fake", chip="SF32LB58")
+
+    def test_extract_probe_port_accepts_posix_device_paths(self) -> None:
+        self.assertEqual("/dev/ttyUSB0", extract_probe_port("/dev/ttyUSB0"))
+        self.assertEqual(
+            "/dev/cu.wchusbserial58CD1576891",
+            extract_probe_port("1a86:55d3-1:/dev/cu.wchusbserial58CD1576891"),
+        )
+
+    def test_extract_probe_port_accepts_windows_com_ports(self) -> None:
+        self.assertEqual("COM5", extract_probe_port("COM5"))
+        self.assertEqual("COM10", extract_probe_port("\\\\.\\COM10"))
+        self.assertEqual("COM5", extract_probe_port("1a86:55d3-1:COM5"))
+
+    def test_extract_probe_port_rejects_unknown_spec(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Cannot extract serial port"):
+            extract_probe_port("1a86:55d3-1")
+
+    @mock.patch("sdk_py_actions.sifli_uart_dap.normalize_chip_for_dap", return_value="SF32LB52")
+    @mock.patch("sdk_py_actions.sifli_uart_dap.SifliUartDap")
+    def test_capture_live_uart_accepts_windows_com_port(self, dap_cls, _norm) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            script = root / "capture.jlink"
+            script.write_text("savebin hcpu_ram.bin 0x20000000 0x4\n")
+            dap_cls.return_value = self._make_mock_dap()
+
+            manifest = crash_dump.capture_live(
+                self._make_uart_sdk_ctx(root),
+                "uart",
+                "SF32LB52",
+                root / "out",
+                script_path=script,
+                probe="COM5",
+            )
+
+            dap_cls.assert_called_once_with("COM5", chip="SF32LB52")
+            self.assertEqual("live-uart", manifest["source"])
+
+    def test_capture_live_rejects_chip_model_with_psram_size(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with self.assertRaisesRegex(crash_dump.UsageError, "mutually exclusive"):
+                crash_dump.capture_live(
+                    self._make_uart_sdk_ctx(Path(temp_dir)),
+                    "jlink",
+                    "SF32LB52",
+                    Path(temp_dir) / "out",
+                    chip_model="LB525",
+                    psram_size="8MB",
+                )
+
+    def test_capture_live_rejects_include_psram_without_chip_model(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with self.assertRaisesRegex(crash_dump.UsageError, "requires --chip-model"):
+                crash_dump.capture_live(
+                    self._make_uart_sdk_ctx(Path(temp_dir)),
+                    "jlink",
+                    "SF32LB52",
+                    Path(temp_dir) / "out",
+                    include_psram=True,
+                )
+
+    def test_capture_live_rejects_script_with_selector_options(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            script = root / "capture.jlink"
+            script.write_text("savebin hcpu_ram.bin 0x20000000 0x4\n")
+            with self.assertRaisesRegex(crash_dump.UsageError, "cannot be combined"):
+                crash_dump.capture_live(
+                    self._make_uart_sdk_ctx(root),
+                    "jlink",
+                    "SF32LB52",
+                    root / "out",
+                    script_path=script,
+                    chip_model="LB525",
+                )
+
+    def test_export_coredump_rejects_chip_model_with_psram_size(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with self.assertRaisesRegex(crash_dump.UsageError, "mutually exclusive"):
+                crash_dump.export_coredump(
+                    self._make_uart_sdk_ctx(Path(temp_dir)),
+                    Path(temp_dir) / "out",
+                    chip="SF32LB52",
+                    address=0x12000000,
+                    size=0x1000,
+                    chip_model="LB525",
+                    psram_size="8MB",
+                )
+
+    def test_capture_live_warns_when_probe_rs_is_not_default(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            script = root / "capture.jlink"
+            script.write_text("savebin hcpu_ram.bin 0x20000000 0x4\n")
+            runner = mock.Mock()
+            runner.run.return_value = mock.Mock(stdout="", stderr="")
+            sdk_ctx = mock.Mock(
+                env={"SIFLI_SDK_PATH": str(ROOT)},
+                runner=runner,
+            )
+            stderr = io.StringIO()
+
+            with redirect_stderr(stderr):
+                crash_dump.capture_live(
+                    sdk_ctx,
+                    "jlink",
+                    "SF32LB52",
+                    root / "out",
+                    script_path=script,
+                    probe_rs="C:/tools/probe-rs.exe",
+                )
+
+            self.assertIn("--probe-rs is reserved", stderr.getvalue())
 
     @mock.patch("sdk_py_actions.sifli_uart_dap.normalize_chip_for_dap", return_value="SF32LB56")
     @mock.patch("sdk_py_actions.sifli_uart_dap.extract_probe_port", return_value="/dev/fake")

@@ -23,6 +23,10 @@
 
 #include "bf0_hal.h"
 
+#if defined(PKG_CHERRYUSB_HOST) && defined(SF32LB58X)
+static uint32_t g_rcal_bak = 0;
+#endif /* PKG_CHERRYUSB_HOST && SF32LB58X */
+
 uint8_t usbd_get_musb_fifo_cfg(struct musb_fifo_cfg **cfg)
 {
     *cfg = NULL; // No FIFO configuration for this implementation, readonly
@@ -113,6 +117,9 @@ void usb_hc_low_level_init(struct usbh_bus *bus)
     {
         hwp_hpsys_cfg->ANAU_CR |= HPSYS_CFG_ANAU_CR_EN_BG;
     }
+
+    hwp_hpsys_rcc->CSR &= ~HPSYS_RCC_CSR_SEL_USBC;
+    hwp_hpsys_rcc->USBCR = 4;
 #endif /* SOC_SF32LB57X */
 
     HAL_RCC_EnableModule(RCC_MOD_USBC);
@@ -120,8 +127,11 @@ void usb_hc_low_level_init(struct usbh_bus *bus)
 #ifdef SOC_SF32LB57X
     /* Delay 10us to make sure BG and rcc usb clock is ready */
     HAL_Delay_us(10);
-    /* switch to 48MHz (clk_en=1 and mode_48m=1). mode_48m default value is 1, write 1 again to avoid read back */
-    hwp_usbc->mode_48m = 3;
+    /* 60MHz mode needs HCLK 240MHz; otherwise fall back to 48MHz crystal mode */
+    if (240000000 == HAL_RCC_GetHCLKFreq(CORE_ID_DEFAULT))
+        hwp_usbc->mode_48m = 2;
+    else
+        hwp_usbc->mode_48m = 3;
 #endif /* SOC_SF32LB57X */
 
 #ifdef SOC_SF32LB58X
@@ -183,9 +193,51 @@ void usb_hc_low_level_deinit(struct usbh_bus *bus)
     HAL_RCC_DisableModule(RCC_MOD_USBC);
 }
 
+#if defined(SF32LB58X)
+static void do_cali(void)
+{
+    uint32_t rcal = 0x8;
+    hwp_usbc->swcntl2 = (rcal << 3) | (0x1 << 0x2); 
+    hwp_usbc->swcntl1 = 0xc0;
+    HAL_Delay_us(10);
+    hwp_usbc->swcntl2 |= 0x3; 
+    HAL_Delay_us(10);
+    if (hwp_usbc->swcntl2 & 0x80)
+        rcal = rcal - 0x4;
+    else
+        rcal = rcal + 0x4;
+
+    hwp_usbc->swcntl2 = (rcal << 3) | (0x1 << 0x2);  
+    
+    HAL_Delay_us(10);
+    hwp_usbc->swcntl2 |= 0x3;
+    HAL_Delay_us(10);
+    if (hwp_usbc->swcntl2 & 0x80)
+        rcal = rcal - 0x2;
+    else
+        rcal = rcal + 0x2;
+    hwp_usbc->swcntl2 = (rcal << 3) | (0x1 << 0x2);
+
+    HAL_Delay_us(10);
+    hwp_usbc->swcntl2 |= 0x3;
+    HAL_Delay_us(10);
+    if (hwp_usbc->swcntl2 & 0x80)
+        rcal = rcal - 0x1;
+    else
+        rcal = rcal + 0x1;     
+    hwp_usbc->swcntl2 = (rcal << 3) | (0x1 << 0x2);
+    g_rcal_bak = (rcal << 3) | (0x1 << 0x2);
+}
+#endif /* SF32LB58X */
+
 void musb_reset_prev(void)
 {
 #if defined(SF32LB58X)
+    /* do calibration and record cali result */
+    do_cali(); 
+    /* disble calibration to work around hw bug causing ZLP transfer fail with calibration enabled */
+    hwp_usbc->swcntl1 = 0x40;       
+    
     hwp_usbc->utmicfg25 |= 0xc0;
     hwp_usbc->utmicfg21 = 0x23;
     hwp_usbc->swcntl2 = 0x7c;
@@ -204,13 +256,12 @@ void musb_reset_post(void)
 {
 #if defined(SF32LB58X)
     hwp_usbc->rsvd0 = 0x0; //58
-    hwp_usbc->utmicfg25 &= ~0xc0;
+    // disable this line to avoid glitch
+    // hwp_usbc->utmicfg25 &= ~0xc0;
     hwp_usbc->utmicfg21 = 0x2f;
-    hwp_usbc->swcntl2 = 0x40;
+    hwp_usbc->swcntl2 = g_rcal_bak; /* restore cali result */
     hwp_usbc->utmicfg0 = 0x00;
 
-    /* disble calibration to work around hw bug causing ZLP transfer fail with calibration enabled */
-    hwp_usbc->swcntl1 = 0x40;
 #endif
 }
 #endif

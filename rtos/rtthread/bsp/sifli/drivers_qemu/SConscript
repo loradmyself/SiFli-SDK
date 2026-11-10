@@ -1,0 +1,27 @@
+import os
+import rtconfig
+from building import *
+Import('SIFLI_SDK')
+
+cwd = GetCurrentDir()
+# src = ['board.c', 'system_qemu.c', 'uart_console.c', 'startup_qemu.S']
+src = ['board.c', 'system_qemu.c', 'uart_console.c']
+LIBS = []
+LIBPATH = []
+CPPPATH = [cwd,
+           SIFLI_SDK + '/drivers/include/',
+           SIFLI_SDK + '/external/CMSIS/Include']
+CPPDEFINES = []
+
+if GetDepend('BF0_HCPU'):
+    CPPDEFINES+=['SOC_BF0_HCPU']
+elif GetDepend('BF0_LCPU'):
+    CPPDEFINES+=['SOC_BF0_LCPU']
+else:
+    print('Warning: Core not defined')    
+
+group = DefineGroup('Drivers', src, depend = ['SOC_QEMU'],
+                    CPPPATH = CPPPATH, CPPDEFINES = CPPDEFINES,
+                    LIBS = LIBS, LIBPATH = LIBPATH)
+
+Return('group')
