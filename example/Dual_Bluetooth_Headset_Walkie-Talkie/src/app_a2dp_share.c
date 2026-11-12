@@ -12,9 +12,12 @@
 
 #include "app_a2dp_share.h"
 #include "app_bt.h"
+#include "app_i2s.h"
 #include "app_types.h"
 
+#include "av_sbc_api.h"
 #include "bts2_app_inc.h"
+#include "bts2_msg.h"
 #include "ipc/ringbuffer32.h"
 
 #if defined(CFG_AV_SRC) && defined(CFG_AV_SHARING)
@@ -101,11 +104,20 @@
 
 typedef struct
 {
+    uint16_t packet_length;
+    uint8_t packet[AV_MTU_SIZE];
+} app_share_record_t;
+
+typedef struct
+{
+    bts2_sbc_cfg sbc;
     uint8_t connected_count;
     uint8_t streaming_count;
     uint8_t start_pending_count;
     uint8_t suspend_pending_count;
     bool config_valid;
+    bool all_streaming;
+    uint8_t media_streaming_mask;
     uint8_t media_con_active;
     uint8_t media_mac[MAX_CONNS][6];
     uint32_t media_req[MAX_CONNS];
@@ -121,14 +133,10 @@ static struct rt_messagequeue g_record_queue;
 static struct rt_thread g_producer_thread;
 static struct rt_thread g_pump_thread;
 static struct rt_ringbuffer32 g_share_ring;
+
+/* Per-connection tick of the last bt_av_start_stream() attempt (0 = none
+ * yet). Used to space out start attempts (see APP_SHARE_START_RETRY_MS). */
 static rt_tick_t g_start_retry_tick[MAX_CONNS];
-static rt_tick_t g_wedge_check_tick;
-static rt_tick_t g_wedge_stall_tick[MAX_CONNS];
-static rt_tick_t g_wedge_bounce_tick[MAX_CONNS];
-static uint32_t g_wedge_sig[MAX_CONNS];
-static uint8_t g_wedge_bounce_count[MAX_CONNS];
-static bool g_wedge_qos_seen;
-static bool g_stop_timer_scheduled;
 
 /* Tick when the producer entered PREFILLING state; used to force-kick
  * after APP_SHARE_PREFILL_TIMEOUT_MS if the ring never fills enough. */
@@ -151,6 +159,7 @@ ALIGN(4) static app_share_record_t g_discard_record;
 
 static app_a2dp_share_status_t g_status;
 static app_a2dp_share_stats_t g_stats;
+static bts2_sbc_cfg g_active_config;
 static app_a2dp_share_callback_t g_callback;
 static void *g_callback_user_data;
 static rt_size_t g_pcm_used;
@@ -180,6 +189,12 @@ static int32_t g_sync_encode_delay_us;
 /* Forced resync state: 0 = idle, 1 = suspended, waiting to resume. */
 static uint8_t g_resync_phase;
 static rt_tick_t g_resync_last_tick;
+
+/* Stream-count transition tracer: prints one line when the number of
+ * streaming links changes, so the second-headset join can be observed at
+ * the exact moment it flips the fan-out. Debug-only; removed once root
+ * cause is pinned. */
+static uint8_t g_trace_last_streaming = 0U;
 
 static void app_share_bts_pump(void);
 static void app_share_pump_thread(void *parameter);
@@ -284,36 +299,111 @@ static void app_share_notify(app_a2dp_share_event_t event,
     app_a2dp_share_callback_t callback;
     void *user_data;
 
-    rt_enter_critical();
+    app_share_lock();
     callback = g_callback;
     user_data = g_callback_user_data;
-    rt_exit_critical();
-
+    app_share_unlock();
     if (callback != RT_NULL)
     {
         callback(event, sequence, result, user_data);
     }
 }
 
-static void app_share_clear_ring(void)
+static bool app_share_config_equal(const bts2_sbc_cfg *left,
+                                   const bts2_sbc_cfg *right)
 {
-    rt_enter_critical();
-    rt_ringbuffer32_reset(&g_share_ring);
-    rt_exit_critical();
-    g_status.ring_bytes = 0U;
-    g_status.kicked = false;
+    return (left->chnl_mode == right->chnl_mode) &&
+           (left->alloc_method == right->alloc_method) &&
+           (left->sample_freq == right->sample_freq) &&
+           (left->frmsize == right->frmsize) &&
+           (left->blocks == right->blocks) &&
+           (left->subbands == right->subbands) &&
+           (left->bit_pool == right->bit_pool) &&
+           (left->chnls == right->chnls) &&
+           (left->frms_per_payload == right->frms_per_payload) &&
+           (left->bytes_per_encoding == right->bytes_per_encoding) &&
+           (left->samples_per_l2c_frm == right->samples_per_l2c_frm) &&
+           (left->bytes_to_rd == right->bytes_to_rd);
 }
 
-static bool app_share_tick_reached(rt_tick_t now, rt_tick_t deadline)
+static bool app_share_validate_config(const bts2_sbc_cfg *config)
 {
-    return (rt_int32_t)(now - deadline) >= 0;
+    uint32_t expected_pcm_bytes;
+    uint32_t packet_length;
+
+    if ((config->sample_freq != APP_PCM_SAMPLE_RATE) ||
+            (config->chnls != APP_PCM_CHANNELS) ||
+            (config->chnl_mode == SBC_MONO) ||
+            (config->blocks == 0U) || (config->subbands == 0U) ||
+            (config->bit_pool == 0U) || (config->frmsize == 0U) ||
+            (config->frms_per_payload == 0U) ||
+            (config->frms_per_payload > APP_SHARE_MAX_FRAMES_PER_PACKET))
+    {
+        return false;
+    }
+
+    expected_pcm_bytes = (uint32_t)config->blocks * config->subbands *
+                         config->chnls * sizeof(int16_t) *
+                         config->frms_per_payload;
+    packet_length = APP_SHARE_PACKET_HEADER_SIZE +
+                    (uint32_t)config->frmsize *
+                    config->frms_per_payload;
+    return (config->bytes_per_encoding ==
+            ((uint32_t)config->blocks * config->subbands * config->chnls *
+             sizeof(int16_t))) &&
+           (config->bytes_to_rd == expected_pcm_bytes) &&
+           (expected_pcm_bytes <= APP_SHARE_MAX_PCM_BYTES) &&
+           (packet_length <= AV_MTU_SIZE) &&
+           (bts2_sbc_calculate_framelen(config->chnl_mode,
+                                        config->blocks,
+                                        config->subbands,
+                                        config->bit_pool) ==
+            config->frmsize);
+}
+
+static uint32_t app_share_calculate_prefill_target(
+    const bts2_sbc_cfg *config)
+{
+    uint64_t samples_per_packet;
+    uint64_t target_samples;
+    uint64_t packet_count;
+    uint64_t record_size;
+    uint64_t target_size;
+
+    samples_per_packet = (uint64_t)config->blocks * config->subbands *
+                         config->frms_per_payload;
+    target_samples = ((uint64_t)config->sample_freq * APP_SHARE_PREFILL_MS +
+                      999U) / 1000U;
+    if ((samples_per_packet == 0U) || (target_samples == 0U))
+    {
+        return 0U;
+    }
+
+    packet_count = (target_samples + samples_per_packet - 1U) /
+                   samples_per_packet;
+    record_size = sizeof(uint16_t) + APP_SHARE_PACKET_HEADER_SIZE +
+                  (uint64_t)config->frmsize * config->frms_per_payload;
+    target_size = packet_count * record_size;
+    if (target_size == 0U)
+    {
+        return 0U;
+    }
+    /* Cap at half the ring so the prefill never fills the entire buffer
+     * (which would starve the pump and leave no room for the encoder).
+     * If the requested target is larger, use the cap instead of failing —
+     * a smaller prefill is always better than no audio at all. */
+    if (target_size >= (APP_SHARE_RING_SIZE / 2U))
+    {
+        target_size = APP_SHARE_RING_SIZE / 2U;
+    }
+    return (uint32_t)target_size;
 }
 
 static void app_share_collect_links(app_share_link_snapshot_t *snapshot)
 {
     bts2s_av_inst_data *instance;
-    uint8_t first_config_valid = false;
     bts2_sbc_cfg first_config = {0};
+    bool have_config = false;
     bool configs_match = true;
     rt_base_t level;
     uint8_t index;
@@ -330,26 +420,29 @@ static void app_share_collect_links(app_share_link_snapshot_t *snapshot)
     {
         const bts2_av_conn *connection = &instance->con[index];
 
-        (void)bt_avsrc_get_media_stats(index,
-                                      &snapshot->media_req[index],
-                                      &snapshot->media_nomem[index],
-                                      &snapshot->media_qos[index],
-                                      &snapshot->media_buff[index]);
-        if ((connection->cfg == AV_AUDIO_SRC) ||
-                (snapshot->media_req[index] != 0U) ||
-                (snapshot->media_qos[index] != 0U))
+        if (bt_avsrc_get_media_stats(index, &snapshot->media_req[index],
+                                     &snapshot->media_nomem[index],
+                                     &snapshot->media_qos[index],
+                                     &snapshot->media_buff[index]))
         {
-            (void)bt_addr_convert((BTS2S_BD_ADDR *)&connection->av_rmt_addr,
-                                  snapshot->media_mac[index]);
-            snapshot->media_con_active |= (uint8_t)(1U << index);
+            if ((connection->cfg == AV_AUDIO_SRC) ||
+                    (snapshot->media_req[index] != 0U) ||
+                    (snapshot->media_qos[index] != 0U))
+            {
+                bt_addr_convert(&connection->av_rmt_addr,
+                                snapshot->media_mac[index]);
+                snapshot->media_con_active |= (uint8_t)(1U << index);
+            }
         }
-
-        if (!connection->in_use || (connection->cfg != AV_AUDIO_SRC))
+        if ((connection->cfg == AV_AUDIO_SRC) &&
+                (connection->st == avconned_streaming))
+        {
+            snapshot->media_streaming_mask |= (uint8_t)(1U << index);
+        }
+        if (connection->cfg != AV_AUDIO_SRC)
         {
             continue;
         }
-
-        snapshot->connected_count++;
         if (connection->start_pending)
         {
             snapshot->start_pending_count++;
@@ -358,16 +451,25 @@ static void app_share_collect_links(app_share_link_snapshot_t *snapshot)
         {
             snapshot->suspend_pending_count++;
         }
+        if (connection->st <= avconned)
+        {
+            continue;
+        }
+        snapshot->connected_count++;
         if (connection->st == avconned_streaming)
         {
             snapshot->streaming_count++;
-            if (!first_config_valid)
+            /* Only links that are actually streaming contribute encode
+             * params: a half-open joiner (stuck between open and
+             * streaming) carries an empty act_cfg and used to veto the
+             * config for EVERYONE — total silence on all headsets. */
+            if (!have_config)
             {
                 first_config = connection->act_cfg;
-                first_config_valid = true;
+                have_config = true;
             }
-            else if (memcmp(&first_config, &connection->act_cfg,
-                            sizeof(first_config)) != 0)
+            else if (!app_share_config_equal(&first_config,
+                                             &connection->act_cfg))
             {
                 configs_match = false;
             }
@@ -400,168 +502,84 @@ static void app_share_collect_links(app_share_link_snapshot_t *snapshot)
                              app_share_validate_config(&first_config);
 }
 
-static void app_share_update_status(const app_share_link_snapshot_t *links)
+static void app_share_update_link_status(
+    const app_share_link_snapshot_t *snapshot)
 {
-    uint8_t copy_count;
+    app_share_lock();
+    g_status.connected_count = snapshot->connected_count;
+    g_status.streaming_count = snapshot->streaming_count;
+    g_status.start_pending_count = snapshot->start_pending_count;
+    g_status.suspend_pending_count = snapshot->suspend_pending_count;
+    g_status.media_con_count = MAX_CONNS;
+    g_status.media_con_active = snapshot->media_con_active;
+    /* Sizes come from the source arrays: the snapshot holds
+     * MAX_CONNS entries while the published status has room for
+     * four; never copy more than the snapshot actually has. */
+    memset(&g_status.media_con_mac[MAX_CONNS], 0,
+           sizeof(g_status.media_con_mac) -
+           sizeof(snapshot->media_mac));
+    memcpy(g_status.media_con_mac, snapshot->media_mac,
+           sizeof(snapshot->media_mac));
+    memcpy(g_status.media_req, snapshot->media_req,
+           sizeof(snapshot->media_req));
+    memcpy(g_status.media_nomem, snapshot->media_nomem,
+           sizeof(snapshot->media_nomem));
+    memcpy(g_status.media_qos, snapshot->media_qos,
+           sizeof(snapshot->media_qos));
+    memcpy(g_status.media_buff, snapshot->media_buff,
+           sizeof(snapshot->media_buff));
+    app_share_unlock();
 
-    rt_enter_critical();
-    g_status.connected_count = links->connected_count;
-    g_status.streaming_count = links->streaming_count;
-    g_status.start_pending_count = links->start_pending_count;
-    g_status.suspend_pending_count = links->suspend_pending_count;
-    g_status.config_valid = links->config_valid;
-    g_status.media_con_count = MAX_CONNS > 4U ? 4U : MAX_CONNS;
-    g_status.media_con_active = links->media_con_active;
-    copy_count = g_status.media_con_count;
-    memset(g_status.media_con_mac, 0, sizeof(g_status.media_con_mac));
-    memcpy(g_status.media_con_mac, links->media_mac,
-           sizeof(g_status.media_con_mac[0]) * copy_count);
-    memcpy(g_status.media_req, links->media_req,
-           sizeof(g_status.media_req[0]) * copy_count);
-    memcpy(g_status.media_nomem, links->media_nomem,
-           sizeof(g_status.media_nomem[0]) * copy_count);
-    memcpy(g_status.media_qos, links->media_qos,
-           sizeof(g_status.media_qos[0]) * copy_count);
-    memcpy(g_status.media_buff, links->media_buff,
-           sizeof(g_status.media_buff[0]) * copy_count);
-    g_status.ring_bytes = rt_ringbuffer32_data_len(&g_share_ring);
-    rt_exit_critical();
-}
-
-static void app_share_schedule_stop_poll(void)
-{
-    if (!g_stop_timer_scheduled)
+    /* Trace the streaming-count transition exactly once per change. */
+    if (snapshot->streaming_count != g_trace_last_streaming)
     {
-        g_stop_timer_scheduled = true;
-        bts2_timer_ev_add(APP_SHARE_STOP_POLL_MS, app_share_stop_timer,
-                          0U, RT_NULL);
-    }
-}
+        bool cfg_eq = app_share_config_equal(&g_active_config,
+                                             &snapshot->sbc);
+        rt_size_t ring_bytes = rt_ringbuffer32_data_len(&g_share_ring);
 
-static void app_share_complete_stop_if_ready(void)
-{
-    app_share_link_snapshot_t links;
-    bool complete = false;
-    uint32_t sequence;
-
-    app_share_collect_links(&links);
-    app_share_update_status(&links);
-
-    rt_enter_critical();
-    if (!g_status.desired && (links.streaming_count == 0U) &&
-            (links.start_pending_count == 0U) &&
-            (links.suspend_pending_count == 0U))
-    {
-        complete = true;
-    }
-    rt_exit_critical();
-
-    if (!complete)
-    {
-        app_share_schedule_stop_poll();
-        return;
-    }
-
-    app_share_clear_ring();
-    rt_enter_critical();
-    g_status.producer_active = false;
-    g_status.state = APP_A2DP_SHARE_STATE_IDLE;
-    g_status.last_error = RT_EOK;
-    sequence = g_status.stop_sequence;
-    rt_exit_critical();
-    app_share_notify(APP_A2DP_SHARE_EVENT_STOPPED, sequence, RT_EOK);
-}
-
-static void app_share_stop_timer(uint16_t message, void *parameter)
-{
-    (void)message;
-    (void)parameter;
-    g_stop_timer_scheduled = false;
-    app_share_complete_stop_if_ready();
-}
-
-static void app_share_reconcile_links(void)
-{
-    app_share_link_snapshot_t links;
-    bts2s_av_inst_data *instance;
-    rt_tick_t now = rt_tick_get();
-    uint8_t index;
-
-    app_share_collect_links(&links);
-    app_share_update_status(&links);
-    instance = bt_av_get_inst_data();
-    if (instance == RT_NULL)
-    {
-        return;
-    }
-
-    for (index = 0U; index < MAX_CONNS; index++)
-    {
-        bts2_av_conn *connection = &instance->con[index];
-        bt_notify_device_mac_t mac = {0};
-        bool desired;
-
-        if (!connection->in_use || (connection->cfg != AV_AUDIO_SRC))
-        {
-            continue;
-        }
-
-        (void)bt_addr_convert(&connection->av_rmt_addr, mac.addr);
-        rt_enter_critical();
-        desired = g_status.desired && g_status.phone_connected;
-        rt_exit_critical();
-
-        if (desired && (connection->st == avconned_open) &&
-                app_bt_is_link_registered(mac.addr) &&
-                ((g_start_retry_tick[index] == 0U) ||
-                 app_share_tick_reached(
-                     now, g_start_retry_tick[index] +
-                     rt_tick_from_millisecond(APP_SHARE_START_RETRY_MS))))
-        {
-            g_start_retry_tick[index] = now;
-            bt_av_start_stream(index);
-            rt_enter_critical();
-            g_stats.start_requests++;
-            rt_exit_critical();
-        }
-        else if (!desired && (connection->st == avconned_streaming) &&
-                 !connection->suspend_pending &&
-                 (connection->pending_cmd != A2DP_SUSPEND_CMD))
-        {
-            (void)bt_av_suspend_stream(index);
-        }
-
-        if (connection->st == avconned_streaming)
-        {
-            g_start_retry_tick[index] = 0U;
-        }
-    }
-
-    rt_enter_critical();
-    if (g_status.desired && g_status.phone_connected &&
-            (g_status.streaming_count > 0U) &&
-            (rt_ringbuffer32_data_len(&g_share_ring) >=
-             APP_SHARE_PREFILL_BYTES) &&
-            !g_status.kicked)
-    {
-        g_status.kicked = true;
-        g_status.state = APP_A2DP_SHARE_STATE_RUNNING;
-        g_stats.kick_count++;
-        rt_exit_critical();
-        (void)bt_avsrc_sharing(&g_share_ring);
-    }
-    else
-    {
-        rt_exit_critical();
+        rt_kprintf("[intercom][trace] stream %u->%u conn=%u valid=%d eq=%d "
+                   "ring=%u sync_us=%d\n",
+                   (unsigned)g_trace_last_streaming,
+                   (unsigned)snapshot->streaming_count,
+                   (unsigned)snapshot->connected_count,
+                   snapshot->config_valid ? 1 : 0,
+                   cfg_eq ? 1 : 0,
+                   (unsigned)ring_bytes,
+                   (int)g_sync_encode_delay_us);
+        g_trace_last_streaming = snapshot->streaming_count;
     }
 }
 
-static void app_share_check_wedge(const app_share_link_snapshot_t *links)
+/* ---- wedged media-path watchdog ---------------------------------
+ * The shared sender can wedge one stream's media path inside the AVDTP
+ * layer: the app reports the link as streaming (and keeps handing
+ * payloads to av_stream_data_req) but the headset never gets audio and
+ * never recovers on its own — teardown + reconnect is the proven heal.
+ * Detect the stall from the per-connection media counters and bounce
+ * that one link (app_bt_bounce_media_link disconnects it and lets the
+ * existing auto-reconnect queue bring it back as our own outgoing
+ * connect, the path that is proven to deliver audio). */
+#define APP_SHARE_WEDGE_CHECK_MS 1000U
+#define APP_SHARE_WEDGE_STALL_MS 3000U
+#define APP_SHARE_WEDGE_BUFF_FULL 8U
+#define APP_SHARE_WEDGE_BUFF_STREAK 2U
+#define APP_SHARE_WEDGE_BOUNCE_COOLDOWN_MS 30000U
+#define APP_SHARE_WEDGE_BOUNCE_MAX 3U
+
+static rt_tick_t g_wedge_check_tick;
+static uint32_t g_wedge_sig[MAX_CONNS];
+static rt_tick_t g_wedge_stall_tick[MAX_CONNS];
+static uint8_t g_wedge_buff_streak[MAX_CONNS];
+static uint8_t g_wedge_bounce_count[MAX_CONNS];
+static rt_tick_t g_wedge_bounce_tick[MAX_CONNS];
+static bool g_wedge_qos_seen;
+
+static void app_share_wedge_check(const app_share_link_snapshot_t *links)
 {
     rt_tick_t now = rt_tick_get();
-    bool progress = false;
     bool qos_seen = false;
-    uint8_t index;
+    bool progress = false;
+    uint8_t i;
 
     if ((now - g_wedge_check_tick) <
             rt_tick_from_millisecond(APP_SHARE_WEDGE_CHECK_MS))
@@ -570,9 +588,9 @@ static void app_share_check_wedge(const app_share_link_snapshot_t *links)
     }
     g_wedge_check_tick = now;
 
-    for (index = 0U; index < MAX_CONNS; index++)
+    for (i = 0U; i < MAX_CONNS; i++)
     {
-        if (links->media_qos[index] != 0U)
+        if (links->media_qos[i] != 0U)
         {
             qos_seen = true;
             break;
@@ -580,64 +598,98 @@ static void app_share_check_wedge(const app_share_link_snapshot_t *links)
     }
     if (qos_seen != g_wedge_qos_seen)
     {
+        /* Signal source switched (QOS appeared): rebuild the baseline
+         * so the switch itself cannot look like a stall. */
         g_wedge_qos_seen = qos_seen;
-        for (index = 0U; index < MAX_CONNS; index++)
+        for (i = 0U; i < MAX_CONNS; i++)
         {
-            g_wedge_sig[index] = qos_seen ? links->media_qos[index] :
-                                 links->media_req[index];
-            g_wedge_stall_tick[index] = 0U;
+            g_wedge_sig[i] = qos_seen ? links->media_qos[i]
+                             : links->media_req[i];
+            g_wedge_stall_tick[i] = 0U;
+            g_wedge_buff_streak[i] = 0U;
         }
         return;
     }
 
-    for (index = 0U; index < MAX_CONNS; index++)
+    for (i = 0U; i < MAX_CONNS; i++)
     {
-        uint32_t signature = qos_seen ? links->media_qos[index] :
-                             links->media_req[index];
-
-        if ((links->media_con_active & (uint8_t)(1U << index)) != 0U &&
-                (signature > g_wedge_sig[index]))
+        if ((links->media_streaming_mask & (uint8_t)(1U << i)) != 0U)
         {
-            progress = true;
+            uint32_t sig = qos_seen ? links->media_qos[i]
+                           : links->media_req[i];
+
+            if (sig > g_wedge_sig[i])
+            {
+                progress = true;
+            }
         }
     }
 
-    for (index = 0U; index < MAX_CONNS; index++)
+    for (i = 0U; i < MAX_CONNS; i++)
     {
-        uint32_t signature = qos_seen ? links->media_qos[index] :
-                             links->media_req[index];
-        bool stalled = false;
+        uint32_t sig;
+        bool stalled;
+        uint8_t j;
 
-        if ((links->media_con_active & (uint8_t)(1U << index)) == 0U)
+        if ((links->media_streaming_mask & (uint8_t)(1U << i)) == 0U)
         {
-            g_wedge_stall_tick[index] = 0U;
+            g_wedge_stall_tick[i] = 0U;
+            g_wedge_buff_streak[i] = 0U;
             continue;
         }
-        if (signature > g_wedge_sig[index])
+
+        sig = qos_seen ? links->media_qos[i] : links->media_req[i];
+        stalled = false;
+
+        if (sig > g_wedge_sig[i])
         {
-            g_wedge_stall_tick[index] = 0U;
+            g_wedge_stall_tick[i] = 0U;
         }
         else if (progress)
         {
-            if (g_wedge_stall_tick[index] == 0U)
+            /* Data is being delivered somewhere but not to this
+             * stream: the media path of this link is wedged. */
+            if (g_wedge_stall_tick[i] == 0U)
             {
-                g_wedge_stall_tick[index] = now;
+                g_wedge_stall_tick[i] = now;
             }
-            else if ((now - g_wedge_stall_tick[index]) >=
+            else if ((now - g_wedge_stall_tick[i]) >=
                      rt_tick_from_millisecond(APP_SHARE_WEDGE_STALL_MS))
             {
                 stalled = true;
             }
         }
 
-        if (stalled && (g_wedge_bounce_count[index] <
-                        APP_SHARE_WEDGE_BOUNCE_MAX) &&
-                ((g_wedge_bounce_tick[index] == 0U) ||
-                 ((now - g_wedge_bounce_tick[index]) >=
-                  rt_tick_from_millisecond(
-                      APP_SHARE_WEDGE_BOUNCE_COOLDOWN_MS))))
+        /* Queued-not-drained variant: the stream buffer sits near full
+         * while another streaming link stays near empty. */
+        if (links->media_buff[i] >= APP_SHARE_WEDGE_BUFF_FULL)
         {
-            uint8_t mac[6];
+            for (j = 0U; j < MAX_CONNS; j++)
+            {
+                if ((j != i) &&
+                        ((links->media_streaming_mask &
+                          (uint8_t)(1U << j)) != 0U) &&
+                        (links->media_buff[j] <= 5U))
+                {
+                    break;
+                }
+            }
+            if (j < MAX_CONNS)
+            {
+                if (g_wedge_buff_streak[i] < 0xFFU)
+                {
+                    g_wedge_buff_streak[i]++;
+                }
+                if (g_wedge_buff_streak[i] >= APP_SHARE_WEDGE_BUFF_STREAK)
+                {
+                    stalled = true;
+                }
+            }
+        }
+        else
+        {
+            g_wedge_buff_streak[i] = 0U;
+        }
 
         if (stalled)
         {
@@ -1279,7 +1331,9 @@ static void app_share_pump_records(void)
         {
             rt_size_t put_length;
             rt_enter_critical();
-            g_stats.bounce_count++;
+            put_length = rt_ringbuffer32_put(&g_share_ring,
+                                             (const uint8_t *)&g_pump_record,
+                                             record_length);
             rt_exit_critical();
             if (put_length != record_length)
             {
@@ -1398,7 +1452,11 @@ resync_skip:
          * sinks' consumption rates and shrinks playback drift. Only
          * active with 2+ streaming sinks (single sink has nothing to
          * desync from). */
-        if (links.streaming_count >= 2U)
+        /* Two-sink sync steering disabled: with a shared producer/ring the
+         * "slow the encoder to let the slow sink catch up" action instead
+         * drains the single ring to empty and underruns BOTH sinks (the
+         * second-headset-join 电流音). g_sync_encode_delay_us now stays 0. */
+        if (0 && (links.streaming_count >= 2U))
         {
             uint32_t samples_per_packet =
                 (uint32_t)links.sbc.blocks * links.sbc.subbands *
@@ -1534,19 +1592,37 @@ resync_skip:
             should_reschedule = true;
         }
     }
-
-    for (index = 0U; index < MAX_CONNS; index++)
+    else if (links.connected_count > 0U)
     {
-        g_wedge_sig[index] = qos_seen ? links->media_qos[index] :
-                             links->media_req[index];
+        app_a2dp_share_reconcile_streams();
+        should_reschedule = true;
+    }
+    else if (producer_active || kicked)
+    {
+        should_reschedule = true;
+    }
+
+    if (should_reschedule)
+    {
+        app_share_schedule_pump(next_delay);
     }
 }
 
 int app_a2dp_share_init(app_a2dp_share_callback_t callback, void *user_data)
 {
+    rt_err_t error;
+
     if (g_status.initialized)
     {
+        app_share_lock();
+        g_callback = callback;
+        g_callback_user_data = user_data;
+        app_share_unlock();
         return RT_EOK;
+    }
+    if (!app_i2s_is_ready())
+    {
+        return -RT_ENOSYS;
     }
 
     memset(&g_status, 0, sizeof(g_status));
@@ -1625,6 +1701,7 @@ int app_a2dp_share_init(app_a2dp_share_callback_t callback, void *user_data)
 
     g_callback = callback;
     g_callback_user_data = user_data;
+    g_bts_quiesced = true;
     g_status.initialized = true;
     g_status.state = APP_A2DP_SHARE_STATE_IDLE;
     g_status.ring_capacity = APP_SHARE_RING_SIZE;
@@ -1662,198 +1739,123 @@ int app_a2dp_share_start(void)
         return -RT_ENOSYS;
     }
 
-    rt_enter_critical();
-    g_stats.start_requests++;
-    if (!g_status.desired)
+    app_share_lock();
+    if (g_status.desired)
     {
-        g_status.desired = true;
-        g_status.state = APP_A2DP_SHARE_STATE_PREFILLING;
-        g_status.last_error = RT_EOK;
+        app_share_unlock();
+        return RT_EOK;
     }
+    if ((g_status.state == APP_A2DP_SHARE_STATE_STOPPING) ||
+            g_stop_callback_pending || !g_bts_quiesced)
+    {
+        app_share_unlock();
+        return -RT_EBUSY;
+    }
+    rt_mq_control(&g_record_queue, RT_IPC_CMD_RESET, RT_NULL);
+    rt_enter_critical();
+    rt_ringbuffer32_reset(&g_share_ring);
     rt_exit_critical();
+    g_status.desired = true;
+    g_status.producer_active = false;
+    g_status.config_valid = false;
+    g_status.kicked = false;
+    g_status.state = APP_A2DP_SHARE_STATE_STARTING;
+    g_status.last_error = RT_EOK;
+    g_status.ring_bytes = 0U;
+    g_status.prefill_target = 0U;
+    g_started_callback_pending = false;
+    g_started_callback_sent = false;
+    g_bts_quiesced = false;
+    g_stop_needs_settle = false;
+    g_stop_settle_deadline = 0U;
+    g_stats.start_requests++;
+    app_share_unlock();
 
+    app_i2s_set_rx_enabled(false);
     app_a2dp_share_reconcile_streams();
+    rt_event_send(&g_control_event, APP_SHARE_CONTROL_EVENT);
     return RT_EOK;
 }
 
 int app_a2dp_share_stop(uint32_t sequence)
 {
-    bool notify_now;
-
     if (!g_status.initialized)
     {
         return -RT_ENOSYS;
     }
 
-    rt_enter_critical();
-    g_stats.stop_requests++;
+    app_share_lock();
     g_status.desired = false;
-    g_status.kicked = false;
-    g_status.stop_sequence = sequence;
     g_status.state = APP_A2DP_SHARE_STATE_STOPPING;
-    rt_exit_critical();
+    g_status.stop_sequence = sequence;
+    g_started_callback_pending = false;
+    g_stop_callback_pending = true;
+    g_stop_needs_settle = g_status.kicked;
+    g_stop_settle_deadline = 0U;
+    g_bts_quiesced = !g_status.kicked && !g_pump_scheduled;
+    g_stats.stop_requests++;
+    app_share_unlock();
 
-    app_share_clear_ring();
+    app_i2s_set_rx_enabled(false);
     app_a2dp_share_reconcile_streams();
-
-    notify_now = true;
-    for (uint8_t index = 0U; index < MAX_CONNS; index++)
-    {
-        bts2s_av_inst_data *instance = bt_av_get_inst_data();
-
-        if ((instance != RT_NULL) &&
-                instance->con[index].in_use &&
-                (instance->con[index].cfg == AV_AUDIO_SRC) &&
-                ((instance->con[index].st == avconned_streaming) ||
-                 instance->con[index].start_pending))
-        {
-            notify_now = false;
-            break;
-        }
-    }
-
-    if (notify_now)
-    {
-        rt_enter_critical();
-        g_status.producer_active = false;
-        g_status.state = APP_A2DP_SHARE_STATE_IDLE;
-        rt_exit_critical();
-        app_share_notify(APP_A2DP_SHARE_EVENT_STOPPED, sequence, RT_EOK);
-    }
-    else
-    {
-        app_share_schedule_stop_poll();
-    }
+    rt_event_send(&g_control_event, APP_SHARE_CONTROL_EVENT);
     return RT_EOK;
 }
 
 int app_a2dp_share_set_volume(uint8_t level)
 {
+    int32_t target_gain;
+
     if (level > APP_VOLUME_LEVEL_MAX)
     {
         return -RT_EINVAL;
     }
+    if (!g_status.initialized)
+    {
+        return -RT_ENOSYS;
+    }
+
+    target_gain = app_share_volume_gain(level);
+    app_share_lock();
     g_music_volume_level = level;
+    g_music_gain_target_q15 = target_gain;
+    if (!g_status.producer_active ||
+            (target_gain == g_music_gain_q15))
+    {
+        g_music_gain_q15 = target_gain;
+        g_music_gain_ramp_frames = 0U;
+    }
+    else
+    {
+        g_music_gain_ramp_frames = APP_SHARE_VOLUME_RAMP_FRAMES;
+    }
+    app_share_unlock();
     return RT_EOK;
 }
 
 uint8_t app_a2dp_share_get_volume(void)
 {
-    return g_music_volume_level;
-}
+    uint8_t level;
 
-void app_a2dp_share_set_phone_connected(bool connected)
-{
-    bool changed;
-
-    rt_enter_critical();
-    changed = (g_status.phone_connected != connected);
-    g_status.phone_connected = connected;
-    if (!connected)
+    if (!g_status.initialized)
     {
-        g_status.phone_streaming = false;
-        g_status.producer_active = false;
+        return APP_VOLUME_LEVEL_MAX;
     }
-    rt_exit_critical();
-
-    if (changed && !connected)
-    {
-        app_share_clear_ring();
-        app_a2dp_share_reconcile_streams();
-    }
-}
-
-void app_a2dp_share_set_phone_streaming(bool streaming)
-{
-    rt_enter_critical();
-    g_status.phone_streaming = streaming;
-    if (!streaming)
-    {
-        g_status.kicked = false;
-        g_status.producer_active = false;
-    }
-    rt_exit_critical();
-
-    if (!streaming)
-    {
-        app_share_clear_ring();
-    }
-    app_a2dp_share_reconcile_streams();
-}
-
-void app_a2dp_share_on_media_data(const bt_notify_a2dp_data_t *media)
-{
-    app_share_link_snapshot_t links;
-    uint16_t packet_length;
-    rt_size_t put_length;
-    bool relay = false;
-
-    if ((media == RT_NULL) || (media->data == RT_NULL) ||
-            (media->data_length < APP_SHARE_MIN_MEDIA_SIZE) ||
-            (media->data_length > AV_MTU_SIZE))
-    {
-        rt_enter_critical();
-        g_stats.invalid_packets++;
-        rt_exit_critical();
-        return;
-    }
-
-    app_share_collect_links(&links);
-    app_share_update_status(&links);
-    app_share_check_wedge(&links);
-
-    rt_enter_critical();
-    if (!g_status.initialized || !g_status.desired ||
-            !g_status.phone_connected || !g_status.phone_streaming ||
-            (links.streaming_count == 0U))
-    {
-        rt_exit_critical();
-        return;
-    }
-    if (rt_ringbuffer32_space_len(&g_share_ring) <
-            (sizeof(packet_length) + media->data_length))
-    {
-        g_stats.ring_drops++;
-        rt_exit_critical();
-        return;
-    }
-
-    packet_length = media->data_length;
-    (void)rt_ringbuffer32_put(&g_share_ring,
-                             (const uint8_t *)&packet_length,
-                             sizeof(packet_length));
-    put_length = rt_ringbuffer32_put(&g_share_ring, media->data,
-                                     media->data_length);
-    if (put_length != media->data_length)
-    {
-        g_stats.ring_drops++;
-        rt_exit_critical();
-        return;
-    }
-
-    g_stats.phone_packets++;
-    g_stats.packet_bytes += media->data_length;
-    g_stats.packets_relayed++;
-    g_status.ring_bytes = rt_ringbuffer32_data_len(&g_share_ring);
-    g_status.producer_active = true;
-    if (!g_status.kicked &&
-            (g_status.ring_bytes >= APP_SHARE_PREFILL_BYTES))
-    {
-        g_status.kicked = true;
-        g_status.state = APP_A2DP_SHARE_STATE_RUNNING;
-        g_stats.kick_count++;
-        relay = true;
-    }
-    rt_exit_critical();
-
-    if (relay)
-    {
-        (void)bt_avsrc_sharing(&g_share_ring);
-    }
+    app_share_lock();
+    level = g_music_volume_level;
+    app_share_unlock();
+    return level;
 }
 
 void app_a2dp_share_on_a2dp_event(uint16_t event_id)
 {
+    bool active;
+    bool invalidate = false;
+
+    if (!g_status.initialized)
+    {
+        return;
+    }
     switch (event_id)
     {
     case BT_NOTIFY_A2DP_PROFILE_CONNECTED:
@@ -1880,16 +1882,14 @@ void app_a2dp_share_on_a2dp_event(uint16_t event_id)
         break;
     case BT_NOTIFY_A2DP_START_IND:
     case BT_NOTIFY_A2DP_START_CFM:
-        app_a2dp_share_reconcile_streams();
-        break;
-    case BT_NOTIFY_A2DP_SUSPEND_IND:
-    case BT_NOTIFY_A2DP_SUSPEND_CFM:
-    case BT_NOTIFY_A2DP_PROFILE_DISCONNECTED:
-        app_share_clear_ring();
-        app_a2dp_share_reconcile_streams();
+        /* Do NOT invalidate: a stream start (second headset joining) does
+         * NOT change the SBC config. Invalidating tears down the running
+         * producer, flushes the ring, and forces a full prefill restart —
+         * killing audio for both headsets. Let the share continue from the
+         * current ring position so both get audio without interruption. */
         break;
     default:
-        break;
+        return;
     }
 
     if (invalidate)
@@ -1913,6 +1913,10 @@ void app_a2dp_share_on_a2dp_event(uint16_t event_id)
 
 void app_a2dp_share_reconcile_streams(void)
 {
+    bts2s_av_inst_data *instance;
+    bool desired;
+    uint8_t index;
+
     if (!g_status.initialized)
     {
         return;
@@ -1997,10 +2001,15 @@ bool app_a2dp_share_is_stopped(void)
 {
     bool stopped;
 
-    rt_enter_critical();
-    stopped = !g_status.desired && !g_status.producer_active &&
-              (g_status.state != APP_A2DP_SHARE_STATE_STOPPING);
-    rt_exit_critical();
+    if (!g_status.initialized)
+    {
+        return true;
+    }
+    app_share_lock();
+    stopped = (g_status.state == APP_A2DP_SHARE_STATE_IDLE) &&
+              !g_status.desired && !g_status.producer_active &&
+              !g_status.kicked && !g_stop_callback_pending;
+    app_share_unlock();
     return stopped;
 }
 
@@ -2047,10 +2056,15 @@ void app_a2dp_share_get_status(app_a2dp_share_status_t *status)
     {
         return;
     }
-    rt_enter_critical();
+    if (!g_status.initialized)
+    {
+        memset(status, 0, sizeof(*status));
+        status->state = APP_A2DP_SHARE_STATE_UNINITIALIZED;
+        return;
+    }
+    app_share_lock();
     *status = g_status;
-    status->ring_bytes = rt_ringbuffer32_data_len(&g_share_ring);
-    rt_exit_critical();
+    app_share_unlock();
 }
 
 void app_a2dp_share_get_stats(app_a2dp_share_stats_t *stats)
@@ -2059,9 +2073,14 @@ void app_a2dp_share_get_stats(app_a2dp_share_stats_t *stats)
     {
         return;
     }
-    rt_enter_critical();
+    if (!g_status.initialized)
+    {
+        memset(stats, 0, sizeof(*stats));
+        return;
+    }
+    app_share_lock();
     *stats = g_stats;
-    rt_exit_critical();
+    app_share_unlock();
 }
 
 #else
@@ -2141,6 +2160,8 @@ const char *app_a2dp_share_state_name(app_a2dp_share_state_t state)
         return "uninitialized";
     case APP_A2DP_SHARE_STATE_IDLE:
         return "idle";
+    case APP_A2DP_SHARE_STATE_STARTING:
+        return "starting";
     case APP_A2DP_SHARE_STATE_PREFILLING:
         return "prefilling";
     case APP_A2DP_SHARE_STATE_RUNNING:
@@ -2153,37 +2174,3 @@ const char *app_a2dp_share_state_name(app_a2dp_share_state_t state)
         return "unknown";
     }
 }
-
-#else
-
-int app_a2dp_share_init(app_a2dp_share_callback_t callback, void *user_data)
-{
-    (void)callback;
-    (void)user_data;
-    return -RT_ENOSYS;
-}
-int app_a2dp_share_start(void) { return -RT_ENOSYS; }
-int app_a2dp_share_stop(uint32_t sequence) { (void)sequence; return -RT_ENOSYS; }
-int app_a2dp_share_set_volume(uint8_t level) { (void)level; return -RT_ENOSYS; }
-uint8_t app_a2dp_share_get_volume(void) { return 0U; }
-void app_a2dp_share_set_phone_connected(bool connected) { (void)connected; }
-void app_a2dp_share_set_phone_streaming(bool streaming) { (void)streaming; }
-void app_a2dp_share_on_media_data(const bt_notify_a2dp_data_t *media) { (void)media; }
-void app_a2dp_share_on_a2dp_event(uint16_t event_id) { (void)event_id; }
-void app_a2dp_share_reconcile_streams(void) { }
-bool app_a2dp_share_is_stopped(void) { return true; }
-void app_a2dp_share_get_status(app_a2dp_share_status_t *status)
-{
-    if (status != RT_NULL) memset(status, 0, sizeof(*status));
-}
-void app_a2dp_share_get_stats(app_a2dp_share_stats_t *stats)
-{
-    if (stats != RT_NULL) memset(stats, 0, sizeof(*stats));
-}
-const char *app_a2dp_share_state_name(app_a2dp_share_state_t state)
-{
-    (void)state;
-    return "disabled";
-}
-
-#endif

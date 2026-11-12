@@ -11,6 +11,7 @@
 
 #include "app_board.h"
 #include "app_bt.h"
+#include "app_i2s.h"
 // #include "app_source.h"
 #include "app_state.h"
 
@@ -47,18 +48,28 @@ int main(void)
     //         rt_kprintf("[intercom] source ready; use 'intercom play'\n");
     //     }
     // }
+    // else
     {
         rt_kprintf("[intercom] dual-headset relay starting\n");
-        result = app_bt_init();
+        result = app_i2s_init();
         if (result != RT_EOK)
         {
-            rt_kprintf("[intercom] Bluetooth initialization failed: %d\n",
-                       result);
+            rt_kprintf("[intercom] I2S initialization failed: %d\n", result);
             app_state_set_mode(APP_MODE_ERROR);
         }
         else
         {
-            rt_kprintf("[intercom] relay ready; use 'intercom scan'\n");
+            result = app_bt_init();
+            if (result != RT_EOK)
+            {
+                rt_kprintf("[intercom] Bluetooth initialization failed: %d\n",
+                           result);
+                app_state_set_mode(APP_MODE_ERROR);
+            }
+            else
+            {
+                rt_kprintf("[intercom] relay ready; use 'intercom scan'\n");
+            }
         }
     }
 
