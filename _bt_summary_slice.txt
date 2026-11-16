@@ -1,0 +1,469 @@
+1.2 `bt_connection_manager.c` — bond 表 NVDS 读取越界修复
+
+删除（原实现）：
+
+```c
+-    uint16_t len = sizeof(g_bt_bonded_dev);
+-    ret = sifli_nvds_read(SIFLI_NVDS_TYPE_BT_CM, &len, (uint8_t *)&g_bt_bonded_dev);
+-    if (ret != NVDS_OK)
+```
+
+新增（`bt_cm_get_bond_info_from_flash()`）：
+
+```c
++    static uint8_t raw[SIFLI_NVDS_KEY_LEN_BT_CM];
++    uint16_t len;
++    uint16_t copy_len;
++
++    memset(&g_bt_bonded_dev, 0, sizeof(g_bt_bonded_dev));
++    len = SIFLI_NVDS_KEY_LEN_BT_CM;
++    ret = sifli_nvds_read(SIFLI_NVDS_TYPE_BT_CM, &len, raw);
++    if (ret == NVDS_OK)
++    {
++        copy_len = (len < sizeof(g_bt_bonded_dev)) ? len : sizeof(g_bt_bonded_dev);
++        memcpy(&g_bt_bonded_dev, raw, copy_len);
++        if (g_bt_bonded_dev.last_bond_idx >= BT_CM_MAX_BOND)
++            g_bt_bonded_dev.last_bond_idx = 0;
++    }
+```
+
+**作用**：`sifli_nvds_read()` 按 flash 里**实际存储长度**整块拷贝。若记录
+由 `BT_CM_MAX_BOND` 更大的固件写入，直接拷进 `g_bt_bonded_dev` 会越界写
+BSS。改为固定 NVDS 尺寸暂存缓冲 + 限长拷贝 + `last_bond_idx` 钳位。纯内存
+安全修复。
+
+#### 1.1.3 `bt_connection_manager.c` — 加密指示置位
+
+```c
+     case BTS2MU_GAP_ENCRYPTION_IND:
+         ...
++        conn->encrypted = 1;
+          bt_cm_add_bonded_dev(&conn->info, 1);
+```
+
+**作用**：配合 1.1.1 的字段，ENCRYPTION_IND 到达时置位。
+
+#### 1.1.4 `bt_connection_manager.c` — 拒绝对端的重复 page
+
+`bt_cm_hci_connect_request_event_hdl()`（入向 ACL 请求）新增前置判断：
+
+```c
++        /* A remote that pages us WHILE an established ACL to it is up ... */
++        if (conn && (conn->state == BT_CM_ACL_STATE_CONNECTED))
++        {
++            LOG_I("refusing duplicate page; ACL already up");
++            hcia_send_rej_conn_request(&ind->bd, HCI_ERR_REJ_BY_RMT_NO_RES);
++            return;
++        }
+```
+
+**作用**：TWS 耳机掉线后会疯狂 page。若已有存活 ACL，控制器会被迫做
+"connection already exists"（0x0B）换链：旧 ACL 被杀、新 ACL 建立，无限
+churn 还殃及其它连接。改为直接 `Reject_Connection_Request`，保干净的现
+有链路。注意只拒绝**已建立**的重复 page，创建中的竞争 page 仍走正常 accept。
+
+#### 1.1.5 `bt_connection_manager.c` — `a2dp_reset_req()` 条件化
+
+断链处理（`bt_cm_hci_acl_disconnect_complete_event_hdl`）中：
+
+```c
+-    a2dp_reset_req();
++    /* Reset the AV request state only when the disconnected device owns
++     * an AV instance. An unconditional reset cancels the PENDING AV
++     * connect of an unrelated headset ... */
++    if (bt_av_get_idx_from_addr(bt_av_get_inst_data(), &ind->cur_bd) < MAX_CONNS)
++    {
++        a2dp_reset_req();
++    }
+```
+
+**作用**：`a2dp_reset_req()` 是**全局** AV 请求状态复位。任何 ACL 断开
+（被拒的 page、耳机入仓）都会取消**另一个**耳机正在进行的 AVDTP 连接
+（"a2dp connect failed 97"）。本版改为仅当断开方持有 AV 实例才复位。
+（注：下一提交 `f45f101` 又把这里整个删掉，见 1.2.1f。）
+
+#### 1.1.6 `bts2_app_av.c` — AVDTP 失败事件不再过滤
+
+`bt_av_hdl_conn_cfm()` 删除一行过滤条件：
+
+```c
+     if (msg->res != AV_ACPT)
+     {
+-        if ((msg->res != AV_DUPLICATE_CONNECTING) && (msg->res != AV_CONNECT_CONFLICT))
+         {
+             ... bt_profile_update_connection_state(...)  /* 失败通知 */
+         }
+```
+
+**作用**：原来 `9a/9b`（重复连接/连接冲突）被中间件吞掉，应用层失明，
+只能盲目超时。现在**所有**失败都上报，应用可以区分"冲突（保链路重试）"
+和"真失败（放弃）"（应用侧 `app_bt_handle_a2dp` 的
+"A2DP conflict %u ignored; keeping the link" 分支即依赖此事件）。
+
+#### 1.1.7 `bts2_app_av.c` — 对端发起 AVDTP 时补角色（**无声根因之一**）
+
+`bt_av_hdl_conn_ind()`（对端打开 AVDTP 信令）新增：
+
+```c
++#ifdef CFG_AV_SRC
++        /* Remote-opened AVDTP used to leave cfg at its init value
++         * (AV_AUDIO_NO_ROLE): the start confirmation then matched neither
++         * role, so the state never advanced to avconned_streaming and the
++         * sharing fan-out sent zero packets — "connected with name but no
++         * sound" for every remote-opened link. We are the A2DP Source
++         * regardless of who opened the signaling channel. */
++        inst->con[i].cfg = AV_AUDIO_SRC;
++#endif
+```
+
+**作用**：出向连接在 `bt_av_hdl_conn_cfm` 里 `cfg = msg->local_role`；入向
+连接原来不设 `cfg`，停留在 `AV_AUDIO_NO_ROLE` → START 确认匹配不到角色
+→ 状态永不进入 `avconned_streaming` → 共享扇出（按 streaming 过滤）零包。
+现象就是"有设备名、显示已连接，但耳机完全无声"。无论谁发起信令，我们
+都是 A2DP **Source**，直接置位。
+
+---
+
+### 1.2 `f45f101`（2026-10-08）「复位重连 -断开重连 next：page 拒绝」
+
+主题：**复位/断开重连稳定性**（sniff 静音、key 丢失卡死、role 缓存、
+accept 角色、早期 A2DP 上报、start 前 sniff 屏蔽、HFP SLC 碰撞守卫、
+媒体诊断）。这是最大的一批（7 文件 +273/−16）。
+
+#### 1.2.1 `bt_connection_manager.c`
+
+**a. 不再把链路推回 Sniff**（`BTS2MU_GAP_MODE_CHANGE_IND` 处理）：
+
+```c
+             if (ind->mode == ACT_MODE && conn->link_status_update)
+             {
++                /* Sniff is prohibited on this product's audio links ... The
++                 * old behaviour re-entered a 798-slot sniff here after every
++                 * forced exit — exactly the "reconnect then silent" trap. */
+                 conn->link_status_update = 0;
+-                hcia_sniff_mode(&ind->bd, BT_CM_SNIFF_INV, BT_CM_SNIFF_INV,
+-                                BT_CM_SNIFF_ATTEMPT, BT_CM_SNIFF_TIMEOUT, NULL);
+             }
+```
+
+**作用**：旧逻辑在强制退出 sniff 后又重新下发 `Sniff_Mode`（798 slot），
+链路 5 秒空闲就进 sniff → 流"在跑但无声"。删除后只清标志、永不主动进 sniff。
+
+**b. key 丢失立即断链**（`BTS2MU_GAP_KEYMISSING_IND` 处理）：
+
+```c
+         bt_cm_delete_bonded_devs_and_linkkey_by_addr(&ind->bd);
++        /* The key is gone — this link can never encrypt now, and keeping
++         * it up parked the app in "AVDTP deferred; waiting for link
++         * encryption" for ~16s ... Drop the ACL so the reconnect flow
++         * starts a clean SSP re-pair immediately instead. */
++        if (bt_cm_get_conn_by_addr(env, &ind->bd) != NULL)
++        {
++            gap_disconnect_req(&ind->bd);
++        }
+```
+
+**作用**：密钥丢失后链路永远无法加密，应用会一直卡在"等加密"门控（实测
+~16s），两张 bond 表（本机/耳机）还失步。立即断 ACL，让重连流程走全新
+SSP 配对。
+
+**c. ROLE_SWITCH_IND 并入 CFM 处理 + 失败日志**：
+
+```c
+     case BTS2MU_GAP_ROLE_SWITCH_CFM:
++    case BTS2MU_GAP_ROLE_SWITCH_IND:
+     {
++        /* ROLE_SWITCH_IND has the same layout as ROLE_SWITCH_CFM: it
++         * carries the completion of a role change GAP did not track as
++         * its own pending request (e.g. a raw hcia_switch_role bypass,
++         * or the remote's own switch). Update the cached role from it
++         * just like the CFM — dropping it left info.role stale. */
+         ...
++        else
++        {
++            LOG_W("role switch failed, res:%d, role:%d", ind->res, ind->role);
++        }
+```
+
+**作用**：应用直接发 `hcia_switch_role()`（绕过 GAP）或对端切换角色时，
+GAP 只发 IND 不发 CFM，bt_cm 的 role 缓存就过期了（status 显示错误角色）。
+补上 IND 同等处理并给失败加日志（res 值可定位 0x21 拒绝等问题）。
+
+**d. accept 角色可配置**（见 1.2.4 钩子）：
+
+```c
+-        hcia_send_acpt_conn_request(&ind->bd, BT_LINK_SLAVE);
++        hcia_send_acpt_conn_request(&ind->bd, bt_get_acpt_link_role());
+```
+
+**作用**：`Accept_Connection_Request` 的 role 参数原来硬编码 STAY_SLAVE。
+改为查钩子（默认仍 slave，行为不变）。应用覆写返回 `BT_LINK_MASTER`
+（become master）——被动回连的耳机成为 relay 的从设备，两个耳机落进同一
+piconet 星型，避免"relay 双 slave scatternet 第二副耳机被饿死无声"。
+
+**e. ACL-up 链路策略：只许 role-switch、禁 sniff**：
+
+```c
+-        hcia_wr_lp_settings_keep_sniff_interval(&ind->bd, HCI_LINK_POLICY_NO_CHANGE,
+-                                                BT_CM_SNIFF_ENTER_TIME, BT_CM_SNIFF_INV,
+-                                                BT_CM_SNIFF_INV, BT_CM_SNIFF_ATTEMPT,
+-                                                BT_CM_SNIFF_TIMEOUT, NULL);
++        /* Audio link policy: role-switch ONLY — the SNIFF bit (0x0004) is
++         * deliberately cleared. ... With the bit cleared the LM refuses
++         * every Sniff entry — including the headset's own request. */
++        hcia_wr_lp_settings(&ind->bd, 0x0001, NULL);
+```
+
+**作用**：默认策略 5s 空闲进 sniff 是"重连后静音"陷阱。策略掩码 `0x0001`
+（仅允许 role switch）让 LM 拒绝**一切** sniff 进入（含耳机自己请求）。
+本产品音频链路全生命周期不进 sniff。
+
+**f. ACL 断链不再 `a2dp_reset_req()`**（推翻 1.1.5 的条件版）：
+
+```c
+-    if (bt_av_get_idx_from_addr(...) < MAX_CONNS) { a2dp_reset_req(); }
++    /* Deliberately NO a2dp_reset_req() here: it is a GLOBAL reset of the
++     * shared AV request state, so any ACL drop ... cancels the PENDING
++     * AVDTP connect of an unrelated headset ... The application performs
++     * the stale-latch cleanup at the one safe moment instead: its connect
++     * timeout runs the reset only when no other connect is in flight
++     * (app_bt.c, APP_BT_CMD_CONNECT_TIMEOUT). */
+```
+
+**作用**：`a2dp_reset_req()` 是全局 latch，任何断链触发都会误杀别的耳机
+的在飞连接——这是"第二个耳机永远连不完"的元凶。彻底删除；陈旧 latch
+的清理挪到**应用层**的连接超时处理（`app_bt.c` 中仅当没有其它连接在飞时
+才调 `a2dp_reset_req()`）。
+
+**g. 连接结果日志拆分**（`DM_EN_ACL_OPENED_IND`）：
+
+```c
+-        LOG_I("link connected COD:%d Incoming:%d hdl %d res %d\r\n", ...);
++        if (ind->st == HCI_SUCC)
++            LOG_I("link connected COD:%d Incoming:%d hdl %d res %d\r\n", ...);
++        else
++            LOG_I("link connect failed COD:%d Incoming:%d hdl %d res %d\r\n", ...);
+```
+
+**作用**：该指示在**失败**时也会上报。旧日志把关机耳机的失败 page 打成
+"link connected"（hdl 65535, res≠0），日志分析被严重误导。现在失败打
+"link connect failed"。（日志约定：res 为十进制 HCI 错误码。）
+
+#### 1.2.2 `bts2_app_av.c`
+
+**a/b. 信令级 A2DP 立即上报**（出向 `bt_av_hdl_conn_cfm` + 入向
+`bt_av_hdl_conn_ind` 各加一段）：
+
+```c
++        /* Tell the application NOW, not only when the media transport
++         * (MUT) arrives: the MUT ind is the sole CONNECTED source and it
++         * is not guaranteed to fire for every flow — when it is silent
++         * the app never registers the link (A2DP=0 in status) while the
++         * AV layer is already streaming. The app ignores duplicates. */
++        {
++            bt_notify_profile_state_info_t profile_state = {0};
++            bt_addr_convert(&msg->bd, profile_state.mac.addr);
++            profile_state.profile_type = BT_NOTIFY_A2DP;
++            profile_state.profile_role = inst->con[i].cfg;
++            profile_state.res = BTS2_SUCC;
++            bt_profile_update_connection_state(BT_NOTIFY_A2DP,
++                    BT_NOTIFY_A2DP_PROFILE_CONNECTED, &profile_state);
++        }
+```
+
+**作用**：原来 `BT_NOTIFY_A2DP_PROFILE_CONNECTED` 只在 MUT（媒体通道
+MTU 指示）时上报；某些流程 MUT 永远不来 → 应用 A2DP=0 不注册链路，而
+AV 层已在流上发数据；应用的 grace 超时还会再发一路 AVDTP 撞出 9b 冲突。
+现在**信令连接即上报**；MUT 到达时的重复上报由应用的
+"duplicate A2DP success ... ignored" 分支吸收。这也是应用层 A2DP 状态
+机（READY、起流、HFP defer）的驱动事件源。
+
+**c. QoS 指示转发给诊断模块**（`BTS2MU_AV_QOS_IND` 分支）：
+
+```c
++        /* Media-path liveness per stream (see bt_avsrc_get_media_stats). */
++        bt_avsrc_note_qos(msg->shdl, msg->buff_st);
+```
+
+**d. start 前屏蔽 sniff**（`bt_av_start_stream()`）：
+
+```c
+     if (inst->con[con_idx].st == avconned_open)
+     {
+         USER_TRACE(">> (%d)start the av stream\n", con_idx);
++        /* The prebuilt start path logs "before start stream should
++         * prohibit sniff mode!" but never does it — implement it here.
++         * Clear the SNIFF bit of the link policy (role-switch only) so
++         * the LM refuses every Sniff entry, then kick the link out of
++         * Sniff if it already slid in ... Policy first, exit second: the
++         * kick cannot land back in Sniff afterwards. */
++        hcia_wr_lp_settings(&inst->con[con_idx].av_rmt_addr, 0x0001, NULL);
++        hcia_exit_sniff_mode(&inst->con[con_idx].av_rmt_addr, NULL);
+         av_start_req(1, ASSIGN_TLABEL, &inst->con[con_idx].stream_hdl);
+```
+
+**作用**：预编译库只打印 "before start stream should prohibit sniff
+mode!" 却从不执行。这里补齐：先写策略（禁 sniff），再把已滑入 sniff
+的链路踢回 active（耳机重连后空闲 5s 会进 sniff，起流即静音）。顺序
+固定"先策略后踢"，踢回后无法再滑入。
+
+#### 1.2.3 `bts2_app_av_src.c / .h` — 媒体转发诊断计数器
+
+新增静态计数 + 两个 API（+66 行）：
+
+```c
++static U32 s_media_req[MAX_CONNS];    /* 交给 av_stream_data_req 的包数 */
++static U32 s_media_nomem[MAX_CONNS];  /* bmalloc 失败丢弃的扇出副本 */
++static U32 s_media_qos[MAX_CONNS];    /* 该流的 AV QOS 指示数 */
++static U8  s_media_buff[MAX_CONNS];   /* 最近的流缓冲深度 0..10 */
++
++void bt_avsrc_note_qos(U16 shdl, U16 buff_st);
++BOOL bt_avsrc_get_media_stats(U8 idx, U32 *req, U32 *nomem, U32 *qos, U8 *buff);
+```
+
+扇出循环（`bt_avsrc_sharing`）里计数：
+
+```c
+                             s_media_req[i]++;
++                        }
++                        else
++                        {
++                            s_media_nomem[i]++;
+```
+
+**作用**：定位"一条流在动、另一条流停滞"的媒体路径僵死——流式连接的
+req/qos 计数停走而另一连接继续前进，即 AVDTP 层内媒体路径 wedge。qos
+计数只在媒体真正流动时增长，是媒体面活性的直接证据。应用 `intercom
+status` 的 streaming 统计即取自这里。CFG_AV 关闭时提供空宏。
+
+#### 1.2.4 `bts2_app_generic.c / .h` — accept 角色钩子
+
+```c
++/* Link role used when ACCEPTING an incoming ACL connection
++ * (HCI Accept_Connection_Request role parameter):
++ * BT_LINK_MASTER(0) = become master (role switch at accept),
++ * BT_LINK_SLAVE(1)  = stay slave. Default keeps the historical
++ * stay-slave behaviour; override in the application ... */
++__WEAK uint8_t bt_get_acpt_link_role(void)
++{
++    return BT_LINK_SLAVE;
++}
+```
+
+**作用**：配合 1.2.1d。默认行为不变；产品策略（返回 MASTER）在应用层
+覆写（`app_bt.c: bt_get_acpt_link_role()` → `BT_LINK_MASTER`）。
+
+#### 1.2.5 `bts2_app_hfp_ag.c` — HFP SLC 碰撞守卫（+94 行）
+
+背景：耳机常在 AVDTP 之后**自己**发起 HFP SLC（Anyka OWS T700 实测 ~3s）。
+我们此时发 AG→HF 连接会撞进对端在飞的 SLC，RFCOMM 内两败俱伤
+（CONN_CFM res 19），链路只剩音乐直到下次机会。
+
+新增（文件头）：
+
+```c
++#define BT_HFP_AG_INCOMING_SLC_WINDOW_MS 10000U
++
++static BTS2S_BD_ADDR g_hfp_ag_incoming_bd;
++static uint32_t g_hfp_ag_incoming_tick;
++static uint8_t g_hfp_ag_incoming_slc;
++
++static uint8_t bt_hfp_ag_bd_equal(BTS2S_BD_ADDR *a, BTS2S_BD_ADDR *b);
++static void bt_hfp_ag_incoming_slc_start(BTS2S_BD_ADDR *bd);   /* 置位+时间戳 */
++static void bt_hfp_ag_incoming_slc_clear(BTS2S_BD_ADDR *bd);   /* 清除 */
++static uint8_t bt_hfp_ag_incoming_slc_pending(BTS2S_BD_ADDR *bd); /* 窗口内=1 */
+```
+
+拦截点一（`BTS2MU_AG_CONN_REQ`，对端开 RFCOMM）：
+
+```c
++        /* Remote is opening the SLC itself right now — remember it so our
++         * own AG->HF connect does not fire into this in-flight setup ... */
++        bt_hfp_ag_incoming_slc_start(&con_msg->bd);
+         hfp_ag_connect_ind_res(&con_msg->bd, con_msg->rfcomm_chnl, 1); // accept
+```
+
+拦截点二（`bt_hfp_ag_connect_request`，我们发起 AG→HF 之前）：
+
+```c
+ int bt_hfp_ag_connect_request(BTS2S_BD_ADDR *bd)
+ {
++    if (bt_hfp_ag_incoming_slc_pending(bd))
++    {
++        USER_TRACE(" -- hfp ag connect suppressed: remote SLC in progress\n");
++        return (int)BT_ERROR_IN_PROGRESS;
++    }
+     hfp_ag_connect(bd, 0);
+     return 0;
+ }
+```
+
+清除点（`bt_hfp_ag_app_device_state_changed`）：
+
+```c
++    if ((con_msg->device_state == HFP_DEVICE_CONNECTED) ||
++            (con_msg->device_state == HFP_DEVICE_DISCONNECTED))
++    {
++        /* Whatever direction opened the session, it has now resolved —
++         * our own outbound connect is free to fire again. */
++        bt_hfp_ag_incoming_slc_clear(&con_msg->bd);
++    }
+```
+
+失败上报（同函数，原来只报成功）：
+
+```c
++        else if (con_msg->res != HFP_AG_SUCC)
++        {
++            /* A connect attempt resolved with an error (e.g. res 19 ...) Only
++             * CONNECTED/DISCONNECTED were reported before, so the app sat
++             * blind until its next blind retry. Report the failure as a
++             * CONNECTED event carrying the error so the app can back off
++             * briefly and retry into a clean window. */
++            bt_notify_profile_state_info_t profile_state;
++            ...
++            bt_profile_update_connection_state(BT_NOTIFY_HFP_AG,
++                    BT_NOTIFY_AG_PROFILE_CONNECTED, &profile_state);
++        }
+```
+
+**作用**：对端 SLC 在飞（窗口内）时抑制我们的连接请求，返回
+`BT_ERROR_IN_PROGRESS`（应用侧收到后按"短轮询推迟、不计次"处理）；会话
+一旦解析（无论方向、成功或断开）即解除；**失败也上报**，应用不再失明。
+应用配套：`APP_BT_HFP_DEFER_GRACE_MS`（A2DP 起来后先等对端自开 SLC）、
+`APP_BT_HFP_RETRY_FAST_MS` 抑制重试。
+
+---
+
+### 1.3 `6d247a5`（2026-10-09）「readme buds 6 问题」
+
+主题：**入向 page 可由应用拒收并转主动外连**（配合复位回连→转外连的
+"变主"策略）。
+
+#### 1.3.1 `bts2_app_generic.c / .h` — 是否 accept 入向 page 的钩子
+
+```c
++/* Decide whether an incoming ACL page is ACCEPTED (1, default) or
++ * declined at HCI level (0). Called from the BT task at connect-request
++ * time, before Accept/Reject Connection_Request is sent. Returning 0
++ * lets an application convert a passive reconnect into its own outgoing
++ * connect; the override is then responsible for starting that connect
++ * (the connect-request notification is still delivered afterwards). */
++__WEAK uint8_t bt_should_accept_incoming_conn(BTS2S_BD_ADDR *bd)
++{
++    (void)bd;
++    return 1;
++}
+```
+
+#### 1.3.2 `bt_connection_manager.c` — accept 路径接入钩子
+
+`bt_cm_hci_connect_request_event_hdl()` 重构 accept 流程：
+
+```c
+-        if (conn == NULL)
+-        {
+-            conn = bt_cm_conn_alloc(env, &ind->bd, link_type);
+-            if (conn == NULL)
+-            {
+-                hcia_send_rej_conn_request(&ind->bd, HCI_ERR_REJ_BY_R

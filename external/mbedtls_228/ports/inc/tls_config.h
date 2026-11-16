@@ -1906,6 +1906,35 @@
 #define MBEDTLS_CTR_DRBG_C
 
 /**
+ * \def MBEDTLS_CHACHA20_C
+ *
+ * Enable the ChaCha20 stream cipher.
+ *
+ * Module:  library/chacha20.c
+ */
+#define MBEDTLS_CHACHA20_C
+
+/**
+ * \def MBEDTLS_POLY1305_C
+ *
+ * Enable the Poly1305 MAC algorithm.
+ *
+ * Module:  library/poly1305.c
+ */
+#define MBEDTLS_POLY1305_C
+
+/**
+ * \def MBEDTLS_CHACHAPOLY_C
+ *
+ * Enable the ChaCha20-Poly1305 AEAD algorithm.
+ *
+ * Module:  library/chachapoly.c
+ *
+ * Requires: MBEDTLS_CHACHA20_C and MBEDTLS_POLY1305_C
+ */
+#define MBEDTLS_CHACHAPOLY_C
+
+/**
  * \def MBEDTLS_DEBUG_C
  *
  * Enable the debug functions.

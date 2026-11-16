@@ -172,12 +172,28 @@ static LCD_DrvTypeDef drv_lcd;
 #endif /* BSP_USING_RAMLESS_LCD */
 
 #if defined(BSP_USING_RAMLESS_LCD) && defined(BSP_LCDC_USING_DPI)
+    /* 行缓冲深度倍数（1 = 单行，HAL 里 ping-pong 两块合计 2 行余量）。
+     *
+     * 57x 的 RAMLESS DPI 是 PTC + EXT-DMA 逐块搬运：EXT-DMA 把 PSRAM 里的
+     * 帧按块搬进 SRAM 行缓冲，PTC 每块重编程一次 LCDC 的 LAYER/DPI_CONF。
+     * 默认只有 2 行余量（30MHz PCLK 约 70us），JPEGD 一次往 PSRAM 写整帧
+     * 768KB 的突发会把 EXT-DMA 拖住，块边界处 LCDC 就拿不到新数据/新寄存器
+     * → 屏上出现偶发亮暗横带，肉眼即"频闪"（静态画面不闪、只有推流时闪）。
+     * 加深度 = 用 SRAM 换容忍时间，同时把"每帧重编程 LCDC 的次数"按倍数减少。
+     * 约束（HAL_LCDC_DPI FSM 里的断言）：LCD_VER_RES_MAX 必须能被 2*depth 整除。
+     * 57x: 4 → 8 行/块（80x480: 480%16==0 ✓），余量约 280us。 */
+    #if defined(SF32LB57X)
+        #define SRAM_BUF_LINE_MULT  4
+    #else
+        #define SRAM_BUF_LINE_MULT  1
+    #endif
+
     #if defined(LCDC_SUPPORT_EXTERNAL_LINEBUF)
         //Fixed ARGB8888 format
-        #define SRAM_BUF_1LINE (LCD_HOR_RES_MAX * 4)
+        #define SRAM_BUF_1LINE (LCD_HOR_RES_MAX * 4 * SRAM_BUF_LINE_MULT)
     #else
         //We don't know upper color format, just define the maximum RGB888 format
-        #define SRAM_BUF_1LINE (LCD_HOR_RES_MAX * 3)
+        #define SRAM_BUF_1LINE (LCD_HOR_RES_MAX * 3 * SRAM_BUF_LINE_MULT)
     #endif
 
     #define SRAM_BUF_1LINE_WORDS (HAL_ALIGN(SRAM_BUF_1LINE, 4) / 4)

@@ -138,7 +138,7 @@ int main(void)
         return ret;
     }
     /*Call examples here*/
-    lv_example_scroll_1();
+    lv_example_anim_1();
     // lv_example_tiny_ttf_1();
     // lv_example_file_explorer_1();
     // lv_example_tjpgd_1();

@@ -15,10 +15,21 @@
 
 extern void BSP_GPIO_Set(int pin, int val, int is_porta);
 
+#if defined(BSP_USING_BOARD_SF32LB57_LCD_N16R16_QSPI) && defined(BSP_LCDC_USING_QADSPI)
+/* Temporary bring-up: drive the panel RESET/STANDBY from SoC GPIOs instead of
+   the AW9523 expander. PA53/PA54 are free on the QSPI board. */
+#define LCD_RST_GPIO_PIN        (54)    /* PA54 -> panel RESET */
+#define LCD_STANDBY_GPIO_PIN    (53)    /* PA53 -> panel STANDBY */
+#endif
+
 void BSP_LCD_Reset(uint8_t high1_low0)
 {
+#if defined(BSP_USING_BOARD_SF32LB57_LCD_N16R16_QSPI) && defined(BSP_LCDC_USING_QADSPI)
+    BSP_GPIO_Set(LCD_RST_GPIO_PIN, high1_low0, 1);
+#else
     aw9523_ensure_init();
     aw9523_set_pin(AW9523_PIN_LCD_RST, high1_low0);
+#endif
 }
 
 
@@ -172,7 +183,9 @@ void BSP_LCD_PowerUp(void)
      * CS and TE are routed on the pads of the dedicated 57 QSPI ribbon:
      *   DIO0 PA39   DIO1 PA38   DIO2 PA37   DIO3 PA30
      *   CLK  PA31 (12mA)       CS   PA29   TE   PA28
-     * The panel reset is not a SoC pad, it is driven by the AW9523 (P1_7).
+     * By default the panel reset is not a SoC pad, it is driven by the AW9523
+     * (P1_7). The n16r16_qspi board has a temporary GPIO path (PA54 = RESET,
+     * PA53 = STANDBY) that replaces it, see BSP_LCD_Reset().
      */
     QSPI_PIN_Set(PAD_PA39, LCDC1_MATRIX_SPI_DIO0, PIN_NOPULL, 1);
     QSPI_PIN_Set(PAD_PA38, LCDC1_MATRIX_SPI_DIO1, PIN_NOPULL, 1);
@@ -185,11 +198,20 @@ void BSP_LCD_PowerUp(void)
 
     HAL_PIN_Set(PAD_PA45, GPTIM2_CH2, PIN_NOPULL, 1);   // LCDC1_BL_PWM_CTRL, LCD backlight PWM (pwmt2 CH2)
 
+#if defined(BSP_USING_BOARD_SF32LB57_LCD_N16R16_QSPI)
+    /* Temporary GPIO reset path: set STANDBY high and hold RESET low before
+       the BSP_LCD_Reset(1) at the end of this function releases it. */
+    HAL_PIN_Set(PAD_PA00 + LCD_STANDBY_GPIO_PIN, GPIO_A0 + LCD_STANDBY_GPIO_PIN, PIN_NOPULL, 1);
+    HAL_PIN_Set(PAD_PA00 + LCD_RST_GPIO_PIN, GPIO_A0 + LCD_RST_GPIO_PIN, PIN_NOPULL, 1);
+    BSP_GPIO_Set(LCD_STANDBY_GPIO_PIN, 1, 1);
+    BSP_GPIO_Set(LCD_RST_GPIO_PIN, 0, 1);
+#endif
+
 #endif /* BSP_LCDC_USING_QADSPI */
 
     HAL_RCC_HCPU_ClockSelect(RCC_CLK_MOD_LCDC, RCC_CLK_LCDC_SYSCLK);
 
-    /* Release the panel reset. On this board it is driven by the AW9523
+    /* Release the panel reset. On most boards it is driven by the AW9523
        (P1_7) and drv_lcd never calls BSP_LCD_Reset() on its own, so without
        this the panel stays in reset and never answers the ID read. */
     BSP_LCD_Reset(1);

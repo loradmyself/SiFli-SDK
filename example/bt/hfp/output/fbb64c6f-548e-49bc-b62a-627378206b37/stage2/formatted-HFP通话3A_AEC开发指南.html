@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="docx-page-size" content="A4">
+<title>SiFli HFP 蓝牙通话 3A/AEC 开发指南</title>
+<style>
+:root {
+  --fs-title: 26pt;
+  --fs-subtitle: 14pt;
+  --fs-h1: 18pt;
+  --fs-h2: 15pt;
+  --fs-h3: 13pt;
+  --fs-body: 12pt;
+  --fs-note: 11pt;
+  --fs-meta: 11pt;
+  --fs-toc-title: 16pt;
+  --fs-toc: 11pt;
+  --fs-toc-sub: 10.5pt;
+  --fs-table: 10.5pt;
+  --fs-code: 9.5pt;
+  --fs-inline: 10.5pt;
+  --ff-heading: "SimHei", "黑体", sans-serif;
+  --ff-body: "SimSun", "宋体", serif;
+  --ff-mono: Consolas, "Courier New", monospace;
+  --lh-body: 1.7;
+  --lh-heading: 1.3;
+  --lh-tight: 1.45;
+  --color-primary: #2563EB;
+  --color-text: #111827;
+  --color-muted: #6B7280;
+  --color-border: #D1D5DB;
+  --color-code-bg: #F9FAFB;
+  --color-note-bg: #F3F6FB;
+  --color-warn-bg: #FEF3C7;
+  --color-warn-line: #E5C77A;
+  --color-inline: #B91C1C;
+  --color-table-head: #F3F4F6;
+  --sp-tight: 0.25em;
+  --sp-para: 0.55em;
+  --sp-h1-top: 1.2em;
+  --sp-h1-bottom: 0.6em;
+  --sp-h2-top: 1.4em;
+  --sp-h2-bottom: 0.5em;
+  --sp-h3-top: 1.1em;
+  --sp-h3-bottom: 0.4em;
+  --sp-list-bottom: 0.6em;
+  --sp-list-indent: 2em;
+  --sp-table-top: 0.4em;
+  --sp-table-bottom: 0.9em;
+  --sp-cell-y: 0.4em;
+  --sp-cell-x: 0.55em;
+  --sp-code-y: 0.6em;
+  --sp-code-x: 0.75em;
+  --sp-note-y: 0.55em;
+  --sp-note-x: 0.75em;
+  --sp-note-top: 0.5em;
+  --sp-note-bottom: 0.9em;
+  --sp-cover-title-top: 3.2em;
+  --sp-cover-title-bottom: 0.5em;
+  --sp-cover-sub-bottom: 2.4em;
+  --sp-cover-meta: 0.2em;
+  --sp-toc-title-bottom: 1em;
+  --sp-toc-item: 0.1em;
+  --sp-toc-indent: 1.6em;
+  --line: 1px;
+}
+
+@page {
+  margin: 2.5cm 2.5cm 2cm 2.5cm;
+  @bottom-center { content: counter(page); }
+}
+@page cover {
+  @bottom-center { content: none; }
+}
+section[role="cover"] { page: cover; }
+
+body {
+  font-family: var(--ff-body);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  color: var(--color-text);
+  max-width: 16.0cm;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+p.body {
+  font-family: var(--ff-body);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  color: var(--color-text);
+  text-align: justify;
+  text-indent: var(--sp-list-indent);
+  margin: 0 0 var(--sp-para) 0;
+}
+
+p.plain {
+  font-family: var(--ff-body);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  color: var(--color-text);
+  text-align: left;
+  text-indent: 0;
+  margin: 0 0 var(--sp-para) 0;
+}
+
+h1.doc-title {
+  font-family: var(--ff-heading);
+  font-size: var(--fs-h1);
+  font-weight: 700;
+  line-height: var(--lh-heading);
+  color: var(--color-text);
+  text-align: left;
+  text-indent: 0;
+  margin: var(--sp-h1-top) 0 var(--sp-h1-bottom) 0;
+}
+
+h2 {
+  font-family: var(--ff-heading);
+  font-size: var(--fs-h2);
+  font-weight: 700;
+  line-height: var(--lh-heading);
+  color: var(--color-text);
+  text-align: left;
+  text-indent: 0;
+  margin: var(--sp-h2-top) 0 var(--sp-h2-bottom) 0;
+}
+
+h3 {
+  font-family: var(--ff-heading);
+  font-size: var(--fs-h3);
+  font-weight: 700;
+  line-height: var(--lh-heading);
+  color: var(--color-text);
+  text-align: left;
+  text-indent: 0;
+  margin: var(--sp-h3-top) 0 var(--sp-h3-bottom) 0;
+}
+
+ul, ol {
+  font-family: var(--ff-body);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  text-align: left;
+  text-indent: 0;
+  margin: 0 0 var(--sp-list-bottom) 0;
+  padding-left: var(--sp-list-indent);
+}
+
+li {
+  font-family: var(--ff-body);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  color: var(--color-text);
+  margin-bottom: var(--sp-tight);
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: var(--sp-table-top) 0 var(--sp-table-bottom) 0;
+  text-indent: 0;
+}
+
+th {
+  font-family: var(--ff-body);
+  font-size: var(--fs-table);
+  font-weight: 700;
+  line-height: var(--lh-tight);
+  color: var(--color-text);
+  text-align: left;
+  text-indent: 0;
+  background: var(--color-table-head);
+  border: var(--line) solid var(--color-border);
+  padding: var(--sp-cell-y) var(--sp-cell-x);
+}
+
+td {
+  font-family: var(--ff-body);
+  font-size: var(--fs-table);
+  font-weight: 400;
+  line-height: var(--lh-tight);
+  color: var(--color-text);
+  text-align: left;
+  text-indent: 0;
+  border: var(--line) solid var(--color-border);
+  padding: var(--sp-cell-y) var(--sp-cell-x);
+}
+
+pre.code {
+  font-family: var(--ff-mono);
+  font-size: var(--fs-code);
+  line-height: var(--lh-tight);
+  color: var(--color-text);
+  text-align: left;
+  text-indent: 0;
+  background: var(--color-code-bg);
+  border: var(--line) solid var(--color-border);
+  padding: var(--sp-code-y) var(--sp-code-x);
+  margin: var(--sp-table-top) 0 var(--sp-table-bottom) 0;
+  white-space: pre-wrap;
+}
+
+code.inline {
+  font-family: var(--ff-mono);
+  font-size: var(--fs-inline);
+  color: var(--color-inline);
+}
+
+p.note {
+  font-family: var(--ff-body);
+  font-size: var(--fs-note);
+  line-height: var(--lh-tight);
+  color: var(--color-text);
+  text-align: left;
+  text-indent: 0;
+  background: var(--color-note-bg);
+  border: var(--line) solid var(--color-border);
+  padding: var(--sp-note-y) var(--sp-note-x);
+  margin: var(--sp-note-top) 0 var(--sp-note-bottom) 0;
+}
+
+p.warn {
+  font-family: var(--ff-body);
+  font-size: var(--fs-note);
+  line-height: var(--lh-tight);
+  color: var(--color-text);
+  text-align: left;
+  text-indent: 0;
+  background: var(--color-warn-bg);
+  border: var(--line) solid var(--color-warn-line);
+  padding: var(--sp-note-y) var(--sp-note-x);
+  margin: var(--sp-note-top) 0 var(--sp-note-bottom) 0;
+}
+
+p.cover-title {
+  font-family: var(--ff-heading);
+  font-size: var(--fs-title);
+  font-weight: 700;
+  line-height: var(--lh-heading);
+  color: var(--color-text);
+  text-align: center;
+  text-indent: 0;
+  margin: var(--sp-cover-title-top) 0 var(--sp-cover-title-bottom) 0;
+}
+
+p.cover-sub {
+  font-family: var(--ff-body);
+  font-size: var(--fs-subtitle);
+  line-height: var(--lh-tight);
+  color: var(--color-muted);
+  text-align: center;
+  text-indent: 0;
+  margin: 0 0 var(--sp-cover-sub-bottom) 0;
+}
+
+p.cover-meta {
+  font-family: var(--ff-body);
+  font-size: var(--fs-meta);
+  line-height: var(--lh-tight);
+  color: var(--color-text);
+  text-align: center;
+  text-indent: 0;
+  margin: 0 0 var(--sp-cover-meta) 0;
+}
+
+p.toc-title {
+  font-family: var(--ff-heading);
+  font-size: var(--fs-toc-title);
+  font-weight: 700;
+  text-align: center;
+  text-indent: 0;
+  margin: 0 0 var(--sp-toc-title-bottom) 0;
+}
+
+.toc-list, .toc-list ol, .toc-list ul {
+  list-style: none;
+  list-style-type: none;
+  padding-left: 0;
+}
+
+.toc-list li {
+  font-family: var(--ff-body);
+  font-size: var(--fs-toc);
+  line-height: var(--lh-tight);
+  text-indent: 0;
+  margin-bottom: var(--sp-toc-item);
+}
+
+.toc-list ol li {
+  padding-left: var(--sp-toc-indent);
+  font-size: var(--fs-toc-sub);
+}
+
+.toc-list a {
+  color: var(--color-text);
+  text-decoration: none;
+}
+</style>
+</head>
+<body>
+
+<section role="cover">
+  <p class="cover-title">SiFli HFP 蓝牙通话<br>3A/AEC 开发指南</p>
+  <p class="cover-sub">例程使用 · 数据路径 · 算法移植 · 音频 dump</p>
+  <p class="cover-meta">适用工程：main/example/bt/hfp</p>
+  <p class="cover-meta">适用平台：eh-lb525（sf32lb52x）及同系列</p>
+  <p class="cover-meta">文档版本：v1.0</p>
+  <p class="cover-meta">日期：2026 年 11 月</p>
+</section>
+
+<section role="cover">
+  <nav class="doc-toc" aria-label="文档目录">
+    <p class="toc-title">目录</p>
+    <ol class="toc-list">
+      <li><a href="#section-1">1. 你将学到什么</a></li>
+      <li><a href="#section-2">2. 前置要求</a></li>
+      <li><a href="#section-3">3. 例程怎么用</a>
+        <ol>
+          <li><a href="#section-3-1">3.1 编译与烧录</a></li>
+          <li><a href="#section-3-2">3.2 用 finsh 命令建立通话</a></li>
+          <li><a href="#section-3-3">3.3 确认 3A 已跑起来</a></li>
+        </ol>
+      </li>
+      <li><a href="#section-4">4. 3A 从哪里来：源码选择与配置</a>
+        <ol>
+          <li><a href="#section-4-1">4.1 编译期选型</a></li>
+          <li><a href="#section-4-2">4.2 本工程的实际配置</a></li>
+        </ol>
+      </li>
+      <li><a href="#section-5">5. 数据路径全景</a>
+        <ol>
+          <li><a href="#section-5-1">5.1 下行（手机 → 喇叭）</a></li>
+          <li><a href="#section-5-2">5.2 上行（mic → 手机）</a></li>
+          <li><a href="#section-5-3">5.3 帧长与缓冲约定</a></li>
+        </ol>
+      </li>
+      <li><a href="#section-6">6. AEC 怎么拿到两路数据</a>
+        <ol>
+          <li><a href="#section-6-1">6.1 远端参考：audio_3a_far_put()</a></li>
+          <li><a href="#section-6-2">6.2 近端：audio_3a_uplink() → audio_3a_data_process()</a></li>
+          <li><a href="#section-6-3">6.3 两路数据是怎么对上的</a></li>
+        </ol>
+      </li>
+      <li><a href="#section-7">7. 移植自己的 AEC 算法</a>
+        <ol>
+          <li><a href="#section-7-1">7.1 两种方式</a></li>
+          <li><a href="#section-7-2">7.2 接口契约</a></li>
+          <li><a href="#section-7-3">7.3 移植要点与坑</a></li>
+          <li><a href="#section-7-4">7.4 移植后的验证顺序</a></li>
+        </ol>
+      </li>
+      <li><a href="#section-8">8. 怎么 dump 出数据</a>
+        <ol>
+          <li><a href="#section-8-1">8.1 两种方式怎么选</a></li>
+          <li><a href="#section-8-2">8.2 可用指令与参数</a></li>
+          <li><a href="#section-8-3">8.3 串口方式操作步骤</a></li>
+          <li><a href="#section-8-4">8.4 串口的数据帧格式</a></li>
+          <li><a href="#section-8-5">8.5 文件方式操作步骤</a></li>
+          <li><a href="#section-8-6">8.6 离线解析脚本</a></li>
+          <li><a href="#section-8-7">8.7 dump 常见问题</a></li>
+        </ol>
+      </li>
+      <li><a href="#section-9">9. 常见问题 FAQ</a></li>
+      <li><a href="#section-10">10. 关键代码位置索引</a></li>
+      <li><a href="#section-11">元信息</a></li>
+    </ol>
+  </nav>
+</section>
+
+<section role="body" data-page-restart="1">
+
+<h1 class="doc-title">SiFli HFP 蓝牙通话 3A/AEC 开发指南</h1>
+
+<p class="note">面向 <code class="inline">main/example/bt/hfp</code> 例程的实战指南：从建立一通电话开始，讲清 3A 算法的代码位置、mic 与喇叭两路数据的流转路径、把 AEC 参考信号接进自研算法的方法，以及把这两路原始 PCM 数据 dump 出来做离线分析的完整操作。</p>
+
+<h2 id="section-1">1. 你将学到什么</h2>
+
+<p class="body">本文按“先跑起来、再看清数据流、最后换算法、随时能抓数据”的顺序组织，读完可以独立完成一轮 AEC 调参与验证。</p>
+
+<ul>
+  <li>编译、烧录并让 HFP 例程真正进入一通通话的完整步骤</li>
+  <li>3A（AEC/NS/AGC）代码在 SDK 中的位置，以及编译时到底选中了哪个实现</li>
+  <li>通话上下行两条数据通路的每一个节点、缓冲区与帧长约定</li>
+  <li>AEC 从哪两个函数、哪两个缓冲区拿到近端与远端数据</li>
+  <li>把自研 AEC 算法移植进 SDK 的两种方式、接口契约与踩坑清单</li>
+  <li>dump 出 mic 与喇叭两路 PCM 的两种方式、指令参数、文件落盘位置与解析脚本</li>
+</ul>
+
+<p class="note">TL;DR：这个例程默认就跑着 WebRTC 的 AECM + NS + AGC 三件套。喇叭实际播放的数据经 <code class="inline">audio_3a_far_put()</code> 进入 <code class="inline">WebRtcAecm_BufferFarend()</code> 作为远端参考，mic 采集数据经 <code class="inline">audio_3a_uplink()</code> 做降噪后进入 <code class="inline">WebRtcAecm_Process()</code> 作为近端，两者在 <code class="inline">audio_3a_data_process()</code> 里汇合；换自研算法只需实现同一组接口并改一行 SConscript；抓这两路数据用 <code class="inline">audio_data -aecm_input1 -audprc</code> 一条命令即可。</p>
+
+<h2 id="section-2">2. 前置要求</h2>
+
+<p class="body">在动手之前，先确认软硬件环境齐备，避免卡在工具链或串口上。</p>
+
+<table>
+  <thead>
+    <tr><th>项目</th><th>要求</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>硬件</td><td>eh-lb525 或本例程支持的其他板子（见 README 的支持平台列表）</td></tr>
+    <tr><td>SDK</td><td>SiFli-SDK，本例程路径 main/example/bt/hfp</td></tr>
+    <tr><td>工具链</td><td>scons + 对应 ARM 工具链；SifliTrace（串口 dump 用）</td></tr>
+    <tr><td>手机</td><td>支持 HFP 的蓝牙手机，用于建立真实通话</td></tr>
+    <tr><td>基础</td><td>了解 RT-Thread 设备模型、环形缓冲（ringbuffer）基本概念</td></tr>
+    <tr><td>前置知识</td><td>PCM 音频格式（16 bit / 单声道）、回声消除的基本原理（参考信号 + 近端信号）</td></tr>
+  </tbody>
+</table>
+
+<h2 id="section-3">3. 例程怎么用</h2>
+
+<p class="body">本节从编译烧录讲到用 finsh 命令真正打通一通电话，并确认 3A 已经启动——这是后面所有操作的前提。</p>
+
+<h3 id="section-3-1">3.1 编译与烧录</h3>
+
+<p class="body">在 project 目录执行编译命令：</p>
+
+<pre class="code">cd main/example/bt/hfp/project
+scons --board=eh-lb525 -j32</pre>
+
+<p class="body">编译完成后进入生成的 build_eh-lb525 目录，运行下载脚本，按提示输入串口编号即可。烧录完成后复位，串口会打印系统启动日志。</p>
+
+<pre class="code">cd build_eh-lb525
+./uart_download.bat</pre>
+
+<h3 id="section-3-2">3.2 用 finsh 命令建立通话</h3>
+
+<p class="body">例程启动后默认已打开蓝牙，全部操作通过 hfp_cmd 命令完成：</p>
+
+<table>
+  <thead>
+    <tr><th>步骤</th><th>命令</th><th>成功标志</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>搜索手机</td><td>hfp_cmd start_inquiry</td><td>打印 device [xxx] searched 与设备地址</td></tr>
+    <tr><td>停止搜索</td><td>hfp_cmd stop_inquiry</td><td>—</td></tr>
+    <tr><td>连接手机</td><td>hfp_cmd hfp_connect xx:xx:xx:xx:xx:xx</td><td>HFP HF connected</td></tr>
+    <tr><td>拨打电话</td><td>hfp_cmd make_call 10086</td><td>make a call complete</td></tr>
+    <tr><td>接听来电</td><td>hfp_cmd answer_call</td><td>answer a call complete</td></tr>
+    <tr><td>建立通话音频</td><td>hfp_cmd audio_connect</td><td>HFP HF audio_connected</td></tr>
+    <tr><td>挂断</td><td>hfp_cmd handup_call</td><td>hangup a call complete</td></tr>
+    <tr><td>断开音频</td><td>hfp_cmd audio_disconnect</td><td>HFP HF audio_disconnected</td></tr>
+  </tbody>
+</table>
+
+<p class="warn">注意：只有 audio_connect 成功、SCO 链路建立之后，3A 才会真正启动。没进入通话状态时调用 dump 命令抓不到任何数据，因为 audio_3a_open() 还没被调用、is_need_3a 还是 0。</p>
+
+<h3 id="section-3-3">3.3 确认 3A 已跑起来</h3>
+
+<p class="body">通话建立后，串口应能看到 3A 初始化的日志（由 audio_3a_open() 打印）：</p>
+
+<pre class="code">3a_w open samplearate=16000
+WebRtcNsx Init finish !
+WebRtc Aecm Init finish !
+WebRtc Agc Init finish !
+g_ul_agc_compression_gain_db=18, g_dl_agc_compression_gain_db=10, g_agc_decay=100, g_echoMode=3</pre>
+
+<p class="body">看到这几行，说明 NS / AECM / AGC 三个模块都已创建成功，后续 dump 才有意义。若只看到 3a_w open 而没有算法初始化日志，检查是否被 PKG_USING_WEBRTC 相关配置关掉了。</p>
+
+<h2 id="section-4">4. 3A 从哪里来：源码选择与配置</h2>
+
+<p class="body">目录里同名文件有好几个，先弄清编译期到底选中了谁，再谈改算法。</p>
+
+<h3 id="section-4-1">4.1 编译期选型</h3>
+
+<p class="body">middleware/audio/audio_voice_proc/SConscript 用 Kconfig 宏在多个实现之间二选一（互斥，只编一个）：</p>
+
+<table>
+  <thead>
+    <tr><th>条件宏</th><th>编译文件</th><th>说明</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>PKG_USING_3MICS</td><td>不编译 3A 文件</td><td>多麦方案走 audio_server_3mics.c</td></tr>
+    <tr><td>PKG_USING_SOUNDPLUS</td><td>audio_3a_soundplus.c</td><td>第三方算法</td></tr>
+    <tr><td>PKG_USING_ANYKA</td><td>audio_3a_anyka.c</td><td>安凯算法（可跑在 ACPU）</td></tr>
+    <tr><td>PKG_USING_WEBRTC</td><td>audio_3a.c</td><td>本工程使用的实现</td></tr>
+    <tr><td>以上均未开</td><td>audio_3a_dummy.c</td><td>空桩，除静音外不做任何处理</td></tr>
+  </tbody>
+</table>
+
+<p class="warn">注意：你在目录里看到的 audio_3a_dummy.c 不是算法，它所有接口都是空函数，只在没有选任何 3A 包时兜底。真正的回声消除在 audio_3a.c 里。</p>
+
+<p class="body">另外两个文件容易混淆：</p>
+
+<ul>
+  <li>audio_3a_webrtc_small_delay.c：低延时变体，整个文件被 #if 0 屏蔽，当前不参与编译</li>
+  <li>audio_freqshift.c / audio_softeq.c：防啸叫频移与软件 EQ，需 AUDIO_FREQSHIFT / AUDIO_SOFTEQ 才会编入，本工程未开启</li>
+</ul>
+
+<h3 id="section-4-2">4.2 本工程的实际配置</h3>
+
+<p class="body">project/proj.conf 中与本主题相关的开关：</p>
+
+<pre class="code">CONFIG_AUDIO=y
+CONFIG_AUDIO_PATH_USING_HCPU=y
+CONFIG_PKG_USING_WEBRTC=y       # 选中 audio_3a.c
+CONFIG_WEBRTC_AECM=y            # 定点 AECM 回声消除
+CONFIG_WEBRTC_AGC_FIX=y         # 上下行 AGC
+# WEBRTC_ANS_FIX 未显式写，取 Kconfig choice 默认值，即开启定点 NS
+CONFIG_BSP_UART1_TX_USING_DMA=y # console 串口 DMA，dump 必需</pre>
+
+<p class="body">WebRTC 包内部还有若干细分选项（external/WebRTC_audio_processing/Kconfig）：</p>
+
+<table>
+  <thead>
+    <tr><th>选项</th><th>默认</th><th>作用</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>WEBRTC_ANS_FIX / _FLOAT / _NULL</td><td>_FIX</td><td>噪声抑制实现，_NULL 表示关闭</td></tr>
+    <tr><td>WEBRTC_AECM / WEBRTC_AEC / _NULL</td><td>AECM</td><td>回声消除实现，_NULL 表示关闭</td></tr>
+    <tr><td>WEBRTC_AGC_FIX</td><td>y</td><td>自动增益</td></tr>
+    <tr><td>WEBRTC_RUN_IN_ACPU</td><td>依芯片而定</td><td>把 WebRTC 运算搬到 ACPU 执行</td></tr>
+  </tbody>
+</table>
+
+<p class="body">如果只想验证“关掉 AEC 是什么效果”，把 choice 改成 WEBRTC_AEC_NULL 即可，不需要改代码。</p>
+
+<h2 id="section-5">5. 数据路径全景</h2>
+
+<p class="body">一通电话里数据分两条路走，最终在 audio_3a_data_process() 汇合。理解这两条路，是理解后面 AEC 取数和 dump 打点的基础。</p>
+
+<h3 id="section-5-1">5.1 下行（手机 → 喇叭）</h3>
+
+<pre class="code">手机 HFP/SCO
+  → BT 协议栈解码（mSBC / CVSD）
+  → audio_bt_voice.c: audio_3a_downlink(fifo, size)
+  → rbuf_dwlink 环形缓冲（按帧切分）
+  → 下行 AGC
+  → speaker_ring_put()
+  → audio_server TX 环形缓冲
+  → audio_server 取出 tx_data_tmp（叠加音量）
+  → audio_3a_far_put(tx_data_tmp, tx_dma_size)
+  → rbuf_far 环形缓冲
+  → WebRtcAecm_BufferFarend()   ← 远端参考信号
+  → 同时 bf0_audprc_device_write() 写到喇叭硬件</pre>
+
+<p class="body">关键点在于 audio_3a_far_put() 拿到的不是蓝牙原始下行数据，而是经过下行 AGC、又叠加了用户音量的 tx_data_tmp——也就是真正送到喇叭功放的那份数据。这一点非常重要：AEC 要用“喇叭实际发出什么声音”作为参考，才能抵消麦克风拾取到的回声。</p>
+
+<h3 id="section-5-2">5.2 上行（mic → 手机）</h3>
+
+<pre class="code">mic 采集（audprc RX，DMA 半满/全满中断）
+  → audio_server.c: audio_3a_uplink(rx_data_tmp, 320, is_mute, is_bt_voice)
+  → audio_3a_data_process()（每帧 320 字节 @16k）
+      ├─ DC 直流校正
+      ├─ NS 噪声抑制
+      ├─ AECM 回声消除      ← 近端信号在此与远端参考相减
+      ├─ 上行 AGC
+      └─ RampOut
+  → rbuf_out 环形缓冲
+  → bt_voice_encode_process() 编码（mSBC / LC3）
+  → 回传手机</pre>
+
+<h3 id="section-5-3">5.3 帧长与缓冲约定</h3>
+
+<table>
+  <thead>
+    <tr><th>采样率</th><th>每帧字节 (frame_len)</th><th>帧时长</th><th>每帧样点数</th><th>说明</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>8000 Hz</td><td>160</td><td>10 ms</td><td>80</td><td>窄带通话（CVSD）</td></tr>
+    <tr><td>16000 Hz</td><td>320</td><td>10 ms</td><td>160</td><td>宽带通话（mSBC），最常见</td></tr>
+    <tr><td>32000 Hz</td><td>320</td><td>5 ms</td><td>160</td><td>超宽带（LC3 SWB）</td></tr>
+  </tbody>
+</table>
+
+<p class="body">audio_3a_uplink() 入口处有 RT_ASSERT(fifo_size == 320)，即无论采样率，上层每次固定送 320 字节；8k 情况下内部会拆成两次 160 字节分别处理。三个环形缓冲的用途如下：</p>
+
+<table>
+  <thead>
+    <tr><th>缓冲</th><th>生产者</th><th>消费者</th><th>容量</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>rbuf_far</td><td>audio_3a_far_put()（TX 侧）</td><td>AEC 取参考帧</td><td>320 B（32k 为 480 B）</td></tr>
+    <tr><td>rbuf_dwlink</td><td>audio_3a_downlink()（BT 侧）</td><td>下行 AGC</td><td>1280 B（32k 为 1920 B）</td></tr>
+    <tr><td>rbuf_out</td><td>3A 处理完的上行数据</td><td>编码器</td><td>320 B（32k 为 480 B）</td></tr>
+  </tbody>
+</table>
+
+<h2 id="section-6">6. AEC 怎么拿到两路数据</h2>
+
+<p class="body">这是移植和调试时最需要搞清楚的一段：两个入口一近一远，一个在发送喇叭的时机、一个在收到 mic 的时机。</p>
+
+<h3 id="section-6-1">6.1 远端参考：audio_3a_far_put()</h3>
+
+<p class="body">调用者是 audio_server.c 的喇叭发送路径（process_speaker_tx()）。每送一帧给喇叭硬件之前调用一次：</p>
+
+<pre class="code">/* audio_server.c，写喇叭前 */
+if (my-&gt;is_need_3a)
+{
+    audio_3a_far_put(my-&gt;tx_data_tmp, my-&gt;tx_dma_size);
+}
+bf0_audprc_device_write(my-&gt;audprc_dev, 0, my-&gt;tx_data_tmp, my-&gt;tx_dma_size);</pre>
+
+<p class="body">audio_3a_far_put() 内部只做三件事：入 rbuf_far、按 frame_len 切帧、逐帧喂给算法并打点：</p>
+
+<pre class="code">/* audio_3a.c: audio_3a_far_put() */
+if (rt_ringbuffer_space_len(p_3a_env-&gt;rbuf_far) &gt;= fifo_size)
+    rt_ringbuffer_put(p_3a_env-&gt;rbuf_far, fifo, fifo_size);
+
+while (rt_ringbuffer_data_len(p_3a_env-&gt;rbuf_far) &gt;= p_3a_env-&gt;frame_len)
+{
+    rt_ringbuffer_get(p_3a_env-&gt;rbuf_far, (uint8_t *)farframe, p_3a_env-&gt;frame_len);
+    audio_dump_data(ADUMP_AECM_INPUT1, (uint8_t *)farframe, p_3a_env-&gt;frame_len);
+    WebRtcAecm_BufferFarend(p_3a_env-&gt;aecmInst,
+                            (const int16_t *)farframe,
+                            p_3a_env-&gt;frame_len / 2);
+    p_3a_env-&gt;is_far_putted = 1;   /* 标志位：远端已有数据，AEC 可以开始工作 */
+}</pre>
+
+<p class="body">三个要点：接入点是 WebRtcAecm_BufferFarend()，自研算法把这里换成自己的 xxx_Farend() 即可；frame_len / 2 是样点数（字节数除以 2），别传错；is_far_putted 是“远端已就绪”的闸门，AEC 处理分支会先判断它，避免上电初期用空参考去消回声。</p>
+
+<h3 id="section-6-2">6.2 近端：audio_3a_uplink() → audio_3a_data_process()</h3>
+
+<p class="body">mic 数据由 audio_server.c 在每次 ADC 数据就绪时送入：</p>
+
+<pre class="code">audio_3a_uplink(my-&gt;rx_data_tmp, readlen, server-&gt;public_is_rx_mute, server-&gt;is_bt_3a);</pre>
+
+<p class="body">audio_3a_data_process() 是整条链路的骨架，用 SWAP_IN_OUT() 在两个帧缓冲之间来回倒腾，顺序固定为 DC → NS → AECM → AGC → RampOut：</p>
+
+<pre class="code">/* 简化后的核心流程 */
+memcpy(in, fifo, fifo_size);
+audio_dump_data(ADUMP_AUDPRC, fifo, fifo_size);          /* 原始 mic 打点 */
+
+DcCorrection_Process(dcInst, in, out, frame_len / 2);    /* DC 校正 */
+audio_ans_proc(pNS_inst, in, out);                       /* NS 降噪 */
+audio_dump_data(ADUMP_ANS_OUT, out, frame_len);
+
+if (p_3a_env-&gt;is_far_putted &amp;&amp; g_u16_test_aec)
+{
+    aec_input_para_t para = {
+        .nearframe = in,          /* 降噪后的 mic：近端 */
+        .nearframe_clean = NULL,
+        .outframe = out,
+    };
+    audio_dump_data(ADUMP_AECM_INPUT2, in, frame_len);
+    audio_aec_proc(aecmInst, &amp;para, samplerate);         /* 回声消除 */
+}
+audio_dump_data(ADUMP_AECM_OUT, out, frame_len);
+
+audio_agc_proc(agcInst, in, out, samplerate);            /* 上行 AGC */
+RampOut_Process(rampOutInst, in, out, frame_len / 2);
+rt_ringbuffer_put(rbuf_out, out, frame_len);</pre>
+
+<p class="body">真正调用 WebRTC 的那一层：</p>
+
+<pre class="code">/* audio_3a.c: audio_aec_proc() */
+int16_t audio_aec_proc(void *aecmInst, aec_input_para_t *para, uint16_t samplerate)
+{
+    uint16_t u16_frame_len = 80;
+    if (16000 &lt;= samplerate) u16_frame_len = 160;
+
+    if (0 != WebRtcAecm_Process(aecmInst,
+                                para-&gt;nearframe,        /* 近端（含回声） */
+                                para-&gt;nearframe_clean,  /* 输出回声估计，可为 NULL */
+                                para-&gt;outframe,         /* 消除后的结果 */
+                                u16_frame_len,
+                                g_aec_delay))           /* 近远端延时，单位 ms */
+    {
+        LOG_W("WebRtcAecm_Process  error !\n");
+        return 1;
+    }
+    return 0;
+}</pre>
+
+<h3 id="section-6-3">6.3 两路数据是怎么对上的</h3>
+
+<p class="body">两路来自不同线程、不同时刻，靠下面四个机制保证时序能对上：</p>
+
+<table>
+  <thead>
+    <tr><th>机制</th><th>说明</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>同节拍产生</td><td>上下行都由音频 DMA 中断驱动，都是 10 ms 一帧</td></tr>
+    <tr><td>环形缓冲削峰</td><td>rbuf_far / rbuf_out 吸收两侧调度抖动</td></tr>
+    <tr><td>延时补偿</td><td>g_aec_delay（默认 10）告诉 AEC 参考信号相对近端滞后多少 ms</td></tr>
+    <tr><td>就绪闸门</td><td>is_far_putted 保证有参考数据后才开始消回声</td></tr>
+  </tbody>
+</table>
+
+<p class="body">调试时如果发现回声消不干净，g_aec_delay 是第一个该动的参数：它对应“从数据写入喇叭到被麦克风拾取”的声学加电路延时，不同腔体、不同喇叭功率差别很大，10 ms 只是通用起点。</p>
+
+<h2 id="section-7">7. 移植自己的 AEC 算法</h2>
+
+<p class="body">移植的核心不是算法本身，而是契约：帧长、样点数、调用上下文、缓冲管理，四项对不上就会出现断续、延时漂移甚至死机。本章先给两条落地路径，再逐条列坑。</p>
+
+<h3 id="section-7-1">7.1 两种方式</h3>
+
+<p class="body">方案 A（推荐）：新增实现文件。新增 audio_3a_myaec.c，实现与 audio_3a.c 相同的一组接口，然后在 SConscript 加一个分支：</p>
+
+<pre class="code"># middleware/audio/audio_voice_proc/SConscript
+if GetDepend('PKG_USING_3MICS'):
+    src = []
+elif GetDepend('PKG_USING_MYAEC'):
+    src = Glob('audio_3a_myaec.c')
+elif GetDepend('PKG_USING_SOUNDPLUS'):
+    src = Glob('audio_3a_soundplus.c')
+# ... 其余分支保持不变</pre>
+
+<p class="body">再在 Kconfig 里加上 PKG_USING_MYAEC 选项，工程 proj.conf 中打开它、同时关掉 CONFIG_PKG_USING_WEBRTC。优点是：不动原文件，后续 SDK 升级不冲突；可随时切回 WebRTC 做 A/B 对比。</p>
+
+<p class="body">方案 B：直接改 audio_3a.c。只替换 audio_aec_proc() 内部实现，其余链路（NS / AGC / dump / 缓冲）全部复用。适合只想换 AEC 内核、保留其它处理的场景。改动量最小，但后续 SDK 升级需要重新合入。</p>
+
+<h3 id="section-7-2">7.2 接口契约</h3>
+
+<p class="body">无论哪种方案，都必须实现下面这组函数（声明见 middleware/audio/include/audioproc.h）：</p>
+
+<table>
+  <thead>
+    <tr><th>函数</th><th>调用者</th><th>调用上下文</th><th>职责</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>audio_3a_open(audio_3a_input_t *input)</td><td>audio_server.c 通话建立时</td><td>线程</td><td>按 input 中的 samplerate 初始化算法，申请内存</td></tr>
+    <tr><td>audio_3a_close(void)</td><td>通话结束时</td><td>线程</td><td>释放全部资源</td></tr>
+    <tr><td>audio_3a_uplink(uint8_t *fifo, uint16_t len, uint8_t is_mute, uint8_t is_bt_voice)</td><td>mic 数据就绪</td><td>音频线程，10 ms 一次</td><td>处理近端，结果写回 fifo；is_mute 时输出静音</td></tr>
+    <tr><td>audio_3a_downlink(uint8_t *fifo, uint16_t size)</td><td>BT 下行解码后</td><td>BT 语音线程</td><td>处理下行并 speaker_ring_put() 送喇叭</td></tr>
+    <tr><td>audio_3a_far_put(uint8_t *fifo, uint16_t size)</td><td>写喇叭前</td><td>TX 发送路径</td><td>接收远端参考，喂给算法</td></tr>
+    <tr><td>audio_3a_dnlink_buf_is_full(uint16_t size)</td><td>下行数据到来前</td><td>BT 语音线程</td><td>流控，缓冲不够返回 1</td></tr>
+    <tr><td>audio_3a_set_bypass(uint8_t bypass, uint8_t mic, uint8_t down)</td><td>产测命令</td><td>线程</td><td>直通开关，旁路全部算法</td></tr>
+    <tr><td>audio_command_process(uint8_t *cmd)</td><td>调试通道</td><td>线程</td><td>参数下发入口，可留空</td></tr>
+  </tbody>
+</table>
+
+<p class="body">audio_3a_input_t 结构（新版接口，注意与旧版四参数原型不同）：</p>
+
+<pre class="code">typedef struct
+{
+    uint32_t samplerate;         /* 8000 / 16000 / 32000 */
+    uint8_t  is_bt_voice;        /* 1: 蓝牙通话，输出要交给编码器 */
+    uint8_t  disable_uplink_agc; /* 1: 关闭上行 AGC */
+    uint8_t  all_mic_channels;   /* mic 通道数 */
+    uint8_t  enable_mic_ssl;     /* mic 特定处理开关 */
+} audio_3a_input_t;</pre>
+
+<h3 id="section-7-3">7.3 移植要点与坑</h3>
+
+<ol>
+  <li>帧长是硬约束：上层固定送 320 字节；内部按 frame_len（16k 为 320、8k 为 160）切帧。自研算法若不支持 10 ms 帧，需要在内部做缓存重排，不能直接改上游。</li>
+  <li>样点数不是字节数：所有算法 API 的长度参数都是 int16 样点数，等于字节数除以 2。</li>
+  <li>不要 malloc：audio_3a_uplink() 在音频线程里 10 ms 调用一次，函数内动态内存分配会造成抖动甚至丢帧，全部改在 open() 里预分配。</li>
+  <li>上下文与耗时：这段代码跑在音频服务线程，单帧预算 10 ms，WebRTC 定点 AECM 通常只占几百微秒。自研算法若复杂度高，建议开 AUDIO_3A_STATIC_TIME 用 audio_tick_in/out 打点，或把重活搬到 ACPU（参考 WEBRTC_RUN_IN_ACPU 的做法）。</li>
+  <li>is_far_putted 闸门要保留：否则上电前几十毫秒会用全零参考去消回声，反而把近端语音削掉。</li>
+  <li>bypass 要能真直通：audio_3a_set_bypass(1, ...) 必须让数据原样透传，产测和问题定位都靠它。</li>
+  <li>保持 dump 打点：把 audio_dump_data() 调用照抄进你的实现，否则后面没法用同一套工具抓数据；每个 audio_dump_type_t 只能被一路数据占用。</li>
+  <li>ringbuffer 满要处理：rbuf_out 满时丢帧会直接体现为上行断续，LOG_I("3a_w rbuf_out full") 是重要线索。</li>
+  <li>32k 特例：frame_len 仍是 320，但一帧只有 5 ms，samplerate 分支要单独验证。</li>
+</ol>
+
+<h3 id="section-7-4">7.4 移植后的验证顺序</h3>
+
+<p class="body">按下面顺序逐级验证，出问题时能快速定位是哪一层不对：</p>
+
+<ol>
+  <li>先 audio_3a_set_bypass(1, 0, 0) 验证通路（应能正常通话，无算法介入）；</li>
+  <li>打开自研算法，dump ADUMP_AECM_INPUT1 与 ADUMP_AECM_INPUT2，确认两路数据都有、帧率一致；</li>
+  <li>对比 ADUMP_AECM_OUT，用耳机/扬声器两种模式分别做听感评估；</li>
+  <li>最后再调 NS、AGC 的增益与门限。</li>
+</ol>
+
+<h2 id="section-8">8. 怎么 dump 出数据</h2>
+
+<p class="body">SDK 内置了一套音频 dump 框架，在 3A 链路的每个节点都埋了打点，取数不需要自己写代码。本章给出两种导出方式、完整指令表与落盘路径。</p>
+
+<h3 id="section-8-1">8.1 两种方式怎么选</h3>
+
+<table>
+  <thead>
+    <tr><th>维度</th><th>串口方式（默认）</th><th>文件方式</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>开关</td><td>#define AUDIO_DATA_CAPTURE_UART</td><td>再加 #define AUDIO_DATA_CAPTURE_FILE</td></tr>
+    <tr><td>输出</td><td>实时打到 console 串口，由 SifliTrace 接收</td><td>写入设备文件系统</td></tr>
+    <tr><td>依赖</td><td>console 串口 TX DMA + finsh</td><td>追加依赖 DFS + 可写文件系统（建议 NAND）</td></tr>
+    <tr><td>优点</td><td>无需文件系统，边跑边看</td><td>不受串口带宽限制，可长时间录</td></tr>
+    <tr><td>缺点</td><td>带宽受限，dump 期间看不到 log</td><td>需要导出文件，nor flash 速度可能不够</td></tr>
+  </tbody>
+</table>
+
+<p class="body">两个宏都在 middleware/audio/audio_manager/audio_server.c 顶部（约 72 行）：</p>
+
+<pre class="code">#define AUDIO_DATA_CAPTURE_UART
+//#define AUDIO_DATA_CAPTURE_FILE</pre>
+
+<p class="warn">注意：切到文件方式时，AUDIO_DATA_CAPTURE_UART 必须保留。整个 audio_data 命令包在 #if defined (AUDIO_DATA_CAPTURE_UART) &amp;&amp; defined (RT_USING_FINSH) 里，把它注释掉 finsh 里就没有这个命令，执行时会提示找不到指令。文件方式靠 AUDIO_DATA_CAPTURE_FILE 让 dump 目标从串口切到文件，不需要牺牲命令本身。</p>
+
+<h3 id="section-8-2">8.2 可用指令与参数</h3>
+
+<p class="body">audio_data 命令的参数与数据类型一一对应：</p>
+
+<table>
+  <thead>
+    <tr><th>参数</th><th>数据内容</th><th>对应位置</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>-audprc</td><td>原始 mic 采集数据（进算法前）</td><td>audio_3a_data_process() 入口</td></tr>
+    <tr><td>-downlink</td><td>蓝牙下行原始数据（解码后）</td><td>audio_3a_downlink()</td></tr>
+    <tr><td>-downlink_agc</td><td>下行 AGC 后数据（即送喇叭前）</td><td>audio_3a_downlink() 尾部</td></tr>
+    <tr><td>-aecm_input1</td><td>喇叭参考信号（AEC 远端）</td><td>audio_3a_far_put()</td></tr>
+    <tr><td>-aecm_input2</td><td>AEC 前 mic 数据（AEC 近端）</td><td>AEC 调用前</td></tr>
+    <tr><td>-aecm_out</td><td>AEC 消除后的上行数据</td><td>AEC 调用后</td></tr>
+    <tr><td>-ans_out</td><td>NS 降噪后数据</td><td>NS 之后</td></tr>
+    <tr><td>-agc_out</td><td>上行 AGC 后数据</td><td>AGC 之后</td></tr>
+    <tr><td>-ramp_out_out</td><td>最终送 BT 编码的数据</td><td>RampOut 之后</td></tr>
+    <tr><td>-dc_out</td><td>DC 校正后数据</td><td>DC 之后</td></tr>
+    <tr><td>-pdm</td><td>PDM 麦克风原始数据</td><td>audio_3a_save_pdm()</td></tr>
+    <tr><td>-stop / -off</td><td>停止 dump，恢复 log</td><td>—</td></tr>
+  </tbody>
+</table>
+
+<p class="body">常用组合：</p>
+
+<pre class="code"># AEC 近端 + 远端参考（做离线 AEC 分析的标准两路）
+audio_data -aecm_input1 -audprc
+
+# 看 AEC 前后效果
+audio_data -aecm_input1 -aecm_out
+
+# 看喇叭实际播放的数据 + 原始 mic
+audio_data -downlink_agc -audprc
+
+# 三路（注意串口带宽）
+audio_data -downlink -downlink_agc -aecm_out</pre>
+
+<h3 id="section-8-3">8.3 串口方式操作步骤</h3>
+
+<ol>
+  <li>确认 CONFIG_BSP_UART1_TX_USING_DMA=y（本工程已开）；关掉 BT HCI log 释放串口带宽，然后重启设备：
+    <pre class="code">nvds update hci_log 0</pre>
+  </li>
+  <li>建立通话（见 3.2 节），确认 3A 已初始化。</li>
+  <li>打开 SifliTrace，选择 console 串口并连接，选择音频功能。</li>
+  <li>输入 dump 命令，串口会回应 dump enable 与 audio_data_start: enable 2 2848，此时系统 log 暂停（正常现象），数据开始往串口灌：
+    <pre class="code">audio_data -aecm_input1 -audprc</pre>
+  </li>
+  <li>录够时长后停止：
+    <pre class="code">audio_data -stop</pre>
+  </li>
+  <li>在工具里点保存，数据落在 SifliTrace 的 log 目录下 xxx_audio/ 子目录，工具已按类型拆好，得到 xxx_audprc.pcm 与 xxx_aecm_input1.pcm 两个文件。</li>
+</ol>
+
+<h3 id="section-8-4">8.4 串口的数据帧格式</h3>
+
+<p class="body">串口上跑的是一条复用流，每帧前面带 12 字节头，工具依据 type 拆包：</p>
+
+<pre class="code">typedef struct
+{
+    uint32_t magic;   /* "AUDI"，小端值 0x49445541 */
+    uint16_t type;    /* 见 8.2 参数与枚举的对应关系 */
+    uint16_t len;     /* 本帧字节数，16k 时 320 */
+    uint32_t no;      /* 该类型自己的帧序号 */
+    uint8_t  data[320];
+} audio_data_t;       /* 头长 AUDIO_DATA_HEADER_LEN = 12 */</pre>
+
+<h3 id="section-8-5">8.5 文件方式操作步骤</h3>
+
+<p class="body">文件方式适合长时间录制，代价是依赖设备端文件系统。操作顺序如下：</p>
+
+<ol>
+  <li>修改 audio_server.c 顶部两个宏（两个都要开）：
+    <pre class="code">#define AUDIO_DATA_CAPTURE_UART
+#define AUDIO_DATA_CAPTURE_FILE</pre>
+  </li>
+  <li>重新编译烧录。开机 log 确认文件系统已挂载，出现 mount fs on flash to root success 才可用；未见此行说明 BSP_USING_SPI_NAND / RT_USING_DFS 未生效。</li>
+  <li>通话中执行同样的命令：
+    <pre class="code">audio_data -downlink_agc -audprc</pre>
+  </li>
+  <li>数据直接落到根目录，每一路一个独立文件，没有 12 字节包头，纯 PCM。</li>
+  <li>录制时长由 g_record_time 控制，默认 10 秒（audio_3a.c 中 uint32_t g_record_time = 10;）。max_frame = g_record_time * 1024 / 10，16k 下约 1024 帧、10.24 秒。要录更长直接改这个默认值再编译；当前版本 audio_command_process() 的 time= 解析被 #if 0 屏蔽，运行时改不了。</li>
+  <li>到时间自动关闭文件，也可以手动 audio_data -stop 提前结束。手动停止且文件仍打开时，每个文件尾部会追加 12 字节记录 {0x55667788, cur_frame, max_frame}，分析时若长度不是帧长整数倍，先砍掉末尾 12 字节。</li>
+  <li>文件导出：ls / 查看，建议用 SifliTrace 的文件读取或 SifliBleApp 的 GET DUMP 拉取。不建议直接 cat——二进制数据经 console 打印既慢又容易和 log 混淆。</li>
+</ol>
+
+<p class="body">各数据类型对应的落盘文件：</p>
+
+<table>
+  <thead>
+    <tr><th>数据类型</th><th>文件路径</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>原始 mic</td><td>/dump_audprc.pcm</td></tr>
+    <tr><td>喇叭参考（AEC input1）</td><td>/dump_aecm_input1.pcm</td></tr>
+    <tr><td>AEC 前 mic（input2）</td><td>/dump_aecm_input2.pcm</td></tr>
+    <tr><td>AEC 输出</td><td>/dump_aecm_out.pcm</td></tr>
+    <tr><td>下行原始</td><td>/dump_downlink.pcm</td></tr>
+    <tr><td>下行 AGC 后</td><td>/dump_downlink_agc.pcm</td></tr>
+    <tr><td>NS 输出</td><td>/dump_ans_out.pcm</td></tr>
+    <tr><td>上行 AGC 后</td><td>/dump_agc_out.pcm</td></tr>
+    <tr><td>送编码前</td><td>/dump_ramp_out_out.pcm</td></tr>
+    <tr><td>DC 校正后</td><td>/dump_dc_out.pcm</td></tr>
+  </tbody>
+</table>
+
+<h3 id="section-8-6">8.6 离线解析脚本</h3>
+
+<p class="body">串口文件是带头的复用流，用下面脚本拆成多路；文件方式的产物已经是纯 PCM，可跳过：</p>
+
+<pre class="code">import struct
+
+raw = open("dump.bin", "rb").read()
+out = {0: open("downlink.pcm", "wb"),
+       1: open("downlink_agc.pcm", "wb"),
+       2: open("audprc.pcm", "wb"),
+       5: open("aecm_input1.pcm", "wb"),
+       6: open("aecm_input2.pcm", "wb"),
+       7: open("aecm_out.pcm", "wb")}
+i = 0
+while i + 12 &lt;= len(raw):
+    magic, typ, ln, no = struct.unpack_from("&lt;IHHI", raw, i)
+    if magic != 0x49445541:      # "AUDI"
+        i += 1                   # 串口丢字节时重同步
+        continue
+    i += 12
+    if typ in out:
+        out[typ].write(raw[i:i + ln])
+    i += ln</pre>
+
+<p class="body">PCM 参数：16000 Hz（8k 场景为 8000 Hz）、16 bit、单声道、小端。用 Audacity 时选 File → Import → Raw，编码 Signed 16-bit PCM、字节序 Little-endian、声道 Mono。</p>
+
+<h3 id="section-8-7">8.7 dump 常见问题</h3>
+
+<p class="body">下表覆盖了实际调试中最常遇到的七种情况，按现象对照排查即可：</p>
+
+<table>
+  <thead>
+    <tr><th>现象</th><th>原因与处理</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>audio_data 提示找不到指令</td><td>AUDIO_DATA_CAPTURE_UART 被注释掉了，或 RT_USING_FINSH 未开</td></tr>
+    <tr><td>执行命令后设备断言挂死</td><td>console 串口没开 TX DMA，audio_data_start() 里的 RT_ASSERT 触发</td></tr>
+    <tr><td>数据断断续续、帧号跳变</td><td>波特率不足（默认 1M），减一路数据或把 RT_SERIAL_DEFAULT_BAUDRATE 提到 1.5M</td></tr>
+    <tr><td>抓不到 aecm_input1</td><td>没真正进入通话（audio_3a_far_put() 未被调用），确认 SCO 已建立</td></tr>
+    <tr><td>文件方式没有任何文件</td><td>文件系统没挂上，看开机 log 是否有 mount fs on flash to root success</td></tr>
+    <tr><td>dump 期间收不到 log</td><td>正常，dump 开始时会 log_pause(true)，-stop 后恢复</td></tr>
+    <tr><td>设备进睡眠后 dump 中断</td><td>dump 必须保持运行态，注意关闭低功耗策略</td></tr>
+  </tbody>
+</table>
+
+<h2 id="section-9">9. 常见问题 FAQ</h2>
+
+<p class="body">问：为什么 audio_3a_dummy.c 里全是空函数？答：它是编译兜底实现，只有在没选任何 3A 包时才会被编入。本工程选了 PKG_USING_WEBRTC，实际编译的是 audio_3a.c。</p>
+
+<p class="body">问：AEC 参考信号为什么不用蓝牙下行原始数据？答：参考必须是“喇叭真正发出的声音”。下行原始数据没经过 AGC 和音量调节，幅度与实际播放不一致，用它做参考会导致自适应滤波器收敛到错误的增益上。</p>
+
+<p class="body">问：audio_3a_uplink() 里为什么要断言 320 字节？答：这是上层音频服务的固定节拍，与采样率无关。8k 时内部拆成两帧 160 字节处理，改动这个约定会破坏整个上下行时序。</p>
+
+<p class="body">问：能否只替换 AEC、保留 NS 和 AGC？答：可以。采用方案 B，仅替换 audio_aec_proc() 内部实现，NS（audio_ans_proc）与 AGC（audio_agc_proc）保持不动即可。</p>
+
+<p class="body">问：dump 出来的两路数据能直接对齐做 AEC 吗？答：能，但要注意两点：两路的帧序号 no 是各自独立计数的，不能直接比较；真正的时间关系由 g_aec_delay 描述，离线处理时先用互相关估一下实际延时再验证。</p>
+
+<h2 id="section-10">10. 关键代码位置索引</h2>
+
+<p class="body">下表按功能汇总了本文提到的全部代码位置，便于直接跳转查阅：</p>
+
+<table>
+  <thead>
+    <tr><th>功能</th><th>文件</th><th>关键函数 / 位置</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>3A 实现选型</td><td>middleware/audio/audio_voice_proc/SConscript</td><td>Kconfig 分支</td></tr>
+    <tr><td>WebRTC 3A 主流程</td><td>middleware/audio/audio_voice_proc/audio_3a.c</td><td>audio_3a_data_process()</td></tr>
+    <tr><td>AEC 初始化与调用</td><td>同上</td><td>audio_aec_init() / audio_aec_proc()</td></tr>
+    <tr><td>远端参考入口</td><td>同上</td><td>audio_3a_far_put()</td></tr>
+    <tr><td>近端入口</td><td>同上</td><td>audio_3a_uplink()</td></tr>
+    <tr><td>接口声明</td><td>middleware/audio/include/audioproc.h</td><td>audio_3a_input_t 与各接口原型</td></tr>
+    <tr><td>dump 框架实现</td><td>middleware/audio/audio_manager/audio_server.c</td><td>audio_dump_data() / audio_data_cmd()</td></tr>
+    <tr><td>dump 宏开关</td><td>同上，约 72 行</td><td>AUDIO_DATA_CAPTURE_UART / _FILE</td></tr>
+    <tr><td>喇叭数据送入参考</td><td>同上</td><td>process_speaker_tx() 内 audio_3a_far_put()</td></tr>
+    <tr><td>mic 数据送入处理</td><td>同上</td><td>audio_3a_uplink() 调用处</td></tr>
+    <tr><td>官方 dump 文档</td><td>main/docs/source/zh_CN/audio/audio_dump.md</td><td>—</td></tr>
+  </tbody>
+</table>
+
+<h2 id="section-11">元信息</h2>
+
+<table>
+  <thead>
+    <tr><th>项</th><th>内容</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>目标读者</td><td>中级嵌入式音频开发工程师</td></tr>
+    <tr><td>前置知识</td><td>RT-Thread 设备模型、PCM 音频基础、回声消除基本原理</td></tr>
+    <tr><td>技术栈版本</td><td>SiFli-SDK（middleware/audio 2026-11 版本），例程 example/bt/hfp，WebRTC 定点 AECM/NS/AGC</td></tr>
+    <tr><td>预计阅读时间</td><td>25 分钟</td></tr>
+    <tr><td>验证环境</td><td>eh-lb525（sf32lb52x），16 kHz 宽带通话</td></tr>
+  </tbody>
+</table>
+
+</section>
+</body>
+</html>

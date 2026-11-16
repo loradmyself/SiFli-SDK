@@ -14,6 +14,30 @@
 #endif
 #include "mem_section.h"
 
+/*
+    GOHI RGB 50PIN panel (U8) pin46 STBYBIN, active high:
+    pull PA43 high to exit panel standby before LCD init.
+*/
+#define BSP_LCD_STBYB_PORT      hwp_gpio1
+#define BSP_LCD_STBYB_PIN       43                  /* PA43, pin id starting from 0 */
+
+static void lcd_stbyb_init(void)
+{
+    GPIO_InitTypeDef GPIO_InitStruct;
+
+    /* PA43 func -> GPIO_A43 (PA39~PA43 are free GPIOs in QADSPI mode) */
+    HAL_PIN_Set(PAD_PA43, GPIO_A43, PIN_NOPULL, 1);
+
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT;
+    GPIO_InitStruct.Pin = BSP_LCD_STBYB_PIN;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    HAL_GPIO_Init(BSP_LCD_STBYB_PORT, &GPIO_InitStruct);
+
+    HAL_GPIO_WritePin(BSP_LCD_STBYB_PORT, BSP_LCD_STBYB_PIN, GPIO_PIN_SET); // STBYB high
+    rt_kprintf("PA43 (LCD STBYB) set high\n");
+}
+
+
 #ifdef BSP_USING_TOUCHD
 static struct rt_semaphore tp_sema;
 
@@ -349,6 +373,8 @@ static void lcd_refresh_task(void *parameter)
     {
         uint16_t framebuffer_color_format = FB_COLOR_FORMAT;
 
+rt_kprintf("FB_COLOR_FORMAT=%d, pixel_size=%d\n", framebuffer_color_format, get_pixel_size(framebuffer_color_format));
+
         /*Fill framebuffer*/
         rt_kprintf("Fill framebuffer addr=0x%x, w=%d, h=%d, size=%d(Bytes)\n", p_framebuffer, FB_WIDTH, FB_HEIGHT, FB_TOTAL_BYTES);
         if (0 == loop) fill_color_bar((uint8_t *)p_framebuffer, FB_WIDTH, FB_HEIGHT, framebuffer_color_format);  //Fill 8 gradient color bar
@@ -399,6 +425,9 @@ int main(void)
     rt_device_t p_device;
 
     rt_thread_t tid;
+
+    /* Panel standby release (STBYB) must be ready before LCD task opens the LCD */
+    lcd_stbyb_init();
 
 #ifdef BSP_USING_LCD
     /*

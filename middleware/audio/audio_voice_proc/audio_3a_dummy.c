@@ -13,8 +13,10 @@
 #include "bf0_mbox_common.h"
 #include "ipc/dataqueue.h"
 #include "drivers/audio.h"
+#if RT_USING_DFS
 #include "dfs_file.h"
 #include "dfs_posix.h"
+#endif
 
 #include "audio_mem.h"
 #define DBG_TAG           "audio_3a"

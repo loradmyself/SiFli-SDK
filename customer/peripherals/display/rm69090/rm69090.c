@@ -157,7 +157,7 @@ static const LCDC_InitTypeDef lcdc_int_cfg_qadspi =
 #else
             .syn_mode = HAL_LCDC_SYNC_DISABLE,
 #endif /* LCD_RM69090_VSYNC_ENABLE */
-            .vsyn_polarity = 1,
+            .vsyn_polarity = 0,
             //default_vbp=2, frame rate=82, delay=115us,
             //TODO: use us to define delay instead of cycle, delay_cycle=115*48
             .vsyn_delay_us = 0,

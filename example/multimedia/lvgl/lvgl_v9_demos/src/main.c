@@ -37,7 +37,7 @@ int main(void)
         return ret;
     }
 
-    lv_demo_main();
+    lv_demo_benchmark();
 
     while (1)
     {

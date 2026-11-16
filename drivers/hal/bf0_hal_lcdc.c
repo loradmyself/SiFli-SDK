@@ -1992,12 +1992,14 @@ static HAL_StatusTypeDef _SendLayerData(LCDC_HandleTypeDef *lcdc, LCDC_AsyncMode
 #ifdef LCDC_SUPPORT_LINE_DONE_IRQ
             SetupLineIrq(lcdc);
 #endif /* LCDC_SUPPORT_LINE_DONE_IRQ */
-            /* trigger lcdc */
-            lcdc->Instance->COMMAND = LCD_IF_COMMAND_START;
+            /* trigger lcdc, an EPD panel driver may start it by PTM */
+            if (!HAL_LCDC_EPD_StartHook(lcdc))
+                lcdc->Instance->COMMAND = LCD_IF_COMMAND_START;
         }
         else
         {
-            lcdc->Instance->COMMAND = LCD_IF_COMMAND_START;
+            if (!HAL_LCDC_EPD_StartHook(lcdc))
+                lcdc->Instance->COMMAND = LCD_IF_COMMAND_START;
         }
     }
 
@@ -6001,6 +6003,14 @@ __HAL_ROM_USED void HAL_LCDC_SPI_Sequence(LCDC_HandleTypeDef *lcdc, bool end)
         lcdc->Instance->SPI_IF_CONF &= ~LCD_IF_SPI_IF_CONF_SPI_CS_AUTO_DIS;
 }
 
+
+__weak bool HAL_LCDC_EPD_StartHook(LCDC_HandleTypeDef *lcdc)
+{
+    /* Default: HAL issues the COMMAND START itself. EPD panel drivers which
+     * regenerate SPV with PTM implement this hook and return true. */
+    UNUSED(lcdc);
+    return false;
+}
 
 __weak void HAL_LCDC_SendLayerDataCpltCbk(LCDC_HandleTypeDef *lcdc)
 {

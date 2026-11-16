@@ -314,6 +314,17 @@ config RT_USING_AUDIO
     select RT_USING_MEMPOOL
     default n
 
+config CFG_AUDIO_RECORD_PIPE_MULT
+    int "Record pipe depth for pdm/i2s (x CFG_AUDIO_RECORD_PIPE_SIZE)"
+    depends on RT_USING_AUDIO
+    default 2
+    help
+        pdm/i2s record pipes are CFG_AUDIO_RECORD_PIPE_SIZE times this
+        multiplier deep. A 2-unit pipe only buffers a few milliseconds and
+        overflows when the draining thread is stalled that long (e.g. during
+        Bluetooth connect/pairing storms), dropping PCM. Increase (e.g. 16)
+        to ride out longer stalls; cost is only RAM.
+
 config RT_USING_SENSOR
     bool "Using Sensor device drivers"
     select RT_USING_PIN

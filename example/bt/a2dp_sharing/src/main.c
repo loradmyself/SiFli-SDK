@@ -590,7 +590,7 @@ int main(void)
 }
 
 
-#if defined(SF32LB52X_58)|| (defined(SF32LB52X) && (defined(SF32LB52X_REV_B) || defined(SF32LB52X_REV_AUTO)))
+#if defined(SF32LB57X)|| defined(SF32LB52X_58)|| (defined(SF32LB52X) && (defined(SF32LB52X_REV_B) || defined(SF32LB52X_REV_AUTO)))
 
 void lcpu_rom_config_default(void);
 uint16_t g_em_offset[HAL_LCPU_CONFIG_EM_BUF_MAX_NUM] =
@@ -617,6 +617,8 @@ void lcpu_rom_config(void)
     HAL_LCPU_CONFIG_set(HAL_LCPU_CONFIG_BT_ACT_CFG, &act_cfg, sizeof(hal_lcpu_bluetooth_act_configt_t));
 
     hal_lcpu_bluetooth_rom_config_t config = {0};
+    uint16_t cfg_len = sizeof(config);
+    HAL_LCPU_CONFIG_get(HAL_LCPU_CONFIG_BT_CONFIG, (uint8_t*)&config, &cfg_len);
     config.bit_valid |= 1 << 2 | 1 << 13;
     config.lld_prog_delay = 3;
     config.sco_cfg = 2;
