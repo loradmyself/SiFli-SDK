@@ -4562,7 +4562,7 @@ void audio_dump_data(audio_dump_type_t type, uint8_t *fifo, uint32_t size)
             p->fd = open(audio_files[type], O_RDWR | O_CREAT | O_TRUNC | O_BINARY);
             if (p->fd < 0)
             {
-                LOG_I("dump open %s error", audio_files[type]);
+                rt_kprintf("dump open %s error\n", audio_files[type]);
             }
             else
             {
@@ -4574,6 +4574,7 @@ void audio_dump_data(audio_dump_type_t type, uint8_t *fifo, uint32_t size)
                 p->dump_start = rt_tick_get();
                 p->max_frame = g_record_time * 1024 / 10;
                 p->cur_frame = 0;
+                rt_kprintf("dump open %s succ (max_frame %d)\n", audio_files[type], p->max_frame);
                 if (0 != ioctl(p->fd, F_RESERVE_CONT_SPACE, g_record_time * 32 * 1024 + 2048))
                 {
                     LOG_I("%s reserved space %d error", audio_files[type], g_record_time * 32 * 1024 + 2048);
@@ -4588,7 +4589,7 @@ void audio_dump_data(audio_dump_type_t type, uint8_t *fifo, uint32_t size)
             int ret = write(p->fd, fifo, size);
             if (ret != size)
             {
-                LOG_I("%s dump data write %d error!!!", audio_files[type], p->cur_frame);
+                rt_kprintf("%s dump data write %d error!!! ret=%d\n", audio_files[type], p->cur_frame, ret);
             }
             p->cur_frame++;
             if (p->cur_frame >= p->max_frame)
@@ -4598,7 +4599,7 @@ void audio_dump_data(audio_dump_type_t type, uint8_t *fifo, uint32_t size)
 #if 1
             if (0 == ret || rt_tick_get() - p->dump_start > g_record_time * 1000)
             {
-                LOG_I("%s end!!!", audio_files[type]);
+                rt_kprintf("%s end!!! frame %d\n", audio_files[type], p->cur_frame);
                 p->dump_end = 1;
                 close(p->fd);
                 p->fd = -1;
@@ -4707,6 +4708,10 @@ static void audio_data_stop(void)
     rt_base_t level;
 
     while (i < ADUMP_NUM) audio_dump_debug[i++].dump_enable = 0;
+#if defined(RT_USING_DFS) && defined(AUDIO_DATA_CAPTURE_FILE)
+    /* 文件方式：手动 stop 时必须关闭文件句柄，否则数据滞留缓存、目录项不落盘，ls 看不到文件 */
+    audio_dump_stop();
+#endif
     if (p_audio_dump) free(p_audio_dump);
     p_audio_dump = NULL;
     audio_dump_len = 0;

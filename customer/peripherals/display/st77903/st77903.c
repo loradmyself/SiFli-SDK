@@ -87,15 +87,15 @@ static LCDC_InitTypeDef lcdc_int_cfg =
                 1 frame      ------(delay > 1ms)--------------->   1 frame
 
             */
-            .frame_cmd = 0xD8006100,
-            .frame_gap = 1100,     //In microsecond
-            .porch_cmd = 0xD8006000,
+            .frame_cmd = 0xDE006100,
+            .frame_gap = 82,     //In microsecond
+            .porch_cmd = 0xDE006000,
             .line_cmd = 0xDE006000,
 #if 1//defined(LCD_USING_ED_LB55_77903_LHZL_320X320_QADSPI_LB551)
-            .porch_line_gap = 40, //55,      //In microsecond
-            .data_line_gap  = 11, //55,     //In microsecond
-            .front_porch = 8,   //Front porch line
-            .back_porch = 8,    //Back porch line
+            .porch_line_gap = 82, //55,      //In microsecond
+            .data_line_gap  = 40, //55,     //In microsecond
+            .front_porch = 20,   //Front porch line
+            .back_porch = 20,    //Back porch line
 #else
             .porch_line_gap = 40,      //In microsecond
             .data_line_gap  = 5,     //In microsecond
@@ -221,7 +221,7 @@ static void LCD_ReadMode(LCDC_HandleTypeDef *hlcdc, bool enable)
         }
     }
 }
-
+#include "bf0_hal_lcdc.h"
 /**
   * @brief  Power on the LCD.
   * @param  None
@@ -237,38 +237,44 @@ static void LCD_Init(LCDC_HandleTypeDef *hlcdc)
         uint32_t cycle_per_us = lcdc_int_cfg.freq / 1000000;
         uint32_t data_cost_us = ((LCD_HOR_RES_MAX * 4 /*RGB565*/) + 32 /*32bit cmd*/) / cycle_per_us;
 
-        lcdc_int_cfg.cfg.spi.data_line_gap = (data_cost_us > 41) ? 0 : (41 - data_cost_us);
+        // lcdc_int_cfg.cfg.spi.data_line_gap = (data_cost_us > lcdc_int_cfg.cfg.spi.data_line_gap) ? 0 : (lcdc_int_cfg.cfg.spi.data_line_gap - data_cost_us);
     }
     memcpy(&hlcdc->Init, &lcdc_int_cfg, sizeof(LCDC_InitTypeDef));
     HAL_LCDC_Init(hlcdc);
 
+
+    BSP_LCD_Reset(1);
+    LCD_DRIVER_DELAY_MS(35);
     BSP_LCD_Reset(0);//Reset LCD
-    LCD_DRIVER_DELAY_MS(30);
+    LCD_DRIVER_DELAY_MS(35);
+    BSP_LCD_Reset(1);
+    LCD_DRIVER_DELAY_MS(35);
+    BSP_LCD_Reset(0);//Reset LCD
+    LCD_DRIVER_DELAY_MS(35);
     BSP_LCD_Reset(1);
 
     /* Wait for 120ms */
     LCD_DRIVER_DELAY_MS(120);
 
-    for (int i = 0; i < sizeof(lcd_init_cmds) / MAX_CMD_LEN; i++)
-    {
-        //rt_kprintf("write %d,cmd=0x%x,len=%d\n",i,(int)lcd_init_cmds[i][0], (int)lcd_init_cmds[i][1]);
-        //HAL_DBG_print_data((char*)&(lcd_init_cmds[i][2]),0,(int)lcd_init_cmds[i][1]);
-        LCD_WriteReg(hlcdc, lcd_init_cmds[i][0], (uint8_t *)&lcd_init_cmds[i][2], lcd_init_cmds[i][1]);
+    // for (int i = 0; i < sizeof(lcd_init_cmds) / MAX_CMD_LEN; i++)
+    // {
+    //     //rt_kprintf("write %d,cmd=0x%x,len=%d\n",i,(int)lcd_init_cmds[i][0], (int)lcd_init_cmds[i][1]);
+    //     //HAL_DBG_print_data((char*)&(lcd_init_cmds[i][2]),0,(int)lcd_init_cmds[i][1]);
+    //     LCD_WriteReg(hlcdc, lcd_init_cmds[i][0], (uint8_t *)&lcd_init_cmds[i][2], lcd_init_cmds[i][1]);
 
-        //__asm("B .");
-    }
+    //     //__asm("B .");
+    // }
 
     /* Tearing Effect Line On: Option (00h:VSYNC Only, 01h:VSYNC & HSYNC ) */
-    parameter[0] = 0x00;
-    LCD_WriteReg(hlcdc, REG_TEARING_EFFECT, parameter, 1);
+    
 
-    LCD_WriteReg(hlcdc, REG_DISPLAY_INVERSION, (uint8_t *)NULL, 0);
-    LCD_WriteReg(hlcdc, REG_SLEEP_OUT, (uint8_t *)NULL, 0);
-    /* Wait for 120ms */
-    LCD_DRIVER_DELAY_MS(120);
+    // LCD_WriteReg(hlcdc, REG_DISPLAY_INVERSION, (uint8_t *)NULL, 0);
+    // LCD_WriteReg(hlcdc, REG_SLEEP_OUT, (uint8_t *)NULL, 0);
+    // /* Wait for 120ms */
+    // LCD_DRIVER_DELAY_MS(120);
 
-    /* Display ON command */
-    LCD_WriteReg(hlcdc, REG_DISPLAY_ON, (uint8_t *)NULL, 0);
+    // /* Display ON command */
+    // LCD_WriteReg(hlcdc, REG_DISPLAY_ON, (uint8_t *)NULL, 0);
     /* Wait for 120ms */
     LCD_DRIVER_DELAY_MS(120);
 
@@ -292,6 +298,45 @@ static void LCD_Init(LCDC_HandleTypeDef *hlcdc)
         data = LCD_ReadData(hlcdc, REG_POWER_MODE, 4);
         DEBUG_PRINTF("ST77903_ReadPowerMode 0x%x \n", data);
     }
+
+    // LCD_WriteReg(hlcdc, 0xee, (uint8_t[]){0x04}, 1);
+    // LCD_WriteReg(hlcdc, 0xea, (uint8_t[]){0x07}, 1);
+    // LCD_WriteReg(hlcdc, 0xeb, (uint8_t[]){0x12}, 1);
+    // LCD_WriteReg(hlcdc, 0x00, (uint8_t[]){0x0e}, 1);
+    // LCD_WriteReg(hlcdc, 0x01, (uint8_t[]){0x00}, 1);
+    // LCD_WriteReg(hlcdc, 0x02, (uint8_t[]){0x96}, 1);
+    
+    // LCD_WriteReg(hlcdc, 0x03, (uint8_t[]){0x02}, 1);
+    // LCD_WriteReg(hlcdc, 0x04, (uint8_t[]){0x00}, 1);
+    // LCD_WriteReg(hlcdc, 0xee, (uint8_t[]){0x0e}, 1);
+
+    // LCD_WriteReg(hlcdc, 0x80, (uint8_t[]){0x01}, 1);
+    // LCD_WriteReg(hlcdc, 0x84, (uint8_t[]){0x28}, 1);
+
+    // LCD_WriteReg(hlcdc, 0x85, (uint8_t[]){0x00}, 1);
+    // LCD_WriteReg(hlcdc, 0x86, (uint8_t[]){0x12}, 1);
+    // LCD_WriteReg(hlcdc, 0x87, (uint8_t[]){0x58}, 1);
+    // LCD_WriteReg(hlcdc, 0x88, (uint8_t[]){0x00}, 1);
+    // LCD_WriteReg(hlcdc, 0x89, (uint8_t[]){0x24}, 1);
+    // LCD_WriteReg(hlcdc, 0xea, (uint8_t[]){0x00}, 1);
+    // LCD_WriteReg(hlcdc, 0xeb, (uint8_t[]){0x00}, 1);
+    // LCD_WriteReg(hlcdc, 0xee, (uint8_t[]){0x00}, 1);
+    // LCD_WriteReg(hlcdc, 0x3a, (uint8_t[]){0x55}, 1); //RGB565
+
+// #ifdef LCD_ST77903_SEND_DISP_ON   /* optional: send sleep-out + display-on (default off) */
+//     LCD_WriteReg(hlcdc, REG_SLEEP_OUT, (uint8_t *)NULL, 0);
+//     LCD_DRIVER_DELAY_MS(120);
+//     LCD_WriteReg(hlcdc, REG_DISPLAY_ON, (uint8_t *)NULL, 0);
+//     LCD_DRIVER_DELAY_MS(20);
+// #endif
+
+// #ifdef LCD_ST77903_BIST_TEST      /* optional: panel internal color-bar self test (default off) */
+//     for (int i = 0; i < sizeof(bist_cmds) / MAX_CMD_LEN; i++)
+//     {
+//         LCD_WriteReg(hlcdc, bist_cmds[i][0], (uint8_t *)&bist_cmds[i][2], bist_cmds[i][1]);
+//     }
+//     LCD_DRIVER_DELAY_MS(5000);
+// #endif
 }
 
 /**
@@ -454,7 +499,7 @@ static void LCD_WriteReg(LCDC_HandleTypeDef *hlcdc, uint16_t LCD_Reg, uint8_t *P
 {
     uint32_t cmd;
 
-    cmd = (0xDE << 24) | (LCD_Reg << 8);
+    cmd = (0x02 << 24) | (LCD_Reg << 8); //DE -> 02
 
     HAL_LCDC_WriteU32Reg(hlcdc, cmd, Parameters, NbParameters);
 }
@@ -469,11 +514,11 @@ static uint32_t LCD_ReadData(LCDC_HandleTypeDef *hlcdc, uint16_t RegValue, uint8
 {
     uint32_t rd_data = 0;
 
-    LCD_ReadMode(hlcdc, true);
+    // LCD_ReadMode(hlcdc, true);
 
-    HAL_LCDC_ReadU32Reg(hlcdc, ((0xDD << 24) | (RegValue << 8)), (uint8_t *)&rd_data, ReadSize);
+    // HAL_LCDC_ReadU32Reg(hlcdc, ((0xDD << 24) | (RegValue << 8)), (uint8_t *)&rd_data, ReadSize);
 
-    LCD_ReadMode(hlcdc, false);
+    // LCD_ReadMode(hlcdc, false);
 
     return rd_data;
 }
@@ -517,7 +562,8 @@ static void LCD_TimeoutDbg(LCDC_HandleTypeDef *hlcdc)
 static void LCD_TimeoutReset(LCDC_HandleTypeDef *hlcdc)
 {
     LOG_I("ST77903_TimeoutReset");
-
+    BSP_LCD_Reset(1);
+    rt_thread_mdelay(100);
     BSP_LCD_Reset(0);//Reset LCD
     rt_thread_mdelay(100);
     BSP_LCD_Reset(1);
@@ -528,52 +574,52 @@ static void LCD_TimeoutReset(LCDC_HandleTypeDef *hlcdc)
 
 static uint32_t LCD_ESDCehck(LCDC_HandleTypeDef *hlcdc)
 {
-#ifndef SF32LB55X
-    HAL_StatusTypeDef err;
-    uint32_t data;
-    uint8_t   parameter[6];
-#ifdef HAL_RAMLESS_LCD_ENABLED
-    if (0 == hlcdc->running) return 0;
-#else
-#error "Current core not supported RAMLESS LCD?"
-#endif /* HAL_RAMLESS_LCD_ENABLED */
+// #ifndef SF32LB55X
+//     HAL_StatusTypeDef err;
+//     uint32_t data;
+//     uint8_t   parameter[6];
+// #ifdef HAL_RAMLESS_LCD_ENABLED
+//     if (0 == hlcdc->running) return 0;
+// #else
+// #error "Current core not supported RAMLESS LCD?"
+// #endif /* HAL_RAMLESS_LCD_ENABLED */
 
-    parameter[0] = 0x58;
-    parameter[1] = 0xf5;
-    parameter[2] = 0x66;
-    parameter[3] = 0x33;
-    parameter[4] = 0x22;
-    parameter[5] = 0x20;
-    err = HAL_LCDC_RAMLESS_WriteDatasStart(hlcdc, 0xDE00E500, 4, &parameter[0], 6);
-    RT_ASSERT(HAL_OK == err);
-    LCD_DRIVER_DELAY_MS(20);
-    err = HAL_LCDC_RAMLESS_WriteDatasEnd(hlcdc);
-    RT_ASSERT(HAL_OK == err);
+//     parameter[0] = 0x58;
+//     parameter[1] = 0xf5;
+//     parameter[2] = 0x66;
+//     parameter[3] = 0x33;
+//     parameter[4] = 0x22;
+//     parameter[5] = 0x20;
+//     err = HAL_LCDC_RAMLESS_WriteDatasStart(hlcdc, 0xDE00E500, 4, &parameter[0], 6);
+//     RT_ASSERT(HAL_OK == err);
+//     LCD_DRIVER_DELAY_MS(20);
+//     err = HAL_LCDC_RAMLESS_WriteDatasEnd(hlcdc);
+//     RT_ASSERT(HAL_OK == err);
 
-    parameter[0] = 0x58;
-    parameter[1] = 0xf5;
-    parameter[2] = 0x66;
-    parameter[3] = 0x33;
-    parameter[4] = 0x22;
-    parameter[5] = 0x25;
-    err = HAL_LCDC_RAMLESS_WriteDatasStart(hlcdc, 0xDE00E500, 4, &parameter[0], 6);
-    RT_ASSERT(HAL_OK == err);
-    LCD_DRIVER_DELAY_MS(20);
-    err = HAL_LCDC_RAMLESS_WriteDatasEnd(hlcdc);
-    RT_ASSERT(HAL_OK == err);
+//     parameter[0] = 0x58;
+//     parameter[1] = 0xf5;
+//     parameter[2] = 0x66;
+//     parameter[3] = 0x33;
+//     parameter[4] = 0x22;
+//     parameter[5] = 0x25;
+//     err = HAL_LCDC_RAMLESS_WriteDatasStart(hlcdc, 0xDE00E500, 4, &parameter[0], 6);
+//     RT_ASSERT(HAL_OK == err);
+//     LCD_DRIVER_DELAY_MS(20);
+//     err = HAL_LCDC_RAMLESS_WriteDatasEnd(hlcdc);
+//     RT_ASSERT(HAL_OK == err);
 
-    err = HAL_LCDC_RAMLESS_ReadDatasStart(hlcdc, 4000000, 0xDD000a00, 4, 4);
-    RT_ASSERT(HAL_OK == err);
-    LCD_DRIVER_DELAY_MS(20);
-    err = HAL_LCDC_RAMLESS_ReadDatasEnd(hlcdc, (uint8_t *)&data, 4);
-    LOG_I("ST77903_ESD_CHECK 0a 0x%x \n", data);
+//     err = HAL_LCDC_RAMLESS_ReadDatasStart(hlcdc, 4000000, 0xDD000a00, 4, 4);
+//     RT_ASSERT(HAL_OK == err);
+//     LCD_DRIVER_DELAY_MS(20);
+//     err = HAL_LCDC_RAMLESS_ReadDatasEnd(hlcdc, (uint8_t *)&data, 4);
+//     LOG_I("ST77903_ESD_CHECK 0a 0x%x \n", data);
 
-    err = HAL_LCDC_RAMLESS_ReadDatasStart(hlcdc, 4000000, 0xDD000900, 4, 1);
-    RT_ASSERT(HAL_OK == err);
-    LCD_DRIVER_DELAY_MS(20);
-    err = HAL_LCDC_RAMLESS_ReadDatasEnd(hlcdc, (uint8_t *)&data, 1);
-    LOG_I("ST77903_ESD_CHECK 09 0x%x \n", data);
-#endif /* SF32LB55X */
+//     err = HAL_LCDC_RAMLESS_ReadDatasStart(hlcdc, 4000000, 0xDD000900, 4, 1);
+//     RT_ASSERT(HAL_OK == err);
+//     LCD_DRIVER_DELAY_MS(20);
+//     err = HAL_LCDC_RAMLESS_ReadDatasEnd(hlcdc, (uint8_t *)&data, 1);
+//     LOG_I("ST77903_ESD_CHECK 09 0x%x \n", data);
+// #endif /* SF32LB55X */
 
     return 0;
 

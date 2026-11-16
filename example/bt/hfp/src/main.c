@@ -74,16 +74,28 @@ uint8_t g_clcc_process_status = CLCC_STATUS_COMPLETE;
 
 static void bt_call_start_get_clcc();
 
-/** Mount file system if using NAND, as BT NVDS is save in file*/
-#if defined(BSP_USING_SPI_NAND) && defined(RT_USING_DFS) && !defined(ZBT)
+/** Mount file system on FS region (NOR or NAND), as BT NVDS is save in file*/
+#if defined(RT_USING_DFS) && !defined(ZBT)
 #include "dfs_file.h"
 #include "dfs_posix.h"
 #include "drv_flash.h"
 #define NAND_MTD_NAME    "root"
+
+#ifdef RT_USING_MTD_NOR
+    #define ADDR_MASK 0xFF000000
+    #define register_fs_device(flash_base, offset, size, name) register_nor_device(flash_base, offset, size, name)
+#elif defined(RT_USING_MTD_NAND)
+    #define ADDR_MASK 0xFC000000
+    #define register_fs_device(flash_base, offset, size, name) register_nand_device(flash_base, offset, size, name)
+#else
+    #define ADDR_MASK 0xFC000000
+    #define register_fs_device(flash_base, offset, size, name)
+#endif
+
 int mnt_init(void)
 {
     //TODO: how to get base address
-    register_nand_device(FS_REGION_START_ADDR & (0xFC000000), FS_REGION_START_ADDR - (FS_REGION_START_ADDR & (0xFC000000)), FS_REGION_SIZE, NAND_MTD_NAME);
+    register_fs_device(FS_REGION_START_ADDR & (ADDR_MASK), FS_REGION_START_ADDR - (FS_REGION_START_ADDR & (ADDR_MASK)), FS_REGION_SIZE, NAND_MTD_NAME);
     if (dfs_mount(NAND_MTD_NAME, "/", "elm", 0, 0) == 0) // fs exist
     {
         rt_kprintf("mount fs on flash to root success\n");

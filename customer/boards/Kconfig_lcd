@@ -118,6 +118,12 @@ if BSP_USING_BUILTIN_LCD
             select BSP_USING_RAMLESS_LCD
             select LCD_USING_PWM_AS_BACKLIGHT
 
+
+        config LCD_USING_GOHI_QSPI
+            bool "4.0 rect QAD-SPI RAMLESS LCD(GOHI QSPI)"
+            select LCD_USING_ST77903
+            select BSP_LCDC_USING_QADSPI
+            select BSP_USING_RAMLESS_LCD
             
         config LCD_USING_ED_LB55SPI17701
             bool "1.77 rect QAD-SPI LCD(ED-LB55SPI17701)"
@@ -566,6 +572,7 @@ if BSP_USING_BUILTIN_LCD
         default 260 if LCD_USING_LS013B7DD02_JDI
         default 320 if LCD_USING_ED_LB5XSPI18501
         default 320 if LCD_USING_ED_LB55SPI17601
+        default 480 if LCD_USING_GOHI_QSPI
         default 410 if LCD_USING_ED_LB5XSPI19701
         default 410 if LCD_USING_ED_LB5XSPI19701_DDR
         default 480 if LCD_USING_ED_LB5XSPI14901
@@ -624,6 +631,7 @@ if BSP_USING_BUILTIN_LCD
         default 260 if LCD_USING_LS013B7DD02_JDI
         default 386 if LCD_USING_ED_LB5XSPI18501
         default 380 if LCD_USING_ED_LB55SPI17601
+        default 272 if LCD_USING_GOHI_QSPI
         default 494 if LCD_USING_ED_LB5XSPI19701
         default 494 if LCD_USING_ED_LB5XSPI19701_DDR
         default 480 if LCD_USING_ED_LB5XSPI14901
@@ -681,6 +689,7 @@ if BSP_USING_BUILTIN_LCD
         default 210 if LCD_USING_LS013B7DD02_JDI
         default 315 if LCD_USING_ED_LB5XSPI18501
         default 315 if LCD_USING_ED_LB55SPI17601
+        default 300 if LCD_USING_GOHI_QSPI
         default 315 if LCD_USING_ED_LB5XSPI19701
         default 315 if LCD_USING_ED_LB5XSPI19701_DDR
         default 315 if LCD_USING_ED_LB5XSPI14901
