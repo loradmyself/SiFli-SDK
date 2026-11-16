@@ -180,12 +180,33 @@ static LCD_DrvTypeDef drv_lcd;
      * 768KB 的突发会把 EXT-DMA 拖住，块边界处 LCDC 就拿不到新数据/新寄存器
      * → 屏上出现偶发亮暗横带，肉眼即"频闪"（静态画面不闪、只有推流时闪）。
      * 加深度 = 用 SRAM 换容忍时间，同时把"每帧重编程 LCDC 的次数"按倍数减少。
-     * 约束（HAL_LCDC_DPI FSM 里的断言）：LCD_VER_RES_MAX 必须能被 2*depth 整除。
-     * 57x: 4 → 8 行/块（80x480: 480%16==0 ✓），余量约 280us。 */
-    #if defined(SF32LB57X)
-        #define SRAM_BUF_LINE_MULT  4
-    #else
-        #define SRAM_BUF_LINE_MULT  1
+     * 约束（bf0_hal_lcdc_aux.c:99 的 DPI_HW_FSM_START）：
+     *     HAL_LCDC_ASSERT(0 == (VAH % (2 * SRAM_BUF_LINES)));
+     * 其中 SRAM_BUF_LINES = sram_buf_bytes / (每像素字节数 * HAW)。
+     * 注意 57x 定义了 LCDC_SUPPORT_EXTERNAL_LINEBUF，上面的 sram_buf_bytes 是按
+     * 4 字节/像素申请的（见本文件 SRAM_BUF_1LINE），而实际图层是 RGB565(2 字节)，
+     * 于是 SRAM_BUF_LINES = (HOR*4*MULT) / (2*HOR) = 2*MULT，
+     * 断言实际要求：VAH 能被 4*MULT 整除。
+     *   800x480 : MULT=4 → 480 % 16 == 0 ✓（缓冲 8 行，余量约 280us@30MHz）
+     *   1024x600: MULT=4 → 600 % 16 == 8 ✗ 断言挂死，必须换 MULT=5 → 600 % 20 == 0 ✓
+     *             （缓冲 10 行，40KB SRAM，余量比 480 那版还大）
+     * 优先级从深到浅：先试 4（保持 480 板行为不变），再 5，再降级。 */
+    #ifndef SRAM_BUF_LINE_MULT
+        #if defined(SF32LB57X)
+            #if (LCD_VER_RES_MAX % 16) == 0
+                #define SRAM_BUF_LINE_MULT  4
+            #elif (LCD_VER_RES_MAX % 20) == 0
+                #define SRAM_BUF_LINE_MULT  5
+            #elif (LCD_VER_RES_MAX % 8) == 0
+                #define SRAM_BUF_LINE_MULT  2
+            #elif (LCD_VER_RES_MAX % 4) == 0
+                #define SRAM_BUF_LINE_MULT  1
+            #else
+                #error "LCD_VER_RES_MAX 无法被 4*SRAM_BUF_LINE_MULT 整除，RAMLESS DPI 起不来"
+            #endif
+        #else
+            #define SRAM_BUF_LINE_MULT  1
+        #endif
     #endif
 
     #if defined(LCDC_SUPPORT_EXTERNAL_LINEBUF)
