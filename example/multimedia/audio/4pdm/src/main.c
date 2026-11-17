@@ -311,7 +311,7 @@ static int mic_callback(audio_server_callback_cmt_t cmd, void *callback_userdata
 
 static void pdm(uint8_t argc, char **argv)
 {
-    int val = 90;
+    int val = 56;
     char *value = NULL;
     uint32_t samplerate = 16000;
 
@@ -460,10 +460,19 @@ int main(void)
 #endif
 
 #ifdef SF32LB57X
+    rt_pin_mode(7, PIN_MODE_OUTPUT);
+    rt_pin_write(7, PIN_HIGH);
+#if 0
     HAL_PIN_Set(PAD_PA20, PDM1_CLK, PIN_NOPULL, 1);
     HAL_PIN_Set(PAD_PA21, PDM1_DATA, PIN_PULLDOWN, 1);
     HAL_PIN_Set(PAD_PA52, PDM2_CLK, PIN_NOPULL, 1);
     HAL_PIN_Set(PAD_PA53, PDM2_DATA, PIN_PULLDOWN, 1);
+#else
+    HAL_PIN_Set(PAD_PA47, PDM1_CLK, PIN_NOPULL, 1);
+    HAL_PIN_Set(PAD_PA46, PDM1_DATA, PIN_PULLDOWN, 1);
+    HAL_PIN_Set(PAD_PA31, PDM2_CLK, PIN_NOPULL, 1);
+    HAL_PIN_Set(PAD_PA32, PDM2_DATA, PIN_PULLDOWN, 1);
+#endif
 #endif
 
     while (1)
